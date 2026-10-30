@@ -1,35 +1,20 @@
 defmodule Valimc.NativeMobRecordTest do
   @moduledoc """
   VMC-081d: a mob record read into the native model and written back is the
-  term Elixir writes (`Store.record/1`), for fresh, spawned, generated and
-  ticked mobs of many families and for every saved option.
+  term `Store.record/1` writes, for fresh, spawned and generated mobs of
+  many families and for every saved option.
   """
   use ExUnit.Case, async: true
   import Bitwise
 
-  alias Valimc.AI
-  alias Valimc.Data.{Blocks, EffectTypes, EntityTypes, Float32}
-  alias Valimc.Entity.{Body, Mob, MobTicks, Store}
-  alias Valimc.Living.Attributes
+  alias Valimc.Data.EffectTypes
+  alias Valimc.Entity.{Body, Mob, MobFacts, Store}
   alias Valimc.Native
   alias Valimc.Protocol.{ItemStack, ItemTypes}
 
   setup_all do
-    types =
-      for name <- EntityTypes.names(), EntityTypes.living?(name) do
-        {:ok, body} = Body.generated(name, nil, false)
-
-        {name, true, Mob.base(name, %{}, "minecraft:max_health") * 1.0, Map.keys(body.data)}
-      end
-
-    {:ok, facts} =
-      Native.mob_record_facts(%{
-        effect_count: EffectTypes.count(),
-        absorption_effect: EffectTypes.id("absorption"),
-        max_absorption: Attributes.max_absorption() * 1.0,
-        types: types
-      })
-
+    MobFacts.install!()
+    {:ok, facts} = Native.mob_record_facts(MobFacts.record_facts())
     %{facts: facts}
   end
 
@@ -220,109 +205,6 @@ defmodule Valimc.NativeMobRecordTest do
 
       assert {:error, {:invalid, _}} = Native.mob_record_roundtrip(facts, record)
     end
-  end
-
-  test "ticked mobs on land and in water", %{facts: facts} do
-    air = Blocks.default_state("air")
-    grass = Blocks.default_state("grass_block")
-    water = Blocks.default_state("water")
-
-    scene =
-      for x <- -16..16, z <- -16..16, into: %{} do
-        if x in 4..12 and z in 4..12,
-          do: {{x, 60, z}, grass},
-          else: {{x, 63, z}, grass}
-      end
-
-    scene =
-      for x <- 4..12, y <- 61..63, z <- 4..12, into: scene, do: {{x, y, z}, water}
-
-    packed =
-      for x <- -16..16, y <- 56..80, z <- -16..16, into: <<>> do
-        <<x::signed-32, y::signed-32, z::signed-32, Map.get(scene, {x, y, z}, air)::16>>
-      end
-
-    view = {:states, packed}
-
-    land = ~w(cow sheep pig chicken rabbit zombie skeleton creeper spider villager slime
-              enderman witch iron_golem cat)
-    wet = ~w(axolotl dolphin squid cod salmon pufferfish turtle)
-
-    entries =
-      for {name, i} <- Enum.with_index(land ++ wet), type = "minecraft:" <> name do
-        {:ok, body} = Body.spawned(type, :natural)
-        uuid = <<i + 1::64, 77::64>>
-        aquatic = name in wet
-        x = if aquatic, do: 5.5 + rem(i, 6), else: -12.5 + rem(i, 8) * 3
-        z = if aquatic, do: 5.5 + div(i - length(land), 6), else: -12.5 + div(i, 8) * 3
-        y = if aquatic, do: 61.5, else: 64.0
-        {i + 1, %{entity: %{uuid: uuid, x: x, y: y, z: z}, body: body, revision: 1}}
-      end
-
-    # A survival player holding wheat: animals follow, hostiles hunt.
-    player = %{
-      kind: :player,
-      uuid: <<1::64, 99::64>>,
-      id: 1000,
-      x: 0.5,
-      y: 64.0,
-      z: 0.5,
-      yaw: 0.0,
-      pitch: 0.0,
-      eye: Float32.round(1.62),
-      width: Float32.round(0.6),
-      height: Float32.round(1.8),
-      mode: :survival,
-      invulnerable: false,
-      alive: true,
-      crouching: false,
-      invisible: false,
-      armor_cover: 0.0,
-      equipment: %{mainhand: ItemTypes.id("minecraft:wheat"), offhand: nil}
-    }
-
-    Enum.reduce(1..200, {entries, AI.Random.new(7)}, fn tick, {entries, level} ->
-      world = %AI.World{
-        read: &Map.get(scene, &1, air),
-        search: fn request ->
-          [result] = AI.Paths.find(view, [request])
-          result
-        end,
-        players: [player],
-        random: level,
-        difficulty: :normal,
-        time: 1000 + tick,
-        biome: fn _ -> "minecraft:plains" end,
-        knots: %{}
-      }
-
-      {steps, world} = MobTicks.steps(view, entries, world, nil)
-      steps = Map.new(steps, &{&1.id, &1})
-
-      # A creeper that blew up leaves.
-      entries =
-        for {id, e} <- entries, Map.has_key?(steps, id) do
-          {x, y, z} = steps[id].position
-          {id, %{e | body: steps[id].body, entity: %{e.entity | x: x, y: y, z: z}}}
-        end
-
-      for {_, e} <- entries do
-        assert_round_trip(
-          facts,
-          e.body,
-          rem(tick, 3),
-          {e.entity.x, e.entity.y, e.entity.z},
-          e.entity.uuid
-        )
-      end
-
-      {entries, world.random}
-    end)
-    |> then(fn {entries, _} ->
-      # They thought and moved.
-      assert Enum.all?(entries, fn {_, e} -> match?(%AI.Mind{}, e.body.mob.ai) end)
-      assert Enum.any?(entries, fn {_, e} -> e.body.mob.motion.control != :wait end)
-    end)
   end
 
   defp record(body, hops, position \\ {0.5, 64.0, -2.5}, uuid \\ <<1::128>>) do

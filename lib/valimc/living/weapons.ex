@@ -4,8 +4,8 @@ defmodule Valimc.Living.Weapons do
   default attribute modifiers (the attack damage and speed of weapons and
   tools), its `weapon` component (wear per attack, the seconds a hit disables
   a shield), its `blocks_attacks` component (shields), the damage type it
-  attacks with and the attack charge it needs; the player's base attributes;
-  and each modelled mob's base experience reward.
+  attacks with and the attack charge it needs; and the player's base
+  attributes.
 
   Component patches of these are not decoded yet (VMC-004b), so a stack acts
   with its item's defaults.
@@ -105,7 +105,6 @@ defmodule Valimc.Living.Weapons do
             }}
          end)
   @player @facts["player_attributes"]
-  @experience @facts["experience"]
   @swords MapSet.new(Valimc.Protocol.Data.tags()["minecraft:item"]["minecraft:swords"])
 
   @doc """
@@ -138,9 +137,6 @@ defmodule Valimc.Living.Weapons do
 
   @doc "A player's base value of attribute `name` (`Player.createAttributes`)."
   def player_base(name), do: Map.fetch!(@player, name)
-
-  @doc "A modelled mob type's base experience reward (its `xpReward`)."
-  def experience(type), do: Map.get(@experience, type, 0)
 
   defp facts(id),
     do:

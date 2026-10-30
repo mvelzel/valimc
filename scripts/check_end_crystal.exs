@@ -1,26 +1,25 @@
-# `--native` (VMC-081d): a dragon's hits on the crystal are a native
-# dragon's (`Combat.mob_hit/3` of a native section's dragon, its attacker
-# and source as its section makes them), as its owner's paths take them.
+# A dragon's hits on the crystal are a native dragon's (`Combat.mob_hit/3`
+# of a native section's dragon, its attacker and source as its section makes
+# them), as its owner's paths take them.
 alias Valimc.Entity.{Body, EndCrystal, Store}
 alias Valimc.Living.DamageSource
 alias Valimc.Protocol.{EntityPackets, Wire}
 
-{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
-native? = native != []
-[file] = argv
+[file] = System.argv()
 raw = file |> File.read!() |> JSON.decode!()
 
-dragon_hit =
-  if native? do
-    Valimc.Entity.NativeMobs.install!()
-    {:ok, dragon} = Body.new("minecraft:ender_dragon")
-    ref = Valimc.Native.mob_section_oracle_new()
-    record = Store.body_record(dragon, <<4508::128>>, {0.5, 90.0, 0.5})
-    {:ok, [_]} = Valimc.Native.mob_section_insert(ref, [{7, record}], false)
-    store = %{entries: %{7 => %{kind: :mob, native: ref}}}
-    {:ok, hit} = Valimc.Entity.Combat.mob_hit(store, 7, EndCrystal.type())
-    hit
-  end
+Valimc.Entity.MobFacts.install!()
+{:ok, dragon} = Body.new("minecraft:ender_dragon")
+ref = Valimc.Native.mob_section_oracle_new()
+record = Store.body_record(dragon, <<4508::128>>, {0.5, 90.0, 0.5})
+{:ok, [_]} = Valimc.Native.mob_section_insert(ref, [{7, record}], false)
+
+{:ok, dragon_hit} =
+  Valimc.Entity.Combat.mob_hit(
+    %{entries: %{7 => %{kind: :mob, native: ref}}},
+    7,
+    EndCrystal.type()
+  )
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
@@ -57,8 +56,7 @@ for row <- raw["damage"] do
 
   hit =
     cond do
-      row["source"] == "dragon" and native? -> %{dragon_hit | amount: row["amount"]}
-      row["source"] == "dragon" -> Map.put(hit, :attacker, %{type: "minecraft:ender_dragon"})
+      row["source"] == "dragon" -> %{dragon_hit | amount: row["amount"]}
       true -> hit
     end
 
@@ -86,6 +84,5 @@ for row <- raw["packets"] do
 end
 
 IO.puts(
-  "PASS: #{length(raw["placement"])} crystal placements, #{length(raw["damage"])} native damage cases and #{length(raw["packets"])} packets" <>
-    if(native?, do: ", the dragon's hits a native dragon's", else: "")
+  "PASS: #{length(raw["placement"])} crystal placements, #{length(raw["damage"])} native damage cases and #{length(raw["packets"])} packets, the dragon's hits a native dragon's"
 )

@@ -13,7 +13,6 @@ defmodule Valimc.World.StandUp do
   player's box collides with blocks only, with no entity context, and must
   lie inside the world border.
   """
-  alias Valimc.AI.Mth, as: AIMth
   alias Valimc.Data.{Blocks, Float32, Mth, SleepFacts}
   alias Valimc.Physics.{CollisionContext, Kernel}
   alias Valimc.World.Border
@@ -140,7 +139,7 @@ defmodule Valimc.World.StandUp do
     {dx, dz} =
       if length < 9.999999747378752e-6, do: {0.0, 0.0}, else: {dx / length, dz / length}
 
-    Float32.round(wrap(AIMth.atan2(dz, dx) * @degrees - 90.0))
+    Float32.round(wrap(Mth.atan2(dz, dx) * @degrees - 90.0))
   end
 
   @doc """

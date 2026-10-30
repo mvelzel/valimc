@@ -1,24 +1,19 @@
-//! A section's mob turns over the physics `Ticker` (VMC-081d), ported from
-//! `Valimc.Entity.MobTicks`: every mob of the section in network-id order,
-//! a native mob's turn here, an Elixir mob's turn by yielding to its
-//! owner's `MobTicks` at its index over the same ticker, then resuming, so
-//! the order across both kinds is exactly id order.
+//! A section's mob turns over the physics `Ticker` (VMC-081d): every mob of
+//! the section in network-id order, as vanilla's level ticks them.
 //!
-//! A native mob's turn is `MobTicks.ordered_step` for it: its fluids sensed
-//! (`Entity.baseTick`), `MobVitals.base_tick`, its thinking (`Thinker`: a
-//! pending `finalizeSpawn`, then its AI where its family's is native), the
-//! kernel's step with its move control (`MobMotion.kernel`), the move
-//! written back (`MobMotion.apply`), its splash into water, turtle eggs and
-//! farmland it lands or steps on (the level random), its family's settling,
-//! `MobVitals.apply` and `Daylight.tick`. Its events and the effects that
-//! leave it collect on its slot until the tick ends; its velocity follows the
-//! ticker's (the pushes of later mobs) until then.
+//! A mob's turn: its fluids sensed (`Entity.baseTick`), its base tick, its
+//! thinking (`Thinker`: a pending `finalizeSpawn`, then its family's AI),
+//! the kernel's step with its move control, the move written back, its
+//! splash into water, turtle eggs and farmland it lands or steps on (the
+//! level random), its family's settling, its vitals after the move and the
+//! sun. Its events and the effects that leave it collect on its slot until
+//! the tick ends; its velocity follows the ticker's (the pushes of later
+//! mobs) until then.
 //!
 //! A mob whose step the kernel refused (a chunk it cannot read) keeps the
-//! state it had when the tick began, as the Elixir keeps its entry when it
-//! has no step; so does one whose move out of the section its owner does not
-//! carry out. Each slot keeps that state (`Slot::before`) until the tick's
-//! end decides.
+//! state it had when the tick began; so does one whose move out of the
+//! section its owner does not carry out. Each slot keeps that state
+//! (`Slot::before`) until the tick's end decides.
 
 use super::ai::think::{self, Moves, SectionAi};
 use super::ai::turn::Outside;
@@ -801,25 +796,17 @@ fn trample(
 /// Who takes each ticker index's turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Entrant {
-    /// A native mob of the section, by network id.
+    /// A mob of the section, by network id.
     Native(i32),
-    /// A mob its owner ticks in Elixir.
-    Elixir,
     /// Another section's solid mob, a fixed collider that takes no turn.
     Fixed,
 }
 
-/// A section's tick in progress: who takes each turn, the next one, and
-/// what Elixir needs at its next yield.
+/// A section's tick in progress: who takes each turn and the next one.
 #[derive(Debug, Default)]
 pub struct Tick {
     pub order: Vec<Entrant>,
     pub next: usize,
-    /// The native mobs whose turns ran since the last yield, for the
-    /// Elixir AI's sensing.
-    pub moved: Vec<i32>,
-    /// Pushes native steps gave Elixir mobs since the last yield.
-    pub pushed: Vec<(usize, [f64; 3])>,
     /// Per native mob in the tick: its events and effects so far, and
     /// whether its step went through.
     pub turns: std::collections::BTreeMap<i32, TurnState>,
@@ -836,15 +823,6 @@ pub struct TurnState {
     pub out: Turned,
     /// Its physical state when the tick began (what its owner holds).
     pub start: Physical,
-}
-
-/// Where a run stopped.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Ran {
-    /// At an Elixir mob's index: its owner ticks it, then resumes after it.
-    Yield(usize),
-    /// Every turn ran.
-    Done,
 }
 
 impl Tick {
@@ -884,29 +862,24 @@ impl Tick {
         Tick {
             order,
             next: 0,
-            moved: Vec::new(),
-            pushed: Vec::new(),
             turns,
             starts,
         }
     }
 
-    /// Runs turns from `from` on until an Elixir mob's or the end, the
-    /// section's AI (`ai`, its level random the sky's) thinking for its
-    /// native mobs.
+    /// Runs every turn, the section's AI (`ai`, its level random the
+    /// sky's) thinking for its mobs.
     pub fn run(
         &mut self,
         section: &mut MobSection,
         tw: &TurnWorld,
         ai: &mut SectionAi,
         ticker: &mut Ticker,
-        from: usize,
-    ) -> Ran {
-        self.next = from;
+    ) {
+        self.next = 0;
         while self.next < self.order.len() {
             let i = self.next;
             match self.order[i] {
-                Entrant::Elixir => return Ran::Yield(i),
                 Entrant::Fixed => {}
                 Entrant::Native(id) => {
                     if self.turns.contains_key(&id) {
@@ -921,7 +894,6 @@ impl Tick {
                             let state = self.turns.get_mut(&id).expect("turn");
                             state.stepped = ok;
                             state.refused = !ok;
-                            self.moved.push(id);
                             section.relocate(id);
                         }
                     }
@@ -929,7 +901,6 @@ impl Tick {
             }
             self.next += 1;
         }
-        Ran::Done
     }
 
     /// One native mob's turn at ticker index `i` (`MobTicks.ordered_step/6`),
@@ -984,11 +955,7 @@ impl Tick {
         let made_events = split(made, &mut out);
         let attributes = tw.travel(ty, mob);
         let input = kernel_input(rules, tw.motion, ty, mob, attributes);
-        let (result, by) = ticker.step(tw.world, i, input, tw.players);
-        self.pushed.extend(
-            by.into_iter()
-                .filter(|(j, _)| self.order.get(*j) == Some(&Entrant::Elixir)),
-        );
+        let (result, _) = ticker.step(tw.world, i, input, tw.players);
         let Ok(mut t) = result else {
             self.turns.get_mut(&id).expect("turn").out = out;
             return false;

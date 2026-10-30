@@ -30,20 +30,18 @@ mod growth_parity;
 mod light;
 mod loot;
 #[cfg(feature = "parity")]
-mod mob_ai_parity;
-#[cfg(feature = "parity")]
-mod mob_dragon_parity;
+mod mob_dragon_oracle;
 mod mob_facts;
 mod mob_living;
 #[cfg(feature = "parity")]
-mod mob_living_parity;
+mod mob_oracle;
 #[cfg(feature = "parity")]
-mod mob_parity;
+mod mob_oracle_ai;
+#[cfg(feature = "parity")]
+mod mob_oracle_body;
 mod mob_section;
 mod mob_section_level;
 mod mob_term;
-#[cfg(feature = "parity")]
-mod mob_think_parity;
 mod mob_tick;
 mod mob_track;
 mod mobs;

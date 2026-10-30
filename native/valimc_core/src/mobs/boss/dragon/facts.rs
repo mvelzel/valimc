@@ -1,5 +1,4 @@
-//! The dragon's generated facts (`Valimc.AI.Dragon.Facts`,
-//! `registry/dragon_facts.json`): its ambient interval and head turn limit,
+//! The dragon's generated facts (`registry/dragon_facts.json`): its ambient interval and head turn limit,
 //! the arena's 24 path nodes, its eight parts' sizes and each phase's
 //! profile.
 

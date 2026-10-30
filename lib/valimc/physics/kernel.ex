@@ -4,8 +4,8 @@ defmodule Valimc.Physics.Kernel do
   a `Valimc.World.View`. Live play makes three kinds of call: a player's
   move packet or resting tick in one call each (`player_move/5`,
   `player_rest/3`, VMC-077l2), a region owner's items in one call per tick
-  (`items/3`), mobs' batched travel and initial fluid and eye samples
-  (`fluids/2`, `eye_block/3`), and placement and spawn obstruction (`obstructs?/4`). The other
+  (`items/3`), fluid samples (`fluids/2`), and
+  placement and spawn obstruction (`obstructs?/4`). The other
   functions reach the kernel's pieces one by one for the oracle checks; their
   NIFs exist only in dev, test and bench builds (the `parity` feature).
 
@@ -113,17 +113,6 @@ defmodule Valimc.Physics.Kernel do
 
     Native.physics_colliding(native(view, region), boxes, context(context), extra, subject)
     |> error()
-  end
-
-  @doc """
-  Whether an eye at `eye` of `body` is in water and the block there
-  (`updateFluidOnEyes` and its bubble column test): `{:ok, {water, state}}`.
-  """
-  def eye_block(view, body, eye) do
-    case Native.physics_eyes(native(view, body), body, eye) do
-      {:ok, {water, state}} -> {:ok, {water, state}}
-      other -> error(other)
-    end
   end
 
   @doc """
@@ -349,41 +338,11 @@ defmodule Valimc.Physics.Kernel do
   end
 
   @doc """
-  One tick of every mob of an owner (VMC-015i), each a map as
-  `Valimc.Entity.MobMotion.kernel/2` makes it, `players` the `{feet, box}`
-  of the players that push them: `{:ok, results}` in order, each `{:ok,
-  ticked}` or `{:error, reason}`.
-  """
-  def mobs(_view, [], _players, _border), do: {:ok, []}
-
-  def mobs(view, mobs, players, border) do
-    region =
-      mobs
-      |> Enum.map(fn %{position: {x, y, z}, size: {width, height, _}, velocity: velocity} ->
-        half = width / 2 + 2.0
-        expand({x - half, y - 2.0, z - half, x + half, y + height + 2.0, z + half}, velocity)
-      end)
-      |> Enum.reduce(&union/2)
-
-    bounds =
-      case border do
-        nil -> nil
-        border -> elem(BorderSnapshot.bounds(border), 1)
-      end
-
-    # A mob's tick scans about four times an item's cells (move, fluids twice,
-    # footing, contacts) over its larger body.
-    cells =
-      Enum.reduce(mobs, 0, fn %{velocity: velocity}, sum -> sum + 4 * scan_cells(velocity) end)
-
-    Native.dispatch(:physics_mobs, cells, [native(view, region), mobs, players, bounds])
-  end
-
-  @doc """
-  Begin an owner's mob tick (VMC-043e): `mobs` (kernel maps) as they start
-  it over `view`, pushed by `players` (`{feet, box}`), within `border`.
-  The ticker keeps the view and the mobs' motion while the owner steps each
-  mob (`mob_step/3`) and ends it (`mobs_finish/1`).
+  Begin a mob tick as a native section's runs it (VMC-043e), for the oracle
+  checks: `mobs` (kernel maps, `Native.mob_oracle_body_kernel/1`) as they
+  start it over `view`, pushed by `players` (`{feet, box}`), within
+  `border`. The ticker keeps the view and the mobs' motion while the caller
+  steps each mob (`mob_step/3`) and ends it (`mobs_finish/1`).
   """
   def mobs_begin(view, mobs, players, border, colliders \\ []) do
     region =
@@ -412,16 +371,6 @@ defmodule Valimc.Physics.Kernel do
   """
   def mob_step(ticker, index, %{velocity: velocity} = mob),
     do: Native.dispatch(:physics_mobs_step, 4 * scan_cells(velocity), [ticker, index, mob])
-
-  @doc "Fluid depths and eye state before AI, from the mob ticker's immutable view."
-  def mob_sense(ticker, {x0, y0, z0, x1, y1, z1} = body, eye) do
-    # Include the cells just above contacts and the eye's sturdy-face test.
-    cells =
-      (floor(x1) - floor(x0) + 2) * (floor(y1) - floor(y0) + 3) *
-        (floor(z1) - floor(z0) + 2)
-
-    Native.dispatch(:physics_mobs_sense, cells, [ticker, body, floats(eye)]) |> error()
-  end
 
   @doc "A solid family's box and position after its owner's changes in this tick."
   def mob_collider(ticker, index, position, box),
@@ -460,10 +409,6 @@ defmodule Valimc.Physics.Kernel do
       authoritative
     )
   end
-
-  @doc "Mob `index`'s motion as its tick ended (later pushes add to it)."
-  def mob_velocity(ticker, index, velocity),
-    do: Native.physics_mobs_velocity(ticker, index, floats(velocity))
 
   @doc "End the tick: the players push; every mob's motion for its next tick."
   def mobs_finish(ticker), do: Native.physics_mobs_finish(ticker)

@@ -1,4 +1,4 @@
-//! The dragon's whole owner-local tick (`Valimc.AI.Dragon.Actor`): its
+//! The dragon's whole owner-local tick: its
 //! ambient growl, healing from its chosen crystal, the phases and flight,
 //! the crystal scan, its body breaking through blocks, its wings and head
 //! touching what is near, the breath and fireballs, the 200-tick death with

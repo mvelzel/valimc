@@ -112,7 +112,15 @@ end
       axis = elem({0, 1, 2}, c["axis"])
 
       body =
-        ShulkerBullet.new(owner, from, target, axis, nil, read, Valimc.AI.Random.new(c["seed"]))
+        ShulkerBullet.new(
+          owner,
+          from,
+          target,
+          axis,
+          nil,
+          read,
+          Valimc.Data.JavaRandom.new(c["seed"])
+        )
 
       where = "#{c["name"]} seed #{c["seed"]}"
       compare.("#{where} start", ours.(body, from), Map.delete(theirs.(c["start"]), :left_owner))

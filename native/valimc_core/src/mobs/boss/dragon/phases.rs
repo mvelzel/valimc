@@ -1,5 +1,5 @@
 //! The dragon's phase decisions and their flight
-//! (`Valimc.AI.Dragon.Phases`, vanilla's `DragonPhaseInstance`s): holding
+//! (vanilla's `DragonPhaseInstance`s): holding
 //! pattern, strafing a player, the landing approach, landing, the three
 //! sitting phases (flaming, scanning, attacking), takeoff, charging a player,
 //! dying and hovering. The owner gives the fixed arena graph, the podium,

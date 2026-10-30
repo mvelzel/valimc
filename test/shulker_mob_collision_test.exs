@@ -1,6 +1,6 @@
 defmodule Valimc.ShulkerMobCollisionTest do
   use ExUnit.Case, async: true
-  alias Valimc.Entity.{Body, MobMotion}
+  alias Valimc.Entity.{Body, Store}
   alias Valimc.Physics.Kernel
 
   defp scene do
@@ -12,8 +12,12 @@ defmodule Valimc.ShulkerMobCollisionTest do
     {Valimc.World.View.of(states), mover, shell}
   end
 
-  defp input(mover, x), do: MobMotion.kernel(mover.type, {x, 64.0, 0.5}, mover)
-  defp box(shell, x), do: Valimc.AI.Mobs.Shulker.collider(shell, {x, 64.0, 0.5})
+  # The kernel's input of a body at `x`, and the box it blocks others with.
+  defp kernel(body, x),
+    do: Valimc.Native.mob_oracle_body_kernel(Store.body_record(body, <<1::128>>, {x, 64.0, 0.5}))
+
+  defp input(mover, x), do: elem(kernel(mover, x), 0)
+  defp box(shell, x), do: elem(kernel(shell, x), 1)
 
   defp step(ticker, mover, x) do
     {{:ok, %{mob: %{position: {x, _, _}}}}, _} = Kernel.mob_step(ticker, 0, input(mover, x))
@@ -27,7 +31,7 @@ defmodule Valimc.ShulkerMobCollisionTest do
     ticker =
       Kernel.mobs_begin(
         view,
-        [input(mover, -2.0), MobMotion.kernel(shell.type, {0.5, 64.0, 0.5}, shell)],
+        [input(mover, -2.0), input(shell, 0.5)],
         [],
         nil,
         [{1, box(closed, 0.5)}]
@@ -49,7 +53,7 @@ defmodule Valimc.ShulkerMobCollisionTest do
 
     mobs = [
       input(mover, -2.0)
-      | List.duplicate(MobMotion.kernel(shell.type, {0.5, 64.0, 0.5}, shell), 257)
+      | List.duplicate(input(shell, 0.5), 257)
     ]
 
     ticker = Kernel.mobs_begin(view, mobs, [], nil, boxes)
@@ -62,7 +66,7 @@ defmodule Valimc.ShulkerMobCollisionTest do
     mover = put_in(mover.mob.no_ai, true)
     boxes = for i <- 1..257, do: {i, box(shell, 0.5)}
     own = input(mover, -1.5)
-    mobs = [own | List.duplicate(MobMotion.kernel(shell.type, {0.5, 64.0, 0.5}, shell), 257)]
+    mobs = [own | List.duplicate(input(shell, 0.5), 257)]
     ticker = Kernel.mobs_begin(view, mobs, [], nil, boxes)
     assert {:error, :entity_query_limit} = Kernel.mob_displace(ticker, 0, own, {0.5, 0.0, 0.0})
     for {i, _} <- boxes, do: :ok = Kernel.mob_collider(ticker, i, {0.5, 64.0, 0.5}, nil)

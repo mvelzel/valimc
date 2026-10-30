@@ -169,6 +169,37 @@ pub fn ensure_in<'w>(ctx: &Ctx<'w>, mob: &mut NativeMob, level: Option<&mut Leve
     }
 }
 
+/// Runs `f` on a turn of `mob` over `level` outside a tick (a mob that
+/// finishes its spawn as it is made: a natural spawn's pack, a bucket's
+/// release), with its family; its mind is made first and kept. None for a
+/// type without a family.
+pub fn on_turn<'w, R>(
+    ctx: &Ctx<'w>,
+    mob: &mut NativeMob,
+    level: &mut Level<'w>,
+    f: impl FnOnce(&mut Turn<'_, 'w>, &'w dyn Kind) -> R,
+) -> Option<R> {
+    ensure(ctx, mob);
+    let ty = ctx.ty(mob)?;
+    let kind = ctx.kinds.kind(ty.id)?;
+    let ai = ctx.rules.facts.ai.mob(ty.id).unwrap_or_else(|| blank());
+    let dims = living_body::dimensions(ctx.rules, ty, &mob.body);
+    let mut sensing = Sensing::new(Vec::new(), Vec::new(), Vec::new());
+    let mut t = Turn::new(
+        mob,
+        0,
+        ty.id,
+        ai,
+        dims,
+        level,
+        &mut sensing,
+        ctx.paths,
+        kind,
+    );
+    t.ctx = Some(*ctx);
+    Some(f(&mut t, kind))
+}
+
 // ## Sensing
 
 fn running_panic(mob: &NativeMob) -> bool {
@@ -1042,17 +1073,14 @@ pub struct SectionAi<'s, 'w> {
 }
 
 impl<'s, 'w> SectionAi<'s, 'w> {
-    /// `AI.prepare/2`: the minds of `mobs` (native, in id order with their
-    /// network ids) made, the sensing of them and of `others` (sensed rows
-    /// of the section's Elixir mobs, in their places of the id order:
-    /// `others` holds `(index, row)` pairs), the group's players and items.
+    /// `AI.prepare/2`: the minds of `mobs` (in id order with their network
+    /// ids) made, the sensing of them, the group's players and items.
     pub fn begin<'m>(
         ctx: Ctx<'w>,
         level: &'s mut Level<'w>,
         players: Vec<crate::mobs::sensing::SensedPlayer>,
         items: Vec<crate::mobs::sensing::SensedItem>,
         mobs: impl IntoIterator<Item = (i32, &'m mut NativeMob)>,
-        others: Vec<(usize, SensedMob<Extra>)>,
     ) -> SectionAi<'s, 'w> {
         let mut mobs: Vec<(i32, &'m mut NativeMob)> = mobs.into_iter().collect();
         let mut rows = Vec::new();
@@ -1061,9 +1089,6 @@ impl<'s, 'w> SectionAi<'s, 'w> {
             if let Some(row) = sensed(&ctx, *id, mob) {
                 rows.push(row);
             }
-        }
-        for (index, row) in others {
-            rows.insert(index.min(rows.len()), row);
         }
         let mut ai = SectionAi {
             ctx,
@@ -1241,18 +1266,6 @@ impl<'s, 'w> SectionAi<'s, 'w> {
     /// `AI.resense_entry/3`: a native mob sensed again where it is now.
     pub fn moved(&mut self, mob: &NativeMob) {
         resensed(&self.ctx, mob, &mut self.sensing);
-    }
-
-    /// An Elixir mob sensed again (its owner's row after its turn), as the
-    /// tick began kept.
-    pub fn resense(&mut self, mut row: SensedMob<Extra>) {
-        let uuid = row.uuid;
-        self.sensing.resense(&uuid, |r| {
-            if r.extra.start.is_some() {
-                row.extra.start = r.extra.start;
-            }
-            *r = row
-        });
     }
 }
 

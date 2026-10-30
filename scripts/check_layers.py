@@ -5,7 +5,7 @@ Every module lives in a context, a directory under `lib/valimc` (its facade, if
 any, is the file of the same name beside it). The contexts are ranked; a file
 may depend on its own rank and the ranks below it, never above:
 
-    Data < Protocol, Text < Physics, Living, Blocks, Menus, Txn < Entity, AI
+    Data < Protocol, Text < Physics, Living, Blocks, Menus, Txn < Entity
          < World, Player, Admin, Storage, Worldgen < Session, Commands < Net
 
 A dependency is any `mix xref` edge (compile, export or runtime). The root
@@ -25,7 +25,7 @@ RANKS = [
     ["data"],
     ["protocol", "text"],
     ["physics", "living", "blocks", "menus", "txn"],
-    ["entity", "ai"],
+    ["entity"],
     ["world", "player", "admin", "storage", "worldgen"],
     ["session", "commands"],
     ["net"],

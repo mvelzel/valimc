@@ -402,8 +402,12 @@ defmodule Valimc.World.Spawning do
     end
   end
 
+  # The types whose packs finish as groups (`mobs::ai::spawn_group`).
+  @pack_types ~w(minecraft:axolotl minecraft:turtle minecraft:cod minecraft:salmon
+                 minecraft:tropical_fish minecraft:dolphin minecraft:squid minecraft:glow_squid)
+
   defp pack_record(record, pack, order, school, reason) do
-    if pack != nil and Valimc.AI.SpawnGroup.handles?(record.type),
+    if pack != nil and record.type in @pack_types,
       do:
         Map.merge(record, %{spawn_pack: {reason, pack}, spawn_order: order, spawn_school: school}),
       else: record

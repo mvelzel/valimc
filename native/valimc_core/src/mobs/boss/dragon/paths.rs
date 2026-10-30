@@ -1,4 +1,4 @@
-//! The dragon's 24-node arena graph (`Valimc.AI.Dragon.Paths`, vanilla's
+//! The dragon's 24-node arena graph (vanilla's
 //! `EnderDragon.findPath`): heights sampled once when the arena starts,
 //! closest-node selection and the A* search, its binary heap's tie order and
 //! its closest reachable fallback kept. Without an outer ring (no fight, or

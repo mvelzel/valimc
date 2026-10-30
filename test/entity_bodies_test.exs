@@ -1,8 +1,8 @@
 defmodule Valimc.EntityBodiesTest do
-  @moduledoc "Bodies (VMC-043a): one record for mobs and other entities, kept, handed over and replicated."
+  @moduledoc "Bodies (VMC-043a): one record for mobs and other entities, kept and handed over."
   use ExUnit.Case, async: true
-  alias Valimc.Data.{Blocks, EntityTypes}
-  alias Valimc.Entity.{Body, ItemMotionState, Mob, Store, Tracking}
+  alias Valimc.Data.Blocks
+  alias Valimc.Entity.{Body, ItemMotionState, Mob, Store}
   alias Valimc.Protocol.{EntityPackets, ItemStack, Packets}
   alias Valimc.TestScope
   alias Valimc.World.Region
@@ -10,20 +10,13 @@ defmodule Valimc.EntityBodiesTest do
   defp summoned(type, key, position, uuid \\ <<7::128>>) do
     {:ok, body} = Body.new(type)
     record = Store.body_record(body, uuid, position)
-    {:ok, store, {_, id, _}} = Store.create_record(Store.new(), key, record)
+    # Its mobs native, as an owner's are.
+    store = %{Store.new() | native: Valimc.Entity.NativeMobs.new(key)}
+    {:ok, store, {_, id, _}} = Store.create_record(store, key, record)
     {store, id, record}
   end
 
   defp binary({id, payload}), do: {id, IO.iodata_to_binary(payload)}
-
-  # One tracking tick with every changed view's tracker ticking: its frame by id.
-  defp step(tracking, views, tick) do
-    {tracking, publication} =
-      Tracking.pass(tracking, views, {%{}, %{}}, nil, tick, simulated: MapSet.new())
-
-    frame = publication.frame |> Tracking.decode() |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    {tracking, frame}
-  end
 
   describe "records" do
     test "a zombie pairs with its health and attributes, a primed TNT with nothing" do
@@ -65,7 +58,7 @@ defmodule Valimc.EntityBodiesTest do
       {store, id, _} = summoned("minecraft:zombie", {0, 0}, {1.5, 64.0, 2.5})
       {:ok, store} = Store.kill(store, id)
       entry = store.entries[id]
-      assert entry.body.mob.living.health.value == 0.0
+      assert Valimc.TestBodies.body(entry).mob.living.health.value == 0.0
       refute store.views[id].alive
 
       assert Enum.map(entry.events, &elem(&1, 1)) == [
@@ -89,28 +82,6 @@ defmodule Valimc.EntityBodiesTest do
       {store, id, _} = summoned("minecraft:tnt", {0, 0}, {3.5, 64.0, 3.5})
       {:ok, store} = Store.kill(store, id)
       assert store.entries == %{} and store.views == %{}
-    end
-  end
-
-  describe "replication" do
-    test "trackers spawn the body facing its yaw, then send its death as it happens" do
-      {store, id, _} = summoned("minecraft:zombie", {0, 0}, {1.5, 64.0, 2.5})
-      # The first update sends the position, as vanilla's tick 0 does.
-      {tracking, frame} = step(%Tracking{}, store.views, 1)
-      assert frame == %{id => [binary(EntityPackets.move(id, {0, 0, 0}, false))]}
-      [row] = Map.values(Tracking.published(tracking))
-      assert row.range == EntityTypes.tracking_range("zombie") and row.type == "minecraft:zombie"
-      position = %{entity_id: id, uuid: <<7::128>>, x: 1.5, y: 64.0, z: 2.5}
-      assert row.spawn == binary(EntityPackets.spawn(position, "minecraft:zombie"))
-
-      {:ok, store} = Store.kill(store, id)
-      {_tracking, frame} = step(tracking, store.views, 2)
-
-      assert frame[id] == [
-               binary(Packets.damage_event(id, :generic_kill)),
-               binary(EntityPackets.entity_event(id, 3)),
-               binary(EntityPackets.metadata(id, pose: :dying, health: 0.0))
-             ]
     end
   end
 

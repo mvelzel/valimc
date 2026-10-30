@@ -1,6 +1,5 @@
 //! The living rules, combat and vitals over a small facts fixture (the
-//! ExUnit differential test compares them with the Elixir on the real
-//! facts).
+//! vanilla stages check them on the real facts).
 
 use super::super::combat::{self, Attacker, Event, Hit, NoFamilies, NoMind, Rules, SoundRef};
 use super::super::facts::tests::json;

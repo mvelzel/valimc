@@ -1,7 +1,7 @@
 defmodule Valimc.CombatTest do
   @moduledoc "Melee (VMC-037n): the one hurt path for mobs, their death drops, and the attack rules."
   use ExUnit.Case, async: true
-  alias Valimc.Entity.{Body, Combat, Store}
+  alias Valimc.Entity.{Body, Combat, NativeMobs, Store}
   alias Valimc.Living.{Damage, DamageSource, Melee}
   alias Valimc.Protocol.{ItemStack, ItemTypes, Packets}
   alias Valimc.TestScope
@@ -18,7 +18,9 @@ defmodule Valimc.CombatTest do
   defp zombie(position \\ {1.5, 64.0, 2.5}, type \\ "minecraft:zombie") do
     {:ok, body} = Body.new(type)
     record = Store.body_record(body, <<7::128>>, position)
-    {:ok, store, {_, id, _}} = Store.create_record(Store.new(), {0, 0}, record)
+    # Its mobs native, as an owner's are.
+    store = %{Store.new() | native: NativeMobs.new({0, 0})}
+    {:ok, store, {_, id, _}} = Store.create_record(store, {0, 0}, record)
     {store, id}
   end
 
@@ -57,10 +59,11 @@ defmodule Valimc.CombatTest do
     # Away from the attacker on its west: +x, not lifted off the ground it is not on.
     {vx, vy, vz} = entry.body.velocity
     assert vx > 0.39 and vy == 0.0 and abs(vz) < 1.0e-9
-    assert entry.body.mob.hurt_by_player == <<9::128>> and entry.body.mob.player_memory == 100
+    mob = Valimc.TestBodies.body(entry).mob
+    assert mob.hurt_by_player == <<9::128>> and mob.player_memory == 100
 
     # Within the cooldown a weaker hit does nothing; a stronger one deals the difference.
-    assert {:ok, ^store, %{hurt: false}} = Combat.hurt(store, id, hit(5.0))
+    assert {:ok, store, %{hurt: false}} = Combat.hurt(store, id, hit(5.0))
     {:ok, store, outcome} = Combat.hurt(store, id, hit(9.0))
     assert outcome.hurt and not outcome.full and length(store.entries[id].events) == 2
   end
@@ -79,7 +82,7 @@ defmodule Valimc.CombatTest do
     assert outcome.died and not Body.alive?(store.entries[id].body)
     # The death waits on the mob for its owner (`Store.take_deaths/1`).
     {taken, [{death, {1.5, 64.0, 2.5}}]} = Store.take_deaths(store)
-    assert taken.entries[id].body.mob.death == nil
+    refute taken.entries[id].body.death
 
     assert %{
              loot_table: "minecraft:entities/zombie",

@@ -335,34 +335,28 @@ STAGES = [
     ('dragon_arena', [
         ('java', 'DragonArenaOracle', '@dragon-arena.json'),
         ('check', 'check_dragon_arena.exs', '@dragon-arena.json'),
-        ('check', 'check_dragon_arena.exs', '@dragon-arena.json', '--native'),
     ]),
     ('dragon_actor', [
         ('java', 'DragonActorOracle', '@dragon-actor.json'),
         ('check', 'check_dragon_actor.exs', '@dragon-actor.json'),
-        ('check', 'check_dragon_actor.exs', '@dragon-actor.json', '--native'),
     ]),
     ('dragon_damage', [
         ('java', 'DragonDamageOracle', '@dragon-damage.json'),
         ('check', 'check_dragon_damage.exs', '@dragon-damage.json'),
-        ('check', 'check_dragon_damage.exs', '@dragon-damage.json', '--native'),
     ]),
     ('dragon_phases', [
         ('java', 'DragonPhaseOracle', '@dragon-phases.json'),
         ('check', 'check_dragon_phases.exs', '@dragon-phases.json'),
-        ('check', 'check_dragon_phases.exs', '@dragon-phases.json', '--native'),
     ]),
     ('dragon_flight', [
         ('regen', 'DragonFlightOracle', 'facts', '@dragon-facts.json'),
         ('same', '@dragon-facts.json', 'priv/registry/dragon_facts.json'),
         ('java', 'DragonFlightOracle', 'cases', '@dragon-flight.json'),
         ('check', 'check_dragon_flight.exs', '@dragon-flight.json'),
-        ('check', 'check_dragon_flight.exs', '@dragon-flight.json', '--native'),
     ]),
     ('end_crystal', [
         ('java', 'EndCrystalOracle', '@end-crystal.json'),
         ('check', 'check_end_crystal.exs', '@end-crystal.json'),
-        ('check', 'check_end_crystal.exs', '@end-crystal.json', '--native'),
     ]),
     ('entity_facts', [
         ('regen', 'EntityOracle', 'facts', '@entity-facts.json'),
@@ -1148,7 +1142,6 @@ STAGES = [
     ('dolphin_treasure', [
         ('java', 'DolphinTreasureOracle', '@dolphin-treasure.json'),
         ('check', 'check_mob_ai.exs', '@dolphin-treasure.json', '6'),
-        ('check', 'check_mob_ai.exs', '@dolphin-treasure.json', '6', '--native'),
     ]),
     ('dolphin_breath', [
         ('java', 'DolphinBreathOracle', '@dolphin-breath.json'),
@@ -1157,7 +1150,6 @@ STAGES = [
     ('turtle_growth', [
         ('java', 'TurtleGrowthOracle', '@turtle-growth.json'),
         ('check', 'check_turtle_growth.exs', '@turtle-growth.json'),
-        ('check', 'check_turtle_growth.exs', '@turtle-growth.json', '--native'),
     ]),
     ('piston_player', [
         ('java', 'PistonPlayerOracle', '@piston-player.json'),
@@ -1174,7 +1166,6 @@ STAGES = [
     ('endermite_life', [
         ('java', 'EndermiteLifeOracle', '@endermite-life.json'),
         ('check', 'check_endermite_life.exs', '@endermite-life.json'),
-        ('check', 'check_endermite_life.exs', '@endermite-life.json', '--native'),
     ]),
     ('shulker_push', [
         ('java', 'ShulkerPushOracle', '@shulker-push.json'),
@@ -1195,7 +1186,6 @@ STAGES = [
     ('guardian_hurt', [
         ('java', 'GuardianHurtOracle', '@guardian-hurt.json'),
         ('check', 'check_guardian_hurt.exs', '@guardian-hurt.json'),
-        ('check', 'check_guardian_hurt.exs', '@guardian-hurt.json', '--native'),
     ]),
     ('mob_travel', [
         ('java', 'MobTravelOracle', '@mob-travel.json'),
@@ -1214,13 +1204,11 @@ STAGES = [
     ('mob_ai', [
         ('java', 'MobAiOracle', 'cases', '@mob-ai.json'),
         ('check', 'check_mob_ai.exs', '@mob-ai.json'),
-        ('check', 'check_mob_ai.exs', '@mob-ai.json', '9', '--native'),
     ]),
     # VMC-043d: the Nether's mobs with their goals and brains.
     ('nether_mobs', [
         ('java', 'NetherMobOracle', 'cases', '@nether-mobs.json'),
         ('check', 'check_mob_ai.exs', '@nether-mobs.json', '4'),
-        ('check', 'check_mob_ai.exs', '@nether-mobs.json', '4', '--native'),
     ]),
     # VMC-043b: what the overworld hostiles read of vanilla, and their finalizeSpawn.
     ('hostile_facts', [
@@ -1239,7 +1227,6 @@ STAGES = [
     ('hostile_ai', [
         ('java', 'HostileOracle', 'cases', '@hostile-ai.json'),
         ('check', 'check_mob_ai.exs', '@hostile-ai.json', '12'),
-        ('check', 'check_mob_ai.exs', '@hostile-ai.json', '12', '--native'),
     ]),
     # VMC-044a: the village's facts (POI types, professions, the schedule) and
     # villagers living a day by their brains over beds, job sites and bells.
@@ -1250,7 +1237,6 @@ STAGES = [
     ('village', [
         ('java', 'VillageOracle', 'cases', '@village.json'),
         ('check', 'check_village.exs', '@village.json'),
-        ('check', 'check_village.exs', '@village.json', '--native'),
     ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
@@ -1265,7 +1251,6 @@ STAGES = [
     ('animals', [
         ('java', 'AnimalOracle', 'cases', '@animals.json'),
         ('check', 'check_animals.exs', '@animals.json'),
-        ('check', 'check_animals.exs', '@animals.json', '--native'),
     ]),
     ('bucket_mobs', [
         ('regen', 'BucketMobOracle', 'facts', '@bucket-facts.json'),

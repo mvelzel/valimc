@@ -127,6 +127,25 @@ defmodule Valimc.VillagerRegionTest do
     assert %{home: {{:overworld, {_, 64, _}}, :never}} = record.mob.ai.memories
   end
 
+  test "a farmer senses the farmland around it as its secondary job sites", ctx do
+    {x0, z0} = ctx.at
+    :ok = Clock.configure({"minecraft:overworld", :ticks, 1_000})
+    farmland = {x0 + 2, 63, z0 + 2}
+    Valimc.TestBlocks.set(farmland, Blocks.default_state("farmland"))
+    {:ok, body} = Body.new("minecraft:villager")
+    body = %{body | data: %{body.data | profession: "minecraft:farmer", xp: 1}}
+    record = Store.body_record(body, <<31::128>>, {x0 + 0.5, 64.0, z0 + 0.5})
+    :ok = Region.drop_items(ctx.owner, [record])
+
+    # `SecondaryPoiSensor` every 40 ticks: the farmland, by its block.
+    Valimc.TestWait.until(fn ->
+      step(ctx, 10)
+      memory(villager(ctx), :secondary_job_site) != nil
+    end)
+
+    assert {:overworld, farmland} in memory(villager(ctx), :secondary_job_site)
+  end
+
   test "an iron golem kills the zombie hunting a villager", ctx do
     {x0, z0} = ctx.at
     :ok = Clock.configure({"minecraft:overworld", :ticks, 18_000})

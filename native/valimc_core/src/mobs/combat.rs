@@ -1012,7 +1012,7 @@ pub fn died(
 /// on a player's weapon adds a hundredth a level), from the mob's random;
 /// only a player's kill drops what is not kept unworn, and such an item
 /// drops worn. Curses of vanishing never drop.
-fn equipment_drops(
+pub fn equipment_drops(
     rules: &Rules,
     body: &mut Body,
     uuid: &[u8; 16],
@@ -1079,8 +1079,7 @@ fn worn(rules: &Rules, mob: &mut super::model::Mob, uuid: &[u8; 16], mut stack: 
 }
 
 /// `getBaseExperienceReward`: a chicken jockey's 10, a family's own, an
-/// animal's one to three (the Elixir does not keep that draw), else the
-/// type's reward.
+/// animal's one to three from its random, else the type's reward.
 fn experience(
     rules: &Rules,
     ty: Type,
@@ -1097,8 +1096,7 @@ fn experience(
         return xp;
     }
     if rules.facts.combat.mob_sounds(ty.id).animal {
-        let mut r = *random(&mut body.mob, uuid);
-        return 1 + r.int(3);
+        return 1 + random(&mut body.mob, uuid).int(3);
     }
     reward(rules, ty, body, uuid)
 }

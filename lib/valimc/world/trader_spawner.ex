@@ -16,7 +16,7 @@ defmodule Valimc.World.TraderSpawner do
   group counts its own and starts afresh when it does. Its two trader
   llamas are not modelled yet (llamas are VMC-043's).
   """
-  alias Valimc.AI.Pois
+  alias Valimc.World.Pois
   alias Valimc.Data.{BlockFacts, EntityTypes, Float32, Grid, JavaRandom}
   alias Valimc.Entity.{Body, Store}
 
@@ -141,7 +141,7 @@ defmodule Valimc.World.TraderSpawner do
     for dx <- 0..1, dy <- 0..2, dz <- 0..1, reduce: true do
       acc ->
         acc and
-          case Valimc.AI.World.block(world, {x + dx, y + dy, z + dz}) do
+          case world.read.({x + dx, y + dy, z + dz}) do
             nil -> false
             state -> empty?(BlockFacts.collision(state))
           end
@@ -165,10 +165,11 @@ defmodule Valimc.World.TraderSpawner do
   defp world(group) do
     view = Valimc.World.View.new(group.dimension)
 
-    %Valimc.AI.World{
+    %{
       read: &Valimc.World.View.block(view, &1),
       find: &find(view, &1, &2),
-      pois: Pois.merge(for {_, r} <- group.sections, do: r.poi_claims)
+      pois: Pois.merge(for {_, r} <- group.sections, do: r.poi_claims),
+      structures: %{}
     }
   end
 

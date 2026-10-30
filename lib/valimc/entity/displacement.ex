@@ -1,7 +1,7 @@
 defmodule Valimc.Entity.Displacement do
   @moduledoc "External lid moves over owned entity entries, without consuming their own tick."
   alias Valimc.Data.Box
-  alias Valimc.Entity.{Body, Mob}
+  alias Valimc.Entity.{Body, NativeBody}
 
   @doc "Whether an entry is met by a lid's swept slab and admits its external move."
   # A native mob's row (VMC-081d) names its type as a body does.
@@ -21,8 +21,8 @@ defmodule Valimc.Entity.Displacement do
   @doc "The external mover's box, preserving current age and family dimensions."
   def box(%{entity: e, body: %Body{} = body}), do: Body.box(body, {e.x, e.y, e.z})
 
-  def box(%{entity: e, body: %Valimc.Entity.NativeBody{} = row}),
-    do: Valimc.Entity.NativeBody.box(row, {e.x, e.y, e.z})
+  def box(%{entity: e, body: %NativeBody{} = row}),
+    do: NativeBody.box(row, {e.x, e.y, e.z})
 
   def box(entry) do
     {{x, y, z}, {w, h}, _, _, _} = input(entry)
@@ -38,19 +38,16 @@ defmodule Valimc.Entity.Displacement do
      {motion.on_ground, 0.0, true, false}, {0.0, false, false, gravity, 0.98}}
   end
 
-  def input(%{kind: kind, entity: e, body: %Body{} = body}) when kind in [:mob, :object] do
+  def input(%{kind: :object, entity: e, body: %Body{} = body}) do
     {width, height, _} = Body.dimensions(body)
-    living = body.mob != nil
-    step = if living, do: Mob.value(body.type, body.mob, "minecraft:step_height"), else: 0.0
-    gravity = if living, do: Mob.value(body.type, body.mob, "minecraft:gravity"), else: 0.04
-    gravity = if body.no_gravity, do: 0.0, else: gravity
+    gravity = if body.no_gravity, do: 0.0, else: 0.04
 
     {{e.x * 1.0, e.y * 1.0, e.z * 1.0}, {width / 2, height}, body.velocity,
-     {body.on_ground, step * 1.0, true, false}, {0.0, false, living, gravity * 1.0, 0.98}}
+     {body.on_ground, 0.0, true, false}, {0.0, false, false, gravity, 0.98}}
   end
 
-  # A native mob (VMC-081d) from its row.
-  def input(%{kind: :mob, entity: e, body: %Valimc.Entity.NativeBody{} = row}) do
+  # A mob (VMC-081d) from its row.
+  def input(%{kind: :mob, entity: e, body: %NativeBody{} = row}) do
     {width, height, _} = row.dimensions
     gravity = if row.no_gravity, do: 0.0, else: row.gravity
 
@@ -71,8 +68,8 @@ defmodule Valimc.Entity.Displacement do
        x1 + max(dx, 0) + halo, y1 + max(dy, 0) + halo, z1 + max(dz, 0) + halo}
 
     Enum.reduce_while(entries, {:ok, []}, fn
-      {_, %{body: %Body{} = body, entity: e}}, {:ok, found} ->
-        collider = Valimc.AI.Mobs.hook(body.type, :collider, [body, {e.x, e.y, e.z}], nil)
+      {_, %{body: %NativeBody{} = row, entity: e}}, {:ok, found} ->
+        collider = NativeBody.collider(row, {e.x, e.y, e.z})
 
         found =
           if collider && Box.intersects?(collider, query), do: [collider | found], else: found

@@ -20,8 +20,7 @@ defmodule Valimc.NativeMobSectionTest do
       world_path: base,
       item_simulation: true,
       region_ticks: :manual,
-      mob_goals: false,
-      native_mob_types: :plain
+      mob_goals: false
     )
 
     File.mkdir_p!(base)
@@ -255,8 +254,7 @@ defmodule Valimc.NativeMobSectionTest do
     TestScope.isolate(TestScope.neighborhood(far),
       world_path: base,
       item_simulation: true,
-      region_ticks: :manual,
-      native_mob_types: :plain
+      region_ticks: :manual
     )
 
     Valimc.TestDisk.write(base, far, :items, %{records: []})

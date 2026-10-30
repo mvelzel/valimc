@@ -186,7 +186,7 @@ defmodule Valimc.World.Explosion do
     do: native(Valimc.Native.mob_section_blast(ref, e.entity_id, source, amount, impulse))
 
   def change(%{native: ref, entity: e}, {:push, impulse}) when ref != nil,
-    do: native(Valimc.Native.mob_section_push(ref, nil, e.entity_id, impulse))
+    do: native(Valimc.Native.mob_section_push(ref, e.entity_id, impulse))
 
   def change(%{body: body}, {:hurt, amount, impulse, source}) do
     {hurt, events} = Body.hurt(body, source, amount)

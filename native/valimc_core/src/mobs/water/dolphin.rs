@@ -49,7 +49,7 @@ use crate::path::SWIMMABLE;
 
 pub const DOLPHIN: &str = "minecraft:dolphin";
 
-const MAX_AIR: i32 = 4800;
+pub const MAX_AIR: i32 = 4800;
 const MOIST: i64 = 2400;
 /// `(float)Math.PI / 180.0F`, widened.
 const RADIANS: f64 = (std::f64::consts::PI / 180.0) as f32 as f64;
@@ -168,7 +168,7 @@ impl Dolphin {
 }
 
 /// The items it may play with: free, in the water, within eight blocks.
-fn items(t: &Turn) -> Vec<SensedItem> {
+pub fn items(t: &Turn) -> Vec<SensedItem> {
     let b = inflate(&t.bbox(), 8.0, 8.0, 8.0);
     t.sensing
         .items

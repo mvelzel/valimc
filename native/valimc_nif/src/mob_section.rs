@@ -1,8 +1,7 @@
-//! A section's native mobs (VMC-081d, `valimc_core::mobs::section`) for
-//! Elixir: the `MobSection` resource its group process owns (as the Region
-//! resource: only the owner changes it, `mob_section_give` hands it on with
-//! the section), its records and rows, its tick over the physics ticker with
-//! the Elixir yield, and the outside actions on its mobs.
+//! A section's mobs (VMC-081d, `valimc_core::mobs::section`) for Elixir: the
+//! `MobSection` resource its group process owns (as the Region resource:
+//! only the owner changes it, `mob_section_give` hands it on with the
+//! section), its records and rows, and the outside actions on its mobs.
 //!
 //! Records are `Store.record/1`'s terms. A mob's row is the
 //! `%Valimc.Entity.NativeBody{}` the store keeps for it (what routing,
@@ -15,30 +14,27 @@
 
 use crate::mob_section_level::{self, LevelEnv, SectionEnv};
 use crate::mob_term;
-use crate::mob_tick::{LevelParts, Resident};
-use crate::physics::{self as physics_nif, MobTicker, Vec3};
+use crate::mob_tick::Resident;
+use crate::physics::{self as physics_nif, Vec3};
 use crate::region::Region;
 use rustler::types::tuple::get_tuple;
 use rustler::{Atom, Encoder, Env, LocalPid, NifResult, ResourceArc, Term};
 use std::cell::Cell;
 use std::sync::{Mutex, OnceLock};
 use valimc_core::mobs::ai::think::Ctx;
-use valimc_core::mobs::ai::Extra;
 use valimc_core::mobs::combat::{self, AiMind, Attacker, Event, Hit, Rules, SoundRef};
 use valimc_core::mobs::living::mob::{self as living_mob, Type};
 use valimc_core::mobs::living::{body as living_body, effects, health};
 use valimc_core::mobs::model::{NativeMob, Rung, Slot as EquipSlot};
 use valimc_core::mobs::record::{self, RecordError, RecordFacts};
 use valimc_core::mobs::section::{chunk_of, MobSection, Slot, Written};
-use valimc_core::mobs::sensing::Sensing;
 use valimc_core::mobs::term::{Map, Value, NIL};
-use valimc_core::mobs::tick::{self, Effect, Tick};
-use valimc_core::physics::player::World;
+use valimc_core::mobs::tick::{self, Effect};
 
 mod atoms {
     rustler::atoms! {
         ok, error, not_owner, poisoned, invalid, unsupported, duplicate, outside, missing,
-        busy, native, elixir, fixed, r#yield = "yield", done, dying, ignored,
+        busy, native, fixed, done, dying, ignored,
         add, heal, ignite, hurt, all, record_facts_missing, no_tick,
     }
 }
@@ -90,7 +86,6 @@ pub struct MobSectionRes {
 
 pub(crate) struct Inner {
     pub(crate) section: MobSection,
-    pub(crate) running: Option<Running>,
     /// The block view its ticks read (`mob_tick`).
     pub(crate) resident: Resident,
     /// The POI claims its villagers hold, as of its last tick.
@@ -104,27 +99,11 @@ impl Inner {
     fn new(section: MobSection) -> Inner {
         Inner {
             section,
-            running: None,
             resident: Resident::default(),
             claims: Default::default(),
             located: Default::default(),
         }
     }
-}
-
-/// A tick that yielded to an Elixir mob: its turns, the level its mobs read
-/// (with the section's store for light and biomes), its AI's sensing
-/// between runs, every mob's id by ticker index and the shared travel
-/// attributes.
-pub(crate) struct Running {
-    pub(crate) tick: Tick,
-    pub(crate) parts: LevelParts,
-    pub(crate) region: Option<ResourceArc<Region>>,
-    pub(crate) sensing: Sensing<Extra>,
-    pub(crate) ids: Vec<i32>,
-    pub(crate) travel: std::collections::HashMap<u16, valimc_core::physics::mob::Attributes>,
-    /// A dragon's arena, where the section holds one.
-    pub(crate) dragon: Option<tick::DragonWorld>,
 }
 
 #[rustler::resource_impl]
@@ -188,7 +167,7 @@ fn mob_section_info(res: ResourceArc<MobSectionRes>) -> NifResult<(usize, u64)> 
 
 // ---------------------------------------------------------------- records
 
-fn restore(value: &Value) -> NifResult<Result<NativeMob, Atom>> {
+pub(crate) fn restore(value: &Value) -> NifResult<Result<NativeMob, Atom>> {
     Ok(match record::restore(value, record_facts()?) {
         Ok(mob) => Ok(mob),
         Err(RecordError::Invalid(_)) => Err(atoms::invalid()),
@@ -270,6 +249,184 @@ fn mob_section_row<'a>(env: Env<'a>, term: Term<'a>) -> NifResult<Term<'a>> {
         }
         Err(reason) => Ok((atoms::error(), reason).encode(env)),
     }
+}
+
+/// The body record of a fresh mob of `entity_type` (`Body.new/1`: its
+/// family's data, full health, its family's air and motion), without the
+/// store entry's uuid and position: `{:ok, record}`, or `{:error,
+/// :invalid}` for a type that is not a mob.
+#[rustler::nif]
+fn mob_section_fresh<'a>(env: Env<'a>, entity_type: String) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let Some(ty) = rules.of(&entity_type).filter(|ty| ty.facts.living()) else {
+        return Ok((atoms::error(), atoms::invalid()).encode(env));
+    };
+    let mob = NativeMob {
+        uuid: [0; 16],
+        position: [0.0; 3],
+        hops: 0,
+        body: living_body::fresh(&rules, ty),
+    };
+    let mut value = record::record(&mob);
+    if let Value::Map(map) = &mut value {
+        for key in ["kind", "uuid", "x", "y", "z", "hops"] {
+            map.remove(&Value::atom(key));
+        }
+    }
+    Ok((atoms::ok(), mob_term::encode(env, &value)?).encode(env))
+}
+
+/// The entity properties loot tables read of mob `id` (its family's: a
+/// sheep's colour, a variant, a cube's size), as `[{name, value}]`; empty
+/// for a missing mob.
+#[rustler::nif]
+fn mob_section_properties(
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+) -> NifResult<Vec<(String, String)>> {
+    let rules = rules()?;
+    let inner = read(&res)?;
+    let Some(slot) = inner.section.get(id) else {
+        return Ok(Vec::new());
+    };
+    let body = &slot.mob.body;
+    Ok(rules
+        .of(&body.entity_type)
+        .map(|ty| rules.family(ty).loot_properties(body))
+        .unwrap_or_default())
+}
+
+/// The living types whose families take a lead (`canBeLeashed`), as
+/// names.
+#[rustler::nif]
+fn mob_section_leashable() -> NifResult<Vec<String>> {
+    let rules = rules()?;
+    let kinds = crate::mob_facts::kinds()?;
+    Ok(rules
+        .facts
+        .entities
+        .types()
+        .filter(|t| t.living())
+        .filter(|t| kinds.kind(t.id).is_some_and(|k| k.leashable()))
+        .map(|t| t.name.clone())
+        .collect())
+}
+
+/// Nothing to read: a pack finishes from its members and the level's
+/// random alone.
+struct NoBlocks;
+
+impl valimc_core::physics::source::BlockSource for NoBlocks {
+    fn state(&self, _x: i32, _y: i32, _z: i32) -> Option<u16> {
+        None
+    }
+}
+
+/// Mobs that finish their spawn as they are made (`finalizeSpawn`): a
+/// natural spawn's aquatic packs, each pack as a group
+/// (`mobs::ai::spawn_group`), and a bucket's release, as its family's.
+/// `entries` `[{slot, pack, decision, record}]` in spawn order (`slot` the
+/// index of its section's level random in `randoms`, `pack` its pack's
+/// number or nil, `decision` a tropical fish school's decision or nil,
+/// `record` a fresh mob's with its pending reason). `{:ok, {[{record,
+/// school}], randoms}}`, `school` a pack's schooling fish's `{leader,
+/// size}` (nil for others).
+#[rustler::nif]
+fn mob_finalize<'a>(
+    env: Env<'a>,
+    entries: Vec<(usize, Option<i64>, Option<bool>, Term<'a>)>,
+    randoms: Vec<u64>,
+) -> NifResult<Term<'a>> {
+    finalize(env, entries, randoms, false)
+}
+
+/// `mob_finalize`'s work; `made`: each mob's mind is made before its spawn
+/// finishes and keeps its record's random (an oracle's mob, whose random
+/// is as its constructor left it).
+pub(crate) fn finalize<'a>(
+    env: Env<'a>,
+    entries: Vec<(usize, Option<i64>, Option<bool>, Term<'a>)>,
+    randoms: Vec<u64>,
+    made: bool,
+) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::ai::{spawn_group, think};
+    use valimc_core::mobs::level::{Level, Unknown};
+    use valimc_core::mobs::random::LegacyRandom;
+    let rules = rules()?;
+    let ctx = ctx(&rules)?;
+    let physics = crate::facts::PHYSICS.get().ok_or(rustler::Error::BadArg)?;
+    let states = crate::facts::STATES.get().ok_or(rustler::Error::BadArg)?;
+    let mut randoms: Vec<LegacyRandom> = randoms
+        .into_iter()
+        .map(|seed| LegacyRandom { seed })
+        .collect();
+    let mut groups: std::collections::HashMap<i64, Option<spawn_group::Group>> = Default::default();
+    let mut packed = std::collections::HashSet::new();
+    let mut schools = spawn_group::Schools::new();
+    let mut mobs = Vec::with_capacity(entries.len());
+    for (slot, pack, decision, term) in entries {
+        let mut mob = match restore(&mob_term::decode(term)?)? {
+            Ok(mob) => mob,
+            Err(reason) => return Ok((atoms::error(), reason).encode(env)),
+        };
+        if made {
+            let kept = mob.body.mob.ai.as_ref().map(|m| m.random);
+            think::ensure(&ctx, &mut mob);
+            if let (Some(random), Some(mind)) = (kept, mob.body.mob.ai.as_mut()) {
+                mind.random = random;
+            }
+        }
+        let random = randoms.get_mut(slot).ok_or(rustler::Error::BadArg)?;
+        if let Some(reason) = mob.body.mob.finalize.take() {
+            let mut level = Level::new(&NoBlocks, &Unknown, rules.facts, physics, states, *random);
+            match pack {
+                Some(pack) => {
+                    packed.insert(mob.uuid);
+                    let group = groups.entry(pack).or_default();
+                    think::on_turn(&ctx, &mut mob, &mut level, |t, _| {
+                        spawn_group::finalize(t, &reason, group, decision, &mut schools)
+                    });
+                }
+                None => {
+                    think::on_turn(&ctx, &mut mob, &mut level, |t, kind| {
+                        kind.finalize(t, &reason)
+                    });
+                }
+            }
+            *random = level.random;
+        }
+        mobs.push(mob);
+    }
+    let mut out = Vec::with_capacity(mobs.len());
+    for mob in &mobs {
+        let schooling = packed.contains(&mob.uuid)
+            && matches!(
+                mob.body.entity_type.as_str(),
+                "minecraft:cod" | "minecraft:salmon" | "minecraft:tropical_fish"
+            );
+        let school = schooling.then(|| {
+            let s = schools.get(&mob.uuid).copied().unwrap_or_default();
+            (s.leader.map(|l| l.to_vec()), s.school)
+        });
+        let school = match school {
+            Some((leader, size)) => {
+                let leader = match leader {
+                    Some(bytes) => {
+                        let mut b =
+                            rustler::OwnedBinary::new(bytes.len()).ok_or(rustler::Error::BadArg)?;
+                        b.as_mut_slice().copy_from_slice(&bytes);
+                        b.release(env).encode(env)
+                    }
+                    None => rustler::types::atom::nil().encode(env),
+                };
+                (leader, size).encode(env)
+            }
+            None => rustler::types::atom::nil().encode(env),
+        };
+        out.push((mob_term::encode(env, &record::record(mob))?, school));
+    }
+    let randoms: Vec<u64> = randoms.iter().map(|r| r.seed).collect();
+    Ok((atoms::ok(), (out, randoms)).encode(env))
 }
 
 /// The records of mobs `ids` as they are now (`:all`: every mob's, one
@@ -823,57 +980,24 @@ pub(crate) fn hit_of(rules: &Rules, v: &Value) -> NifResult<Hit> {
     Ok(hit)
 }
 
-/// Runs `f` on mob `id` (an outside action): during a tick its velocity is
-/// the ticker's first and goes back to it after, and its events join its
-/// turn's. `{:ok, {result, events, row}}`, events empty during a tick.
+/// Runs `f` on mob `id` (its living rules, `rules`), then reports its row:
+/// `{:ok, {result, events, {position, row}}}`.
 fn act<'a, R: Encoder>(
     env: Env<'a>,
     res: &MobSectionRes,
-    ticker: Option<&MobTicker>,
     id: i32,
     f: impl FnOnce(&Rules, &mut NativeMob, &mut Vec<Event>) -> R,
 ) -> NifResult<Term<'a>> {
     let rules = rules()?;
     let mut inner = owned(env, res)?;
-    let Inner {
-        section, running, ..
-    } = &mut *inner;
-    let in_tick = running
-        .as_ref()
-        .and_then(|r| r.tick.turns.get(&id).map(|t| t.index));
-    let mut guard = match (ticker, in_tick) {
-        (Some(t), Some(_)) => Some(t.state()?),
-        _ => None,
-    };
+    let section = &mut inner.section;
     let slot = section.get_mut(id).ok_or_else(|| fail(atoms::missing()))?;
-    let index = in_tick.filter(|_| guard.as_ref().is_some_and(|g| g.is_some()));
-    if let (Some(i), Some(g)) = (index, guard.as_mut()) {
-        if let Some(state) = g.as_mut() {
-            slot.mob.body.velocity = state.ticker.current[i].velocity;
-        }
-    }
     let mut events = Vec::new();
     let result = f(&rules, &mut slot.mob, &mut events);
-    if let (Some(i), Some(g)) = (index, guard.as_mut()) {
-        if let Some(state) = g.as_mut() {
-            state.ticker.current[i].velocity = slot.mob.body.velocity;
-            state.ticker.current[i].position = slot.mob.position;
-        }
-    }
     let row = row(&rules, slot, false);
-    // During a tick its turn's end reports the row to the owner's store.
-    if in_tick.is_some() {
-        slot.row = None;
-    }
     let p = slot.mob.position;
     section.relocate(id);
-    let events = match running.as_mut().and_then(|r| r.tick.turns.get_mut(&id)) {
-        Some(turn) => {
-            turn.out.events.extend(events);
-            Value::List(Vec::new())
-        }
-        None => events_value(&rules, &events),
-    };
+    let events = events_value(&rules, &events);
     Ok((
         atoms::ok(),
         (
@@ -892,13 +1016,12 @@ fn act<'a, R: Encoder>(
 fn mob_section_hurt<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
-    ticker: Option<ResourceArc<MobTicker>>,
     id: i32,
     hit_term: Term<'a>,
 ) -> NifResult<Term<'a>> {
     let rules = rules()?;
     let hit = hit(&rules, hit_term)?;
-    act(env, &res, ticker.as_deref(), id, |rules, mob, events| {
+    act(env, &res, id, |rules, mob, events| {
         let (more, r) = combat::resolve(rules, mob, &hit);
         events.extend(more);
         (r.hurt, r.full, r.died, r.previous, r.health)
@@ -912,21 +1035,13 @@ fn mob_section_hurt<'a>(
 fn mob_section_hit<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
-    ticker: Option<ResourceArc<MobTicker>>,
     id: i32,
     hit_term: Term<'a>,
     push: Option<Vec3>,
 ) -> NifResult<Term<'a>> {
     let rules = rules()?;
     let hit = hit(&rules, hit_term)?;
-    // A mob still to take its turn this tick runs its hurt timers now
-    // (`baseTick`), as the owner's ageing ran them for the rest.
-    let waiting = read(&res)?
-        .running
-        .as_ref()
-        .and_then(|r| r.tick.turns.get(&id))
-        .is_some_and(|t| !t.stepped && !t.refused);
-    act(env, &res, ticker.as_deref(), id, |rules, mob, events| {
+    act(env, &res, id, |rules, mob, events| {
         if let Some((x, y, z)) = push {
             living_body::push(&mut mob.body, [x, y, z]);
         }
@@ -936,9 +1051,6 @@ fn mob_section_hit<'a>(
             (Vec::new(), false)
         };
         events.extend(more);
-        if hurt && waiting {
-            health::tick(&mut mob.body.mob.living.health);
-        }
         (hurt, living_mob::alive(&mob.body.mob))
     })
 }
@@ -965,7 +1077,7 @@ fn mob_section_kill<'a>(
     res: ResourceArc<MobSectionRes>,
     id: i32,
 ) -> NifResult<Term<'a>> {
-    act(env, &res, None, id, |rules, mob, events| {
+    act(env, &res, id, |rules, mob, events| {
         living_body::kill(rules, mob, events)
     })
 }
@@ -975,11 +1087,10 @@ fn mob_section_kill<'a>(
 fn mob_section_push<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
-    ticker: Option<ResourceArc<MobTicker>>,
     id: i32,
     impulse: Vec3,
 ) -> NifResult<Term<'a>> {
-    act(env, &res, ticker.as_deref(), id, |_, mob, _| {
+    act(env, &res, id, |_, mob, _| {
         living_body::push(&mut mob.body, [impulse.0, impulse.1, impulse.2]);
     })
 }
@@ -1003,7 +1114,7 @@ fn mob_section_blast<'a>(
         .damage_types
         .id(&source_name)
         .ok_or(rustler::Error::BadArg)?;
-    act(env, &res, None, id, |rules, mob, events| {
+    act(env, &res, id, |rules, mob, events| {
         if let Some((more, _)) = combat::hurt_body(rules, mob, None, &Hit::new(source, amount)) {
             events.extend(more);
         }
@@ -1022,8 +1133,34 @@ fn mob_section_name<'a>(
     name: Term<'a>,
 ) -> NifResult<Term<'a>> {
     let name = mob_term::decode(name)?;
-    act(env, &res, None, id, |_, mob, _| {
+    act(env, &res, id, |_, mob, _| {
         living_body::name(&mut mob.body, name)
+    })
+}
+
+/// A dispenser's equipment on mob `id` (`dispenseEquipment`): a living mob
+/// that picks up loot and has nothing in `slot` wears `stack`, which it then
+/// always drops unworn, and it never despawns. `{:ok, {worn, events,
+/// {position, row}}}`.
+#[rustler::nif]
+fn mob_section_equip<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    slot: &str,
+    stack: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let slot = EquipSlot::from_name(slot).ok_or(rustler::Error::BadArg)?;
+    let stack = mob_term::decode(stack)?;
+    act(env, &res, id, |_, mob, _| {
+        let m = &mut mob.body.mob;
+        if !living_mob::alive(m) || !m.can_pick_up_loot || m.equipment.get(slot).is_some() {
+            return false;
+        }
+        m.equipment.set(slot, Some(stack));
+        m.drop_chances.0[slot as usize] = Some(2.0);
+        m.persistent = true;
+        true
     })
 }
 
@@ -1084,7 +1221,7 @@ fn mob_section_interact<'a>(
         player: player.map(|p| p.uuid),
     };
     let registry = crate::mob_facts::kinds()?;
-    act(env, &res, None, id, |rules, mob, _| {
+    act(env, &res, id, |rules, mob, _| {
         let mut roll = |table: &str, _props: &[(String, String)]| -> Vec<Value> {
             tables
                 .iter()
@@ -1297,9 +1434,7 @@ fn mob_section_data<'a>(
 ) -> NifResult<Term<'a>> {
     let key = key.to_term(env).atom_to_string()?;
     let value = mob_term::decode(value)?;
-    act(env, &res, None, id, |_, mob, _| {
-        mob.body.data.set(&key, value)
-    })
+    act(env, &res, id, |_, mob, _| mob.body.data.set(&key, value))
 }
 
 /// `Conversion.convert/4` of mob `id` (`{:convert, type}` of its step, a
@@ -1421,39 +1556,10 @@ fn mob_section_leash<'a>(
             Some((holder, holder_id))
         }
     };
-    act(env, &res, None, id, |_, mob, _| match to {
+    act(env, &res, id, |_, mob, _| match to {
         Some((holder, holder_id)) => leads::attach(mob, holder, Some(holder_id)),
         None => {
             leads::remove(mob);
-        }
-    })
-}
-
-/// A displacement or a portal's change of motion: the velocity and, when
-/// given, the position, ground and rotation.
-#[rustler::nif]
-#[allow(clippy::too_many_arguments)]
-fn mob_section_motion<'a>(
-    env: Env<'a>,
-    res: ResourceArc<MobSectionRes>,
-    ticker: Option<ResourceArc<MobTicker>>,
-    id: i32,
-    position: Option<Vec3>,
-    velocity: Vec3,
-    on_ground: Option<bool>,
-    rotation: Option<(f64, f64)>,
-) -> NifResult<Term<'a>> {
-    act(env, &res, ticker.as_deref(), id, |_, mob, _| {
-        if let Some((x, y, z)) = position {
-            mob.position = [x, y, z];
-        }
-        mob.body.velocity = [velocity.0, velocity.1, velocity.2];
-        if let Some(g) = on_ground {
-            mob.body.on_ground = g;
-        }
-        if let Some((yaw, pitch)) = rotation {
-            mob.body.yaw = yaw;
-            mob.body.pitch = pitch;
         }
     })
 }
@@ -1474,7 +1580,7 @@ fn mob_section_sync<'a>(
     on_ground: bool,
     cooldown: i32,
 ) -> NifResult<Term<'a>> {
-    act(env, &res, None, id, |_, mob, _| {
+    act(env, &res, id, |_, mob, _| {
         mob.position = [position.0, position.1, position.2];
         mob.body.yaw = rotation.0;
         mob.body.pitch = rotation.1;
@@ -1493,9 +1599,7 @@ fn mob_section_cooldown<'a>(
     id: i32,
     ticks: i32,
 ) -> NifResult<Term<'a>> {
-    act(env, &res, None, id, |_, mob, _| {
-        mob.body.portal_cooldown = ticks
-    })
+    act(env, &res, id, |_, mob, _| mob.body.portal_cooldown = ticks)
 }
 
 /// A status effect action (`RegionData.mob_effect/5`): `{:add, id, {ticks,
@@ -1527,17 +1631,23 @@ fn mob_section_effect<'a>(
             particles,
             icon,
         };
-        act(env, &res, None, id, |_, mob, _| {
-            effects::add(&mut mob.body.mob.living.effects, effect, rung)
+        // `canBeAffected`: a family may refuse it (a wither skeleton's wither).
+        let kinds = crate::mob_facts::kinds()?;
+        act(env, &res, id, |rules, mob, _| {
+            let affected = rules
+                .of(&mob.body.entity_type)
+                .and_then(|ty| kinds.kind(ty.id))
+                .is_none_or(|kind| kind.affected(effect));
+            affected && effects::add(&mut mob.body.mob.living.effects, effect, rung)
         })
     } else if tag == atoms::heal() {
         let amount: f64 = t.get(1).ok_or(rustler::Error::BadArg)?.decode()?;
-        act(env, &res, None, id, |_, mob, _| {
+        act(env, &res, id, |_, mob, _| {
             health::heal(&mut mob.body.mob.living.health, amount)
         })
     } else if tag == atoms::ignite() {
         let ticks: i32 = t.get(1).ok_or(rustler::Error::BadArg)?.decode()?;
-        act(env, &res, None, id, |_, mob, _| {
+        act(env, &res, id, |_, mob, _| {
             let fire = &mut mob.body.mob.living.fire_ticks;
             *fire = (*fire).max(ticks);
         })
@@ -1704,64 +1814,6 @@ fn mob_section_mobs<'a>(env: Env<'a>, res: ResourceArc<MobSectionRes>) -> NifRes
 #[allow(dead_code)]
 fn chunk(p: [f64; 3]) -> (i32, i32) {
     chunk_of(p)
-}
-
-/// A lid's push of mob `id` during the tick (`MobTicks.lid_pushes/3`): its
-/// move by `delta` over the ticker without its own turn. `{:ok, {nil, [],
-/// {position, row}}}`, or `{:error, reason}` where the kernel refuses it.
-#[rustler::nif]
-fn mob_section_displace<'a>(
-    env: Env<'a>,
-    res: ResourceArc<MobSectionRes>,
-    ticker: ResourceArc<MobTicker>,
-    id: i32,
-    delta: Vec3,
-) -> NifResult<Term<'a>> {
-    let rules = rules()?;
-    let physics = physics_nif::facts()?;
-    let (index, input) = {
-        let inner = read(&res)?;
-        let index = inner
-            .running
-            .as_ref()
-            .and_then(|r| r.tick.turns.get(&id).map(|t| t.index))
-            .ok_or_else(|| fail(atoms::no_tick()))?;
-        let slot = inner
-            .section
-            .get(id)
-            .ok_or_else(|| fail(atoms::missing()))?;
-        let ty = rules
-            .of(&slot.mob.body.entity_type)
-            .ok_or_else(|| fail(atoms::invalid()))?;
-        let attributes = tick::travel_attributes(&rules, ty, &slot.mob);
-        (
-            index,
-            tick::kernel_input(&rules, &families(&rules)?, ty, &slot.mob, attributes),
-        )
-    };
-    let moved = {
-        let mut guard = ticker.state()?;
-        let state = guard.as_mut().ok_or_else(|| fail(atoms::no_tick()))?;
-        let view: &physics_nif::View<physics_nif::SnapshotArc> = &state.view;
-        let world = World {
-            source: view,
-            facts: physics,
-            border: crate::player::border(state.border),
-            entities: &[],
-        };
-        match state
-            .ticker
-            .displace(&world, index, input, [delta.0, delta.1, delta.2])
-        {
-            Ok(m) => m,
-            Err(_) => return Ok((atoms::error(), atoms::invalid()).encode(env)),
-        }
-    };
-    act(env, &res, None, id, |_, mob, _| {
-        mob.position = moved.position;
-        mob.body.velocity = moved.velocity;
-        mob.body.on_ground = moved.on_ground;
-    })
 }
 
 /// Oracle entry points (the vanilla stages' native modes), built only with
@@ -1975,7 +2027,7 @@ mod oracle {
             .activity()
             .map(|a| rustler::Atom::from_str(env, a.name()))
             .transpose()?;
-        let view = crate::mob_think_parity::brain(env, Some(brain))?;
+        let view = crate::mob_oracle::brain(env, Some(brain))?;
         let memories = rustler::types::tuple::get_tuple(view)?[0];
         Ok((brain.running(), activity, gates, memories).encode(env))
     }
@@ -2107,7 +2159,8 @@ mod oracle {
     }
 
     /// `StandUp.bed/4` natively over a view (`{:rows, ...}` or supplied
-    /// states), for its parity test: `{x, y, z}` or nil.
+    /// states), for its test against the players' `StandUp.bed/4`: `{x,
+    /// y, z}` or nil.
     #[rustler::nif]
     fn mob_stand_up_parity(
         view: Term,
@@ -2279,7 +2332,7 @@ mod oracle {
             .family::<valimc_core::mobs::monsters::cube::CubeOwn>()
             .is_none()
         {
-            let own = crate::mob_think_parity::mind_own(env, s)?;
+            let own = crate::mob_oracle::mind_own(env, s)?;
             return term.map_put(rustler::Atom::from_str(env, "own")?, own);
         }
         Ok(term)

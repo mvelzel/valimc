@@ -17,8 +17,8 @@ defmodule Valimc.Entity.Spatial do
 
     solids =
       case view do
-        %{kind: :mob, body: body, at: at} ->
-          case Valimc.AI.Mobs.hook(body.type, :collider, [body, at], nil) do
+        %{kind: :mob, body: %Valimc.Entity.NativeBody{} = row, at: at} ->
+          case Valimc.Entity.NativeBody.collider(row, at) do
             nil -> Map.delete(index.solids, id)
             box -> Map.put(index.solids, id, box)
           end

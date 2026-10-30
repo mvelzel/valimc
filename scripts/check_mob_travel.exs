@@ -1,15 +1,17 @@
-# Vanilla zombie ticks (MobTravelOracle) against the kernel's mob tick
-# (VMC-015i): each scene's blocks as a supplied view, the mobs driven toward
-# the same targets, every tick's position, velocity, ground flag, fall
-# distance and yaw compared bit for bit, landings with their fall damage,
-# lava contact with vanilla's lava hurts, and the burning counter after
-# `MobVitals` (vanilla records hurts without applying them, so health stays).
-alias Valimc.Data.{EntityTypes, Float32}
-alias Valimc.Entity.{Mob, MobMotion, MobVitals}
+# Vanilla zombie ticks (MobTravelOracle) against native zombies through the
+# kernel's mob tick (VMC-015i): each scene's blocks as a supplied view, the
+# mobs driven toward the same targets, every tick's position, velocity,
+# ground flag, fall distance and yaw compared bit for bit, landings with
+# their fall damage, lava contact with vanilla's lava hurts, and the burning
+# counter after the living rules around the move (vanilla records hurts
+# without applying them, so health stays).
+alias Valimc.Data.Float32
+alias Valimc.Entity.{Mob, MobFacts, Store}
 alias Valimc.Living.{FallDamage, Landing}
 
 [path] = System.argv()
 Valimc.Data.BlockFacts.install!()
+MobFacts.install!()
 fixtures = :json.decode(File.read!(path))
 cases = fixtures["cases"]
 unless length(cases) >= 19, do: raise("Incomplete mob travel traces")
@@ -45,116 +47,73 @@ end
 checked =
   for c <- cases, reduce: 0 do
     count ->
-      v = view.(c["blocks"])
-
+      # Each mob's record and what its navigation asks of its move control
+      # every tick (`MoveControl.setWantedPosition`).
       mobs =
-        Enum.map(c["mobs"], fn m ->
+        for {m, i} <- Enum.with_index(c["mobs"]) do
           yaw = float.(m["yaw"])
           body = %{zombie | yaw: yaw, head_yaw: yaw}
-          MobMotion.kernel("minecraft:zombie", vector.(m["position"]), body)
-        end)
+          record = Store.body_record(body, <<i + 1::128>>, vector.(m["position"]))
+          target = if t = m["target"], do: {vector.(t), m["speed"] * 1.0}
+          {record, target}
+        end
 
-      controls =
-        Enum.map(c["mobs"], fn m ->
-          case m["target"] do
-            nil -> {:wait, nil, 0.0}
-            t -> {:move_to, vector.(t), m["speed"] * 1.0}
-          end
-        end)
+      traced =
+        Valimc.Native.mob_oracle_body_travel(view.(c["blocks"]), mobs, length(c["ticks"]))
 
-      bodies = Enum.map(c["mobs"], fn _ -> zombie end)
+      for {{row, results}, tick} <- Enum.with_index(Enum.zip(c["ticks"], traced)),
+          {{expected, {t, fire}}, index} <- Enum.with_index(Enum.zip(row, results)),
+          reduce: count do
+        count ->
+          m = t.mob
+          where = "#{c["name"]} tick #{tick} mob #{index}"
 
-      {_, _, count} =
-        Enum.reduce(Enum.with_index(c["ticks"]), {mobs, bodies, count}, fn {row, tick},
-                                                                           {mobs, bodies, count} ->
-          # As navigation sets `MoveControl.setWantedPosition` each tick.
-          mobs =
-            Enum.zip_with(mobs, controls, fn
-              mob, {:wait, _, _} ->
-                mob
+          for {field, got, want} <- [
+                {:position, m.position, vector.(expected["position"])},
+                {:velocity, m.velocity, vector.(expected["velocity"])},
+                {:on_ground, m.on_ground, expected["on_ground"]},
+                {:fall_distance, m.fall_distance, double.(expected["fall_distance"])},
+                {:yaw, Float32.round(m.yaw), float.(expected["yaw"])},
+                {:horizontal_collision, m.horizontal_collision, expected["horizontal_collision"]}
+              ],
+              got != want,
+              do: raise("#{where}: #{field} #{inspect(got)}, vanilla #{inspect(want)}")
 
-              %{control: {:jumping, _, _}} = mob, {:move_to, _, speed} ->
-                %{mob | control: {:jumping, nil, speed}}
+          falls = for %{"kind" => "fall"} = e <- expected["events"], do: e
 
-              mob, control ->
-                %{mob | control: control}
-            end)
+          case {t.landing, falls} do
+            {nil, []} ->
+              :ok
 
-          {:ok, results} = Valimc.Native.physics_mobs(v, mobs, [], nil)
+            {{state, distance}, [fall]} ->
+              {:ok, call} = Landing.call(state, distance, false)
 
-          # `baseTick`'s burning comes before the move (VMC-043b), out of the
-          # lava the last move left.
-          bodies = Enum.map(bodies, &elem(MobVitals.base_tick("minecraft:zombie", &1), 0))
+              {:ok, damage} =
+                FallDamage.calculate(call.distance, call.multiplier, %FallDamage{
+                  safe_distance: Mob.base("minecraft:zombie", %{}, "minecraft:safe_fall_distance")
+                })
 
-          next =
-            for {{result, expected, body}, index} <-
-                  Enum.with_index(Enum.zip([results, row, bodies])) do
-              {:ok, t} = result
-              m = t.mob
-              where = "#{c["name"]} tick #{tick} mob #{index}"
-
-              for {field, got, want} <- [
-                    {:position, m.position, vector.(expected["position"])},
-                    {:velocity, m.velocity, vector.(expected["velocity"])},
-                    {:on_ground, m.on_ground, expected["on_ground"]},
-                    {:fall_distance, m.fall_distance, double.(expected["fall_distance"])},
-                    {:yaw, Float32.round(m.yaw), float.(expected["yaw"])},
-                    {:horizontal_collision, m.horizontal_collision,
-                     expected["horizontal_collision"]}
-                  ],
-                  got != want,
-                  do: raise("#{where}: #{field} #{inspect(got)}, vanilla #{inspect(want)}")
-
-              falls = for %{"kind" => "fall"} = e <- expected["events"], do: e
-
-              case {t.landing, falls} do
-                {nil, []} ->
-                  :ok
-
-                {{state, distance}, [fall]} ->
-                  {:ok, call} = Landing.call(state, distance, false)
-
-                  {:ok, damage} =
-                    FallDamage.calculate(call.distance, call.multiplier, %FallDamage{
-                      safe_distance:
-                        Mob.base("minecraft:zombie", %{}, "minecraft:safe_fall_distance")
-                    })
-
-                  unless call.distance == fall["distance"] and damage == fall["damage"],
-                    do:
-                      raise(
-                        "#{where}: landing #{inspect({call, damage})}, vanilla #{inspect(fall)}"
-                      )
-
-                other ->
-                  raise("#{where}: landing #{inspect(other)}")
-              end
-
-              hurts = for %{"kind" => "hurt", "amount" => 4.0} <- expected["events"], do: :lava
-
-              # Lava hurts from its block's inside effect: a touched contact.
-              lava = Enum.any?(t.fire_contacts.steps, &(:lava in &1))
-
-              if hurts != [] != lava,
-                do: raise("#{where}: lava contact #{lava}, vanilla hurts #{length(hurts)}")
-
-              {vital, _events} = MobVitals.apply("minecraft:zombie", body, t)
-
-              if vital.mob.living.fire_ticks != expected["fire"],
+              unless call.distance == fall["distance"] and damage == fall["damage"],
                 do:
-                  raise(
-                    "#{where}: fire ticks #{vital.mob.living.fire_ticks}, vanilla #{expected["fire"]}"
-                  )
+                  raise("#{where}: landing #{inspect({call, damage})}, vanilla #{inspect(fall)}")
 
-              {_, lava} = t.depths
-              vital = put_in(vital.mob.motion.lava, lava)
-              {m, put_in(vital.mob.living.health, body.mob.living.health)}
-            end
+            other ->
+              raise("#{where}: landing #{inspect(other)}")
+          end
 
-          {Enum.map(next, &elem(&1, 0)), Enum.map(next, &elem(&1, 1)), count + length(next)}
-        end)
+          hurts = for %{"kind" => "hurt", "amount" => 4.0} <- expected["events"], do: :lava
 
-      count
+          # Lava hurts from its block's inside effect: a touched contact.
+          lava = Enum.any?(t.fire_contacts.steps, &(:lava in &1))
+
+          if hurts != [] != lava,
+            do: raise("#{where}: lava contact #{lava}, vanilla hurts #{length(hurts)}")
+
+          if fire != expected["fire"],
+            do: raise("#{where}: fire ticks #{fire}, vanilla #{expected["fire"]}")
+
+          count + 1
+      end
   end
 
 # Fire, soul fire and lava light the zombies; one burns out on stone and
@@ -177,5 +136,3 @@ IO.puts(
     "(position, velocity, ground, fall distance, yaw, landings and fall damage, lava contact, " <>
     "burning)."
 )
-
-_ = EntityTypes

@@ -1,8 +1,9 @@
-alias Valimc.Entity.{Body, Projectile}
+alias Valimc.Entity.{Body, MobFacts, Projectile, Store}
 alias Valimc.Physics.Kernel
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 unless length(cases) == 378, do: raise("Incomplete shulker physical-box fixtures")
+MobFacts.install!()
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -23,13 +24,18 @@ for row <- cases do
   {:ok, body} = Body.new("minecraft:shulker")
   body = %{body | data: %{body.data | attach_face: row["face"], peek_amount: float.(row["peek"])}}
   at = point.(row["at"])
-  box = Body.box(body, at)
+  # The row its native mob publishes, whose box the store reads, and the box
+  # its family blocks others with in the native tick.
+  record = Store.body_record(body, <<1::128>>, at)
+  {:ok, {_, published, _}} = Valimc.Native.mob_section_row(record)
+  {_, collider} = Valimc.Native.mob_oracle_body_kernel(record)
+  box = Body.box(published, at)
   native = point.(row["box"])
 
-  if box != native,
+  if box != native or collider != native,
     do:
       raise(
-        "Shulker face #{row["face"]} peek #{row["peek"]}: #{inspect(box)} != #{inspect(native)}"
+        "Shulker face #{row["face"]} peek #{row["peek"]}: #{inspect({box, collider})} != #{inspect(native)}"
       )
 
   for shot <- row["shots"] do

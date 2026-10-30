@@ -2,94 +2,51 @@ defmodule Valimc.Entity.Leashes do
   @moduledoc """
   What players do with leads (VMC-043c3), for the owner of the bodies:
 
-  - on a mob, `Entity.interact`'s lead part before the mob's own
-    (`interact/3`): shears snip its lead, its holder unties it (the lead an
-    item unless the player has infinite materials), a lead in hand leashes
-    it to the player (from a knot, that lead an item first);
   - a fence's use (`LeadItem.bindPlayerMobs`, `bind/3`): the player's mobs
     around it move to the fence's knot, made where none is;
   - a fence knot's (`LeashFenceKnotEntity.interact`, `knot/3`): the player's
     mobs move to it, else (not sneaking) its mobs move to the player;
     shears snip its leads.
 
-  `request` is the interaction's (`Valimc.Entity.Animals.Interaction`) with
-  the player's body as a holder (`holder: %{id, x, y, z, width, height}`)
-  and whether it sneaks. Mobs are `{id, body, {x, y, z}}`, a native mob's
-  body its row (VMC-081d: its own interaction is native, the owner applies
-  `attach/3` and `drop/1` of a row through its section). A lead's holder
-  is `{:player, uuid}` or `{:knot, pos}` (`Valimc.Entity.Mob`); the mob's
-  own tick does the rest (`Valimc.AI.Leash`).
+  `request` is the player's interaction with the player's body as a holder
+  (`holder: %{id, x, y, z, width, height}`) and whether it sneaks. Mobs are
+  `{id, row, {x, y, z}}`, their rows' leads as their sections show them
+  (VMC-081d: a mob's own lead part is its section's, `kinds::leads`; the
+  owner applies `attach/3` and `drop/1` of a row through its section). A
+  lead's holder is `{:player, uuid}` or `{:knot, pos}`.
   """
-  alias Valimc.AI.Leash
+  alias Valimc.Data.Float32
   alias Valimc.Entity.{Body, Mob, NativeBody}
-  alias Valimc.Entity.Animals.Interaction
   alias Valimc.Protocol.{ItemStack, ItemTypes}
 
   @lead ItemTypes.id("minecraft:lead")
   @shears ItemTypes.id("minecraft:shears")
-  @tied "minecraft:item.lead.tied"
-  @untied "minecraft:item.lead.untied"
-  @snip "minecraft:item.shears.snip"
   # `leashableInArea`: a 32-block box around the centre.
   @area 16.0
 
   @doc """
-  A player's use on mob `body` at `position` (`Entity.interact`'s lead
-  part): `:pass` or `{:ok, body, outcome}` (`Interaction.outcome/1`, with
-  `free`: the knots it let go).
+  What an interaction did (`interacted`'s outcome): `fields` over keeping
+  the hand, no swing, no events, others, drops, conversion, discard or
+  freed knots.
   """
-  def interact(%Body{mob: %Mob{} = mob} = body, position, request) do
-    leash = mob.leash
-    item = request.item && request.item.item_id
+  def outcome(fields),
+    do:
+      Map.merge(
+        %{
+          hand: :keep,
+          swing: false,
+          events: [],
+          others: nil,
+          drops: [],
+          convert: nil,
+          discard: false,
+          free: []
+        },
+        Map.new(fields)
+      )
 
-    cond do
-      not Mob.alive?(mob) ->
-        :pass
-
-      # `shearOffAllLeashConnections`: its snip where it stands.
-      item == @shears and held?(leash) ->
-        {body, drops, free} = drop(body)
-
-        {:ok, body,
-         Interaction.outcome(
-           hand: {:wear, 1},
-           events: [{:sound_block, @snip, "player", 1.0, 1.0, seed()}],
-           drops: drops,
-           free: free
-         )}
-
-      held?(leash) and leash.holder == {:player, request.player} ->
-        {body, drops, free} =
-          if request.infinite, do: remove(body), else: drop(body)
-
-        {:ok, body, Interaction.outcome(events: [sound(@untied)], drops: drops, free: free)}
-
-      item == @lead and not match?(%{holder: {:player, _}}, held(leash)) and
-          attachable?(body, position, request.holder) ->
-        {body, drops, free} = if held?(leash), do: drop(body), else: {body, [], []}
-        body = attach(body, {:player, request.player}, request.holder.id)
-
-        {:ok, body,
-         Interaction.outcome(
-           hand: {:use, 1},
-           swing: true,
-           events: [sound(@tied)],
-           drops: drops,
-           free: free
-         )}
-
-      true ->
-        :pass
-    end
-  end
-
-  def interact(_body, _position, _request), do: :pass
-
-  # `isLeashed`: a holder found (a lead still looking for its holder is not).
-  defp held?(%{restored: false}), do: true
-  defp held?(_leash), do: false
-
-  defp held(leash), do: if(held?(leash), do: leash)
+  @doc "A sound event at the entity, with a fresh seed."
+  def sound(id, source, volume, pitch), do: {:sound, id, source, volume, pitch, seed()}
 
   @doc """
   `canHaveALeashAttachedTo`: a living mob that takes a lead, within 12
@@ -98,19 +55,48 @@ defmodule Valimc.Entity.Leashes do
   def attachable?(%{type: type} = body, {x, y, z}, holder) do
     {width, height, _} = Body.dimensions(body)
 
-    Leash.leashable?(type) and Body.alive?(body) and
-      Leash.between(%{x: x, y: y, z: z, width: width, height: height}, holder) <= 12.0
+    leashable?(type) and Body.alive?(body) and
+      between(%{x: x, y: y, z: z, width: width, height: height}, holder) <= 12.0
   end
+
+  # `canBeLeashed`: its family takes a lead (`Native.mob_section_leashable/0`).
+  defp leashable?(type) do
+    types =
+      case :persistent_term.get({__MODULE__, :leashable}, nil) do
+        nil ->
+          types = MapSet.new(Valimc.Native.mob_section_leashable())
+          :persistent_term.put({__MODULE__, :leashable}, types)
+          types
+
+        types ->
+          types
+      end
+
+    MapSet.member?(types, type)
+  end
+
+  # The distance between two bodies' box centres (`%{x, y, z, width, height}`).
+  defp between(a, b) do
+    {ax, ay, az} = center_of(a)
+    {bx, by, bz} = center_of(b)
+    :math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az))
+  end
+
+  # `AABB.getCenter` of `EntityDimensions.makeBoundingBox` (a float half width).
+  defp center_of(%{x: x, y: y, z: z, width: width, height: height}) do
+    half = Float32.round(width / 2.0)
+    {lerp(x - half, x + half), lerp(y, y + height), lerp(z - half, z + half)}
+  end
+
+  defp lerp(a, b), do: a + 0.5 * (b - a)
+
+  @doc "A fence knot at block `pos` with network id `id`, as a holder."
+  def knot_holder({x, y, z}, id),
+    do: %{x: x + 0.5, y: y + 0.375, z: z + 0.5, width: 0.375, height: 0.5, id: id}
 
   @doc "`setLeashedTo`: leashed to `holder` (network id `id`), keeping its momentum."
   def attach(%NativeBody{} = row, holder, id),
     do: %{row | leash: %{holder: holder, id: id, restored: false}}
-
-  def attach(%Body{mob: mob} = body, holder, id) do
-    momentum = if mob.leash, do: mob.leash.momentum, else: 0.0
-    leash = %{holder: holder, id: id, momentum: momentum, restored: false}
-    %{body | mob: %{mob | leash: leash}}
-  end
 
   @doc """
   `dropLeash`: the lead gone, an item where the mob stands; its home gone.
@@ -130,8 +116,6 @@ defmodule Valimc.Entity.Leashes do
     free = for %{holder: {:knot, pos}} <- [mob.leash], do: pos
     {%{body | mob: %{mob | leash: nil, home: nil}}, [], free}
   end
-
-  defp sound(name), do: {:sound, name, "neutral", 1.0, 1.0, seed()}
 
   defp seed do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
@@ -171,7 +155,7 @@ defmodule Valimc.Entity.Leashes do
   """
   def bind(mobs, player, {pos, knot_id}) do
     {x, y, z} = pos
-    holder = Leash.knot_holder(pos, knot_id)
+    holder = knot_holder(pos, knot_id)
 
     for {id, body, position} <- leashed_to(mobs, {:player, player}, {x + 0.5, y + 0.5, z + 0.5}),
         attachable?(body, position, holder),
@@ -188,7 +172,7 @@ defmodule Valimc.Entity.Leashes do
     holder = request.holder
     player = {:player, request.player}
     {cx, cy, cz} = center(holder)
-    knot = Leash.knot_holder(pos, knot_id)
+    knot = knot_holder(pos, knot_id)
 
     to_knot =
       for {id, body, position} <- leashed_to(mobs, player, {cx, cy, cz}),

@@ -8,13 +8,11 @@ defmodule Valimc.NativeMobStandUpTest do
   use ExUnit.Case, async: true
 
   alias Valimc.Data.Blocks
-  alias Valimc.Entity.NativeMobs
   alias Valimc.Native
   alias Valimc.World.{StandUp, View}
 
   setup_all do
-    Valimc.Data.BlockFacts.install!()
-    NativeMobs.install!()
+    Valimc.Entity.MobFacts.install!()
     :ok
   end
 

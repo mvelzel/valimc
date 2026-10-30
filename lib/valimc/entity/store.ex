@@ -285,28 +285,6 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  defp age_body(
-         %Body{type: "minecraft:ender_dragon", data: %{aged_tick: tick}} = body,
-         _ticks,
-         tick
-       )
-       when tick != nil, do: {body, [], false}
-
-  defp age_body(body, ticks, game_tick) do
-    {body, events, done} =
-      Enum.reduce_while(1..min(ticks, 40), {body, [], false}, fn _, {body, events, _} ->
-        {body, more, done} = Body.tick(body)
-        {if(done, do: :halt, else: :cont), {body, events ++ more, done}}
-      end)
-
-    body =
-      if body.type == "minecraft:ender_dragon" and game_tick != nil,
-        do: %{body | data: Map.put(body.data, :aged_tick, game_tick)},
-        else: body
-
-    {body, events, done}
-  end
-
   defp age_entries(state, ages, minimum_y, game_tick) do
     Enum.reduce(ages, {state, []}, fn {id, ticks}, {items, expired} = acc ->
       case items.entries[id] do
@@ -318,16 +296,12 @@ defmodule Valimc.Entity.Store do
 
         %{kind: kind} = entry when kind in @bodies ->
           # A body can move between sibling sections during this group tick.
-          # Its living timers run only once, with its live state carried over.
-          {body, events, done} = age_body(entry.body, ticks, game_tick)
-
-          items =
-            if body == entry.body and events == [],
-              do: items,
-              else: put_body(items, id, body, events)
+          # Its timers run only once, with its live state carried over.
+          body = Body.tick(entry.body, ticks)
+          items = if body == entry.body, do: items, else: put_body(items, id, body, [])
 
           expired =
-            if done or entry.entity.y < minimum_y - 64,
+            if entry.entity.y < minimum_y - 64,
               do: [{items.epoch, id, items.entries[id].revision} | expired],
               else: expired
 
@@ -465,10 +439,6 @@ defmodule Valimc.Entity.Store do
   def native_entry?(%{native: ref}) when ref != nil, do: true
   def native_entry?(_entry), do: false
 
-  # A store built without native mobs given them back.
-  defp renative({:ok, state, handle}, native), do: {:ok, %{state | native: native}, handle}
-  defp renative(other, _native), do: other
-
   # A native mob's entry from its row.
   defp put_native(state, id, uuid, {x, y, z}, row, hops) do
     entry = %{
@@ -507,30 +477,20 @@ defmodule Valimc.Entity.Store do
     end
   end
 
-  # A record of a native type joins the native mobs: in the owner at once;
+  # A mob's record joins the section's mobs: in the owner at once;
   # in a plan's worker as a pending entry its owner adds when it adopts the
   # plan (`sync_native/1`).
   defp build_native(state, id, %{uuid: uuid} = record) do
-    spawned = Map.get(record, :spawn_body)
+    school = Map.get(record, :school)
 
     record =
-      Map.drop(record, [:entity_id, :entity_counters, :spawn_body, :native_parcel, :on_fire])
+      Map.drop(record, [:entity_id, :entity_counters, :school, :native_parcel, :on_fire])
 
     case Native.mob_section_insert(state.native.ref, [{id, record}], false) do
-      {:ok, [{^id, position, _}]} = inserted when is_map(spawned) ->
-        # A pack's fish keeps the school its spawn made (its mind's own).
-        case spawned do
-          %Body{type: type, mob: %{ai: %{own: own} = mind}} when is_map(own) ->
-            if type in Valimc.AI.Mobs.Fish.schooling() do
-              %{leader: leader, school: school} = Valimc.AI.Mobs.Fish.school(mind)
-              :ok = Native.mob_section_school(state.native.ref, id, leader, school)
-            end
-
-          _ ->
-            :ok
-        end
-
-        {:ok, [{^id, ^position, row}]} = inserted
+      {:ok, [{^id, position, row}]} when school != nil ->
+        # A pack's fish keeps the school its spawn made.
+        {leader, size} = school
+        :ok = Native.mob_section_school(state.native.ref, id, leader, size)
 
         {:ok, put_native(state, id, uuid, position, row, Map.get(record, :hops, 0)),
          {state.epoch, id, 1}}
@@ -881,13 +841,13 @@ defmodule Valimc.Entity.Store do
   def restore(key, records, %{sequence: _, outgoing: _, incoming: _} = ledger, native)
       when is_list(records) do
     begin(fn ->
-      # A native type's mobs join the section's native mobs together, as
+      # Mobs join the section's mobs together, as
       # written (the log and checkpoint hold their records).
       Enum.reduce_while(records, {:ok, %{new() | ledger: ledger}, []}, fn record,
                                                                           {:ok, state, mobs} ->
         with true <- valid_record?(key, record) and not Map.has_key?(state.uuids, record.uuid),
              {:ok, id} <- next_id(record) do
-          if NativeMobs.native?(native, Map.get(record, :type)) do
+          if native != nil and record.kind == :mob do
             {:cont,
              {:ok, %{state | uuids: Map.put(state.uuids, record.uuid, id)}, [{id, record} | mobs]}}
           else
@@ -1001,16 +961,9 @@ defmodule Valimc.Entity.Store do
     }
   end
 
-  defp build_record(
-         %{native: %NativeMobs{} = native} = state,
-         id,
-         %{kind: :mob, type: type} = record
-       )
-       when is_binary(type) do
-    if NativeMobs.native?(native, type),
-      do: build_native(state, id, record),
-      else: build_record(%{state | native: nil}, id, record) |> renative(native)
-  end
+  defp build_record(%{native: %NativeMobs{}} = state, id, %{kind: :mob, type: type} = record)
+       when is_binary(type),
+       do: build_native(state, id, record)
 
   defp build_record(state, id, %{kind: kind, uuid: uuid, x: x, y: y, z: z} = record)
        when kind in @bodies do
@@ -1164,7 +1117,7 @@ defmodule Valimc.Entity.Store do
   defp record_id(_state, record), do: next_id(record)
 
   defp next_id(record), do: Ids.next(id_span(record))
-  defp id_span(%{type: "minecraft:ender_dragon"}), do: 1 + length(Valimc.AI.Dragon.Facts.parts())
+  defp id_span(%{type: "minecraft:ender_dragon"}), do: Valimc.Entity.Dragon.id_span()
   defp id_span(_record), do: 1
 
   @doc "Take one unit of the orb `uuid` of `value` (an XP pickup): removed with its last."
@@ -1704,19 +1657,6 @@ defmodule Valimc.Entity.Store do
 
           {:error, _} ->
             {:error, :missing_item}
-        end
-
-      %{kind: kind, body: body, revision: revision} when kind in @bodies ->
-        case Body.kill(body) do
-          :remove ->
-            remove(state, state.epoch, id, revision)
-
-          :ignored ->
-            {:ok, state}
-
-          # It dies as any death does: its owner drops what it leaves.
-          {:dying, body, events} ->
-            {:ok, change_body(state, id, Valimc.Entity.Combat.died(body, %{}), events)}
         end
 
       %{revision: revision} ->

@@ -17,7 +17,7 @@ defmodule Valimc.Entity.ShulkerBullet do
   A target here is `%{uuid, position: {x, y, z}, box, alive, spectator}`
   and `read` gives the state at a cell (nil where it cannot be read).
   """
-  alias Valimc.AI.Random
+  alias Valimc.Data.JavaRandom, as: Random
   alias Valimc.Data.BlockFacts
   alias Valimc.Entity.{Body, Projectile}
 
@@ -62,11 +62,14 @@ defmodule Valimc.Entity.ShulkerBullet do
       body.data
       | target: target_ref(target),
         direction: 1,
-        random: random || Random.new(uuid)
+        random: random || seeded(uuid)
     }
 
     select(%{body | data: data}, center, axis, target, read)
   end
+
+  # `setSeed` from a uuid's first eight bytes.
+  defp seeded(<<seed::signed-64, _::binary>>), do: Random.new(seed)
 
   defp target_ref(%{ref: ref}), do: ref
   defp target_ref(_), do: nil
@@ -178,7 +181,7 @@ defmodule Valimc.Entity.ShulkerBullet do
           ]
           |> Enum.filter(&is_integer/1)
 
-        {selection, random} = Random.int(data.random, 6)
+        {selection, random} = Random.next_int(data.random, 6)
 
         {selection, random} =
           case options do
@@ -186,11 +189,11 @@ defmodule Valimc.Entity.ShulkerBullet do
               Enum.reduce_while(5..1//-1, {selection, random}, fn _, {selection, random} ->
                 if empty?(read, relative(current, selection)),
                   do: {:halt, {selection, random}},
-                  else: {:cont, Random.int(random, 6)}
+                  else: {:cont, Random.next_int(random, 6)}
               end)
 
             _ ->
-              {n, random} = Random.int(random, length(options))
+              {n, random} = Random.next_int(random, length(options))
               {Enum.at(options, n), random}
           end
 
@@ -207,7 +210,7 @@ defmodule Valimc.Entity.ShulkerBullet do
         do: {0.0, 0.0, 0.0},
         else: {xa / distance * @speed, ya / distance * @speed, za / distance * @speed}
 
-    {n, random} = Random.int(random, 5)
+    {n, random} = Random.next_int(random, 5)
 
     %{
       body
@@ -249,9 +252,43 @@ defmodule Valimc.Entity.ShulkerBullet do
   end
 
   # `loadedAndEntityCanStandOn`: the top of the cell's collision shape is
-  # full.
+  # full (`Block.isFaceFull`: the layer of its boxes 1e-7 under the top
+  # covers the square).
   defp stands_on?(read, cell) do
-    world = %Valimc.AI.World{read: read}
-    Valimc.AI.Shapes.face_full?(world, cell, 1)
+    case read.(cell) do
+      nil ->
+        false
+
+      state ->
+        {shape, {ox, oy, oz}} = Valimc.Physics.Clip.collider(state, cell)
+
+        rects =
+          for {x0, y0, z0, x1, y1, z1} <- shape.boxes,
+              y0 + oy <= 1.0 - 1.0e-7 and 1.0 - 1.0e-7 <= y1 + oy,
+              do: {x0 + ox, z0 + oz, x1 + ox, z1 + oz}
+
+        covered?(rects)
+    end
   end
+
+  # Whether rectangles `{u0, v0, u1, v1}` cover the unit square.
+  defp covered?([]), do: false
+
+  defp covered?(rects) do
+    us = rects |> Enum.flat_map(fn {u0, _, u1, _} -> [u0, u1] end) |> grid()
+    vs = rects |> Enum.flat_map(fn {_, v0, _, v1} -> [v0, v1] end) |> grid()
+
+    for {ua, ub} <- Enum.zip(us, tl(us)), {va, vb} <- Enum.zip(vs, tl(vs)), reduce: true do
+      false ->
+        false
+
+      true ->
+        {u, v} = {(ua + ub) / 2, (va + vb) / 2}
+        Enum.any?(rects, fn {u0, v0, u1, v1} -> u0 <= u and u <= u1 and v0 <= v and v <= v1 end)
+    end
+  end
+
+  defp grid(points),
+    do:
+      ([0.0, 1.0] ++ Enum.filter(points, &(&1 > 0.0 and &1 < 1.0))) |> Enum.uniq() |> Enum.sort()
 end

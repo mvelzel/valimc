@@ -1,17 +1,14 @@
-//! The ender dragon (`Valimc.Entity.Dragon`, `Valimc.AI.Dragon`): a boss
-//! with no goals whose whole tick is its own actor (`actor`), run by its
-//! owner in place of the ordinary think, travel and vitals.
+//! The ender dragon (`Valimc.Entity.Dragon` reads its row): a boss with no
+//! goals whose whole tick is its own actor (`actor`), run by its owner in
+//! place of the ordinary think, travel and vitals.
 //!
 //! The actor keeps its phases, flight, crystal and death clock in the body's
-//! `brain` field, as the very `%Valimc.AI.Dragon.Actor{}` term the Elixir
-//! keeps (`codec`), so records, handoffs and the Elixir owner read it
-//! unchanged. Each tick the owner gives an `Arena` (the fight's podium,
-//! crystal count and crystal bodies, the mobs it may hit, the kill so far,
-//! the arena's column heights and a fresh flame uuid) and the group's
-//! players; `environment` makes the actor's `Env` from them as
-//! `Actor.environment/3` does. Its outputs are the Elixir's event and effect
-//! terms (`DragonEvent`, `DragonEffect`), which the owner applies as it
-//! applies the Elixir actor's.
+//! `brain` field as its record's term (`codec`). Each tick the owner gives
+//! an `Arena` (the fight's podium, crystal count and crystal bodies, the
+//! mobs it may hit, the kill so far, the arena's column heights and a fresh
+//! flame uuid) and the group's players; `environment` makes the actor's
+//! `Env` from them. Its outputs are event and effect terms (`DragonEvent`,
+//! `DragonEffect`) the owner applies.
 //!
 //! The family (`Dragon`) gives the living rules its multipart damage:
 //! a hit on a part other than the head (or a hit with no part) takes a

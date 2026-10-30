@@ -8,41 +8,37 @@
 //! snapshots of its own and its neighbouring Region resources, synced by
 //! their publication counters. The owner names only what the section cannot
 //! know: the game tick, the simulated chunks (a 64-bit mask), the level
-//! random, the section's Elixir mobs (each with its kernel map), the items
-//! its mobs sense and a few rare extras.
+//! random, the items its mobs sense and a few rare extras.
 //!
-//! One call (`mob_section_tick`) runs every turn when the section has no
-//! Elixir mob, in id order: the native mobs' ageing is its own call
-//! (`mob_section_age_tick`), earlier in the entity phase as the Elixir's.
-//! With Elixir mobs the call yields at the first one's index with a ticker
-//! its owner's `MobTicks` turn uses, and `mob_section_resume` goes on.
+//! One call (`mob_section_tick`) runs every turn in id order: the mobs'
+//! ageing is its own call (`mob_section_age_tick`), earlier in the entity
+//! phase.
 //!
-//! What comes back is what changed: the native mobs whose physical state
-//! moved as one packed binary (`<<id::32, x, y, z, yaw, pitch, head_yaw,
-//! vx, vy, vz :: float-64, on_ground::8>>` each), and for each mob with a
-//! new row, events, effects or a move out of the section `{id, row | nil,
-//! events, effects, outside}` (`outside` its position there, nil while it
-//! stays, its move left out of the binary); the Elixir mobs' velocities
-//! after every push. A mob's body stays here; its owner reads it on demand.
+//! What comes back is what changed: the mobs whose physical state moved as
+//! one packed binary (`<<id::32, x, y, z, yaw, pitch, head_yaw, vx, vy, vz ::
+//! float-64, on_ground::8>>` each), and for each mob with a new row, events,
+//! effects or a move out of the section `{id, row | nil, events, effects,
+//! outside}` (`outside` its position there, nil while it stays, its move
+//! left out of the binary). A mob's body stays here; its owner reads it on
+//! demand.
 
-use crate::mob_section::{self as ms, MobSectionRes, Running};
+use crate::mob_section::{self as ms, MobSectionRes};
 use crate::mob_section_level::{self, LevelEnv};
 use crate::mob_term;
-use crate::physics::{self as physics_nif, BoxT, MobT, MobTicker, SnapshotArc, Vec3, View};
+use crate::physics::{self as physics_nif, SnapshotArc, Vec3, View};
 use crate::region::Region;
 use rustler::{Atom, Encoder, Env, LocalPid, NifResult, ResourceArc, Term};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use valimc_core::mobs::ai::brain::Reaction;
 use valimc_core::mobs::ai::think::SectionAi;
-use valimc_core::mobs::ai::Extra;
 use valimc_core::mobs::combat::Rules;
 use valimc_core::mobs::model::NativeMob;
 use valimc_core::mobs::publish;
 use valimc_core::mobs::random::LegacyRandom;
 use valimc_core::mobs::section::MobSection;
-use valimc_core::mobs::sensing::{Kind as RefKind, Ref, SensedItem, SensedMob, SensedPlayer};
-use valimc_core::mobs::tick::{self, Entrant, Ran, Tick, TurnWorld};
+use valimc_core::mobs::sensing::{Kind as RefKind, Ref, SensedItem, SensedPlayer};
+use valimc_core::mobs::tick::{self, Entrant, Tick, TurnWorld};
 use valimc_core::physics::mob::{Attributes, Ticker};
 use valimc_core::physics::player::World;
 use valimc_core::physics::source::{AirWhereUnreadable, Rows};
@@ -50,9 +46,9 @@ use valimc_core::physics::Aabb;
 
 mod atoms {
     rustler::atoms! {
-        ok, world, scene, all, done, r#yield = "yield", fixed, anger, player, portal, only,
-        level, players, sections, loot, items, others, knots, goals, events, pois, located,
-        loot_seeds, no_tick, missing, invalid, not_owner, dragon, crystals, previous_kill,
+        ok, world, scene, all, anger, player, portal, only,
+        level, players, sections, loot, items, knots, goals, events, located,
+        loot_seeds, missing, invalid, not_owner, dragon, crystals, previous_kill,
         crystal_bodies,
     }
 }
@@ -300,18 +296,15 @@ fn source(term: Term) -> NifResult<Source> {
     }
 }
 
-/// The section's extras: its items, its Elixir mobs' sensed rows, the
-/// knots (where the group has any), whether goals run, the players'
-/// anger events, the Elixir mobs' POI claims, structure queries answered
-/// and loot seeds.
+/// The section's extras: its items, the knots (where the group has any),
+/// whether goals run, the players' anger events, structure queries
+/// answered and loot seeds.
 #[derive(Default)]
 pub(crate) struct Extras {
     items: Vec<SensedItem>,
-    others: Vec<(i32, SensedMob<Extra>)>,
     knots: Option<HashMap<[i32; 3], i32>>,
     goals: Option<bool>,
     events: Vec<Reaction>,
-    pois: HashMap<[i32; 3], i32>,
     located: HashMap<([u8; 16], u64), Option<[i32; 3]>>,
     loot_seeds: Vec<i64>,
     /// The native mobs that take turns (an oracle's live ones); None: every
@@ -329,10 +322,9 @@ fn box6(b: Box6) -> [f64; 6] {
 }
 
 /// A dragon's arena from its owner: `%{crystals: n | nil, previous_kill,
-/// crystal_bodies: [{uuid, {x, y, z}, box}], others: [{uuid, {x, y, z},
-/// width, height, box | nil, recent}]}` (the group's Elixir mobs).
+/// crystal_bodies: [{uuid, {x, y, z}, box}]}`.
 fn dragon_world(term: Term) -> NifResult<tick::DragonWorld> {
-    use valimc_core::mobs::boss::dragon::{Crystal, MobTarget};
+    use valimc_core::mobs::boss::dragon::Crystal;
     let crystal_bodies = term
         .map_get(atoms::crystal_bodies())?
         .decode::<Vec<(Term, Vec3, Box6)>>()?
@@ -345,26 +337,11 @@ fn dragon_world(term: Term) -> NifResult<tick::DragonWorld> {
             })
         })
         .collect::<NifResult<_>>()?;
-    let others = term
-        .map_get(atoms::others())?
-        .decode::<Vec<(Term, Vec3, f64, f64, Option<Box6>, bool)>>()?
-        .into_iter()
-        .map(|(uuid, p, width, height, b, recent)| {
-            Ok(MobTarget {
-                uuid: uuid16(uuid)?,
-                position: [p.0, p.1, p.2],
-                width,
-                height,
-                bbox: b.map(box6),
-                recent,
-            })
-        })
-        .collect::<NifResult<_>>()?;
     Ok(tick::DragonWorld {
         crystals: term.map_get(atoms::crystals())?.decode()?,
         previous_kill: term.map_get(atoms::previous_kill())?.decode()?,
         crystal_bodies,
-        others,
+        others: Vec::new(),
         flame_uuid: [0; 16],
     })
 }
@@ -407,7 +384,7 @@ fn uuid16(t: Term) -> NifResult<[u8; 16]> {
     b.as_slice().try_into().map_err(|_| bad())
 }
 
-fn extras(rules: &Rules, term: Term) -> NifResult<Extras> {
+fn extras(term: Term) -> NifResult<Extras> {
     let mut x = Extras::default();
     let get = |a: Atom| {
         term.map_get(a).ok().filter(|t| {
@@ -421,13 +398,6 @@ fn extras(rules: &Rules, term: Term) -> NifResult<Extras> {
             .decode::<Vec<Term>>()?
             .into_iter()
             .map(mob_section_level::item)
-            .collect::<NifResult<_>>()?;
-    }
-    if let Some(t) = get(atoms::others()) {
-        x.others = t
-            .decode::<Vec<(i32, Term)>>()?
-            .into_iter()
-            .map(|(id, row)| Ok((id, mob_section_level::mob(rules.facts, row)?)))
             .collect::<NifResult<_>>()?;
     }
     if let Some(t) = get(atoms::knots()) {
@@ -454,13 +424,6 @@ fn extras(rules: &Rules, term: Term) -> NifResult<Extras> {
                 });
             }
         }
-    }
-    if let Some(t) = get(atoms::pois()) {
-        x.pois = t
-            .decode::<Vec<((i32, i32, i32), i32)>>()?
-            .into_iter()
-            .map(|((a, b, c), n)| ([a, b, c], n))
-            .collect();
     }
     if let Some(t) = get(atoms::located()) {
         for (uuid, token, result) in t.decode::<Vec<(Term, u64, Option<(i32, i32, i32)>)>>()? {
@@ -561,9 +524,6 @@ fn keeps(section: &MobSection, view: &View<SnapshotArc>, mob: &NativeMob) -> boo
     false
 }
 
-/// One Elixir mob of the section: its id, kernel map and solid box.
-type Elixir = (i32, MobT, Option<BoxT>);
-
 fn aabb6(b: [f64; 6]) -> Aabb {
     Aabb::new([b[0], b[1], b[2]], [b[3], b[4], b[5]])
 }
@@ -583,21 +543,16 @@ fn fix(m: &mut valimc_core::physics::mob::Mob) {
     m.velocity = [0.0; 3];
 }
 
-/// Begins and, without Elixir mobs, runs a section's tick.
+/// Runs a section's tick: every mob takes its turn in id order.
 ///
 /// `source` is `{:world, world}` or `{:scene, view, level, players,
 /// region}`; `tick` the game tick (nil in scenes without one); `mask` the
 /// simulated chunks of the section (bit `z * 8 + x` of its local chunk) or
-/// `:all`; `random` the section's level random (its state); `entrants` the
-/// section's Elixir mobs `{id, kernel_map, box | nil}` and other sections'
-/// Elixir solids `{:fixed, kernel_map, box}`; `extra` a map of the
-/// section's extras (`Extras`).
+/// `:all`; `random` the section's level random (its state); `extra` a map
+/// of the section's extras (`Extras`).
 ///
-/// `{:done, random, {elixir, moved, changes}}`, or at its first Elixir mob
-/// `{:yield, ticker, ids, index, random, moved_rows, pushed}` (`ids` every
-/// mob's id by ticker index, a tuple).
+/// `{random, moved, changes}` (see the module docs).
 #[rustler::nif]
-#[allow(clippy::too_many_arguments)]
 fn mob_section_tick<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
@@ -605,15 +560,13 @@ fn mob_section_tick<'a>(
     tick: Option<i64>,
     mask: Term<'a>,
     random: i64,
-    entrants: Vec<Term<'a>>,
     extra: Term<'a>,
 ) -> NifResult<Term<'a>> {
-    tick_section(env, res, source_term, tick, mask, random, entrants, extra)
+    tick_section(env, res, source_term, tick, mask, random, extra)
 }
 
-/// `mob_section_tick/7` past the normal scheduler's budget (many mobs).
+/// `mob_section_tick/6` past the normal scheduler's budget (many mobs).
 #[rustler::nif(schedule = "DirtyCpu")]
-#[allow(clippy::too_many_arguments)]
 fn mob_section_tick_dirty<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
@@ -621,13 +574,11 @@ fn mob_section_tick_dirty<'a>(
     tick: Option<i64>,
     mask: Term<'a>,
     random: i64,
-    entrants: Vec<Term<'a>>,
     extra: Term<'a>,
 ) -> NifResult<Term<'a>> {
-    tick_section(env, res, source_term, tick, mask, random, entrants, extra)
+    tick_section(env, res, source_term, tick, mask, random, extra)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn tick_section<'a>(
     env: Env<'a>,
     res: ResourceArc<MobSectionRes>,
@@ -635,29 +586,14 @@ fn tick_section<'a>(
     tick: Option<i64>,
     mask: Term<'a>,
     random: i64,
-    entrants: Vec<Term<'a>>,
     extra: Term<'a>,
 ) -> NifResult<Term<'a>> {
     let rules = ms::rules()?;
     let physics = physics_nif::facts()?;
     let families = ms::families(&rules)?;
-    let mut extras = extras(&rules, extra)?;
+    let mut extras = extras(extra)?;
     let all = mask.decode::<Atom>().ok() == Some(atoms::all());
     let mask: u64 = if all { u64::MAX } else { mask.decode()? };
-    let mut elixir: Vec<Elixir> = Vec::new();
-    let mut fixed: Vec<(MobT, Option<BoxT>)> = Vec::new();
-    for e in entrants {
-        let t = rustler::types::tuple::get_tuple(e)?;
-        if t.len() != 3 {
-            return Err(bad());
-        }
-        if t[0].decode::<Atom>().ok() == Some(atoms::fixed()) {
-            fixed.push((t[1].decode()?, t[2].decode()?));
-        } else {
-            elixir.push((t[0].decode()?, t[1].decode()?, t[2].decode()?));
-        }
-    }
-    elixir.sort_by_key(|e| e.0);
 
     // What the group holds now.
     let (env_level, players, pushers, sections, loot, scene_view, scene_region) =
@@ -747,57 +683,34 @@ fn tick_section<'a>(
 
     // Every mob of the section in id order, then the solids that take no
     // turn.
-    let mut order: Vec<Entrant> = Vec::with_capacity(natives.len() + elixir.len());
-    let mut ids: Vec<i32> = Vec::with_capacity(order.capacity());
-    let mut bodies = Vec::with_capacity(order.capacity() + fixed.len());
+    let mut order: Vec<Entrant> = Vec::with_capacity(natives.len());
+    let mut bodies = Vec::with_capacity(natives.len());
     let mut colliders: Vec<(usize, Option<Aabb>)> = Vec::new();
     let mut travel: HashMap<u16, Attributes> = HashMap::new();
-    {
-        let (mut a, mut b) = (0, 0);
-        while a < natives.len() || b < elixir.len() {
-            let native_next = b >= elixir.len() || (a < natives.len() && natives[a] < elixir[b].0);
-            let i = order.len();
-            if native_next {
-                let id = natives[a];
-                a += 1;
-                let mob = &inner.section.get(id).ok_or_else(bad)?.mob;
-                let ty = rules.of(&mob.body.entity_type).ok_or_else(bad)?;
-                let attributes = if mob.body.mob.attributes.0.is_empty() {
-                    *travel
-                        .entry(ty.id)
-                        .or_insert_with(|| tick::travel_attributes(&rules, ty, mob))
-                } else {
-                    tick::travel_attributes(&rules, ty, mob)
-                };
-                bodies.push(tick::kernel_input(&rules, &families, ty, mob, attributes));
-                if let Some(b) = families
-                    .kinds
-                    .kind(ty.id)
-                    .and_then(|kind| kind.collider(&mob.body, mob.position))
-                {
-                    colliders.push((i, Some(aabb6(b))));
-                }
-                order.push(Entrant::Native(id));
-                ids.push(id);
-            } else {
-                let (id, input, bbox) = &elixir[b];
-                b += 1;
-                bodies.push(physics_nif::mob(input)?);
-                if let Some(bbox) = bbox {
-                    colliders.push((i, Some(physics_nif::aabb(*bbox))));
-                }
-                order.push(Entrant::Elixir);
-                ids.push(*id);
-            }
+    for &id in &natives {
+        let i = order.len();
+        let mob = &inner.section.get(id).ok_or_else(bad)?.mob;
+        let ty = rules.of(&mob.body.entity_type).ok_or_else(bad)?;
+        let attributes = if mob.body.mob.attributes.0.is_empty() {
+            *travel
+                .entry(ty.id)
+                .or_insert_with(|| tick::travel_attributes(&rules, ty, mob))
+        } else {
+            tick::travel_attributes(&rules, ty, mob)
+        };
+        bodies.push(tick::kernel_input(&rules, &families, ty, mob, attributes));
+        if let Some(b) = families
+            .kinds
+            .kind(ty.id)
+            .and_then(|kind| kind.collider(&mob.body, mob.position))
+        {
+            colliders.push((i, Some(aabb6(b))));
         }
+        order.push(Entrant::Native(id));
     }
     if order.is_empty() {
-        let out = (
-            Vec::<(i32, Vec3)>::new(),
-            crate::bytes(env, Vec::new()),
-            Vec::<Term>::new(),
-        );
-        return Ok((atoms::done(), random, out).encode(env));
+        let out = (crate::bytes(env, Vec::new()), Vec::<Term>::new());
+        return Ok((random, out.0, out.1).encode(env));
     }
     let reach = {
         let boxes: Vec<Aabb> = bodies
@@ -810,13 +723,6 @@ fn tick_section<'a>(
             .collect();
         physics_nif::union(&boxes).map(|b| b.inflate(66.0))
     };
-    for (input, bbox) in &fixed {
-        let mut m = physics_nif::mob(input)?;
-        fix(&mut m);
-        colliders.push((bodies.len(), bbox.map(physics_nif::aabb)));
-        bodies.push(m);
-        order.push(Entrant::Fixed);
-    }
     // The group's native solids within reach that take no turn here.
     if let Some(reach) = reach {
         let mut add = |section: &MobSection, own: bool| {
@@ -895,9 +801,9 @@ fn tick_section<'a>(
     if let Some(goals) = extras.goals {
         env_level.goals = goals;
     }
-    // The POI claims (`World.pois`): this section's villagers', its
-    // siblings' as they keep them, and the Elixir mobs'.
-    let mut pois = extras.pois;
+    // The POI claims (`World.pois`): this section's villagers' and its
+    // siblings' as they keep them.
+    let mut pois = HashMap::new();
     merge(
         &mut pois,
         &valimc_core::mobs::ai::pois::store_claims(
@@ -975,262 +881,39 @@ fn tick_section<'a>(
     level.locator = locator
         .as_ref()
         .map(|l| l as &dyn valimc_core::mobs::level::Locator);
-    // `AI.prepare/2` over the level random: the native mobs' minds, the
-    // sensing of every mob, the brain mobs' reactions.
-    let others: Vec<(usize, SensedMob<Extra>)> = extras
-        .others
-        .into_iter()
-        .filter_map(|(id, row)| ids.binary_search(&id).ok().map(|i| (i, row)))
-        .collect();
+    // `AI.prepare/2` over the level random: the mobs' minds, the sensing of
+    // every mob, the brain mobs' reactions.
     let mut ai = {
         let turning = &state.turns;
         let mobs = inner.section.mobs_mut(|id| turning.contains_key(&id));
-        SectionAi::begin(
-            ms::ctx(&rules)?,
-            &mut level,
-            players,
-            extras.items,
-            mobs,
-            others,
-        )
+        SectionAi::begin(ms::ctx(&rules)?, &mut level, players, extras.items, mobs)
     };
-    let ran = state.run(&mut inner.section, &tw, &mut ai, &mut ticker, 0);
-    let sensing = std::mem::replace(
-        &mut ai.sensing,
-        valimc_core::mobs::sensing::Sensing::new(vec![], vec![], vec![]),
-    );
+    state.run(&mut inner.section, &tw, &mut ai, &mut ticker);
     drop(ai);
     let random = level.random.seed as i64;
     parts.moving.keep(&mut level);
     drop(level);
-    let travel = tw.travel.into_inner();
-    match ran {
-        Ran::Done => {
-            keep_located(inner, &mut parts.moving);
-            let velocities = ticker.finish(&pushers);
-            let out = finish_out(
-                env,
-                &rules,
-                physics,
-                inner,
-                state,
-                &velocities,
-                &ids,
-                region.as_deref(),
-                &parts.env.dimension,
-            )?;
-            Ok((atoms::done(), random, out).encode(env))
-        }
-        Ran::Yield(i) => {
-            let moved = moved_rows(&inner.section, &std::mem::take(&mut state.moved));
-            let pushed = pushed_of(&mut state);
-            let resource = ResourceArc::new(physics_nif::ticker_over_ticker(
-                view.clone(),
-                ticker,
-                pushers,
-                border,
-            ));
-            inner.running = Some(Running {
-                tick: state,
-                parts,
-                region,
-                sensing,
-                ids: ids.clone(),
-                travel,
-                dragon,
-            });
-            Ok((
-                atoms::r#yield(),
-                resource,
-                rustler::types::tuple::make_tuple(
-                    env,
-                    &ids.iter().map(|id| id.encode(env)).collect::<Vec<_>>(),
-                ),
-                i,
-                random,
-                moved,
-                pushed,
-            )
-                .encode(env))
-        }
-    }
-}
-
-/// A sensed refresh for the Elixir AI: `{id, {x, y, z}, yaw, pitch, alive}`.
-fn moved_rows(section: &MobSection, ids: &[i32]) -> Vec<(i32, Vec3, f64, f64, bool)> {
-    ids.iter()
-        .filter_map(|&id| {
-            let s = section.get(id)?;
-            let p = s.mob.position;
-            Some((
-                id,
-                (p[0], p[1], p[2]),
-                s.mob.body.yaw,
-                s.mob.body.pitch,
-                valimc_core::mobs::living::mob::alive(&s.mob.body.mob),
-            ))
-        })
-        .collect()
-}
-
-/// The pushes native steps gave Elixir mobs since the last yield, by
-/// ticker index.
-fn pushed_of(state: &mut Tick) -> Vec<(usize, Vec3)> {
-    std::mem::take(&mut state.pushed)
-        .into_iter()
-        .map(|(i, v)| (i, (v[0], v[1], v[2])))
-        .collect()
-}
-
-/// Runs a yielded tick on from index `from` with the level random `random`
-/// (its state), after sensing again the Elixir mobs of `resense` (their
-/// sensed rows since the last run): `{:yield, nil, nil, index, random,
-/// moved, pushed}` at the next Elixir mob, else the tick's end as
-/// `mob_section_tick/7` answers it.
-#[rustler::nif]
-fn mob_section_resume<'a>(
-    env: Env<'a>,
-    res: ResourceArc<MobSectionRes>,
-    ticker: ResourceArc<MobTicker>,
-    from: usize,
-    random: i64,
-    resense: Vec<Term<'a>>,
-) -> NifResult<Term<'a>> {
-    resume(env, res, ticker, from, random, resense)
-}
-
-/// `mob_section_resume/5` past the normal scheduler's budget.
-#[rustler::nif(schedule = "DirtyCpu")]
-fn mob_section_resume_dirty<'a>(
-    env: Env<'a>,
-    res: ResourceArc<MobSectionRes>,
-    ticker: ResourceArc<MobTicker>,
-    from: usize,
-    random: i64,
-    resense: Vec<Term<'a>>,
-) -> NifResult<Term<'a>> {
-    resume(env, res, ticker, from, random, resense)
-}
-
-fn resume<'a>(
-    env: Env<'a>,
-    res: ResourceArc<MobSectionRes>,
-    ticker_res: ResourceArc<MobTicker>,
-    from: usize,
-    random: i64,
-    resense: Vec<Term<'a>>,
-) -> NifResult<Term<'a>> {
-    let rules = ms::rules()?;
-    let physics = physics_nif::facts()?;
-    let families = ms::families(&rules)?;
-    let mut guard = ms::owned(env, &res)?;
-    let inner = &mut *guard;
-    let mut running = inner
-        .running
-        .take()
-        .ok_or_else(|| rustler::Error::Term(Box::new(atoms::no_tick())))?;
-    let mut ticker_guard = ticker_res.state()?;
-    let ts = ticker_guard
-        .as_mut()
-        .ok_or_else(|| rustler::Error::Term(Box::new(atoms::no_tick())))?;
-    let view = &ts.view;
-    let world = World {
-        source: view,
-        facts: physics,
-        border: crate::player::border(ts.border),
-        entities: &[],
-    };
-    let tw = TurnWorld {
-        rules: &rules,
-        motion: &families,
-        kinds: families.kinds,
-        world: &world,
-        players: &ts.players[..],
-        mob_griefing: running.parts.env.rules.mob_griefing,
-        travel: std::cell::RefCell::new(std::mem::take(&mut running.travel)),
-        dragon: running.dragon.as_ref(),
-    };
-    let ran = {
-        let section_env =
-            ms::section_env(&rules, running.region.as_deref(), view, &running.parts.env);
-        let air = AirWhereUnreadable(view);
-        let blocks = running.parts.env.blocks(view, &air);
-        let random = LegacyRandom::from_state(random as u64).ok_or_else(bad)?;
-        let locator = running
-            .parts
-            .env
-            .locate
-            .map(mob_section_level::FixedLocator);
-        let mut level = running
-            .parts
-            .env
-            .level(blocks, &section_env, rules.facts, random)?;
-        running.parts.moving.give(&mut level);
-        level.loot = running.parts.loot.as_deref();
-        level.locator = locator
-            .as_ref()
-            .map(|l| l as &dyn valimc_core::mobs::level::Locator);
-        let mut ai = SectionAi {
-            ctx: ms::ctx(&rules)?,
-            level: &mut level,
-            sensing: std::mem::replace(
-                &mut running.sensing,
-                valimc_core::mobs::sensing::Sensing::new(vec![], vec![], vec![]),
-            ),
-        };
-        for row in resense {
-            ai.resense(mob_section_level::mob(rules.facts, row)?);
-        }
-        let ran = running
-            .tick
-            .run(&mut inner.section, &tw, &mut ai, &mut ts.ticker, from);
-        running.sensing = std::mem::replace(
-            &mut ai.sensing,
-            valimc_core::mobs::sensing::Sensing::new(vec![], vec![], vec![]),
-        );
-        drop(ai);
-        let seed = level.random.seed as i64;
-        running.parts.moving.keep(&mut level);
-        (ran, seed)
-    };
-    running.travel = tw.travel.into_inner();
-    let (ran, random) = ran;
-    match ran {
-        Ran::Yield(i) => {
-            let moved = moved_rows(&inner.section, &std::mem::take(&mut running.tick.moved));
-            let pushed = pushed_of(&mut running.tick);
-            inner.running = Some(running);
-            let nil = rustler::types::atom::nil();
-            Ok((atoms::r#yield(), nil, nil, i, random, moved, pushed).encode(env))
-        }
-        Ran::Done => {
-            keep_located(inner, &mut running.parts.moving);
-            let state = ticker_guard
-                .take()
-                .ok_or_else(|| rustler::Error::Term(Box::new(atoms::no_tick())))?;
-            let velocities = state.ticker.finish(&state.players);
-            let out = finish_out(
-                env,
-                &rules,
-                physics,
-                inner,
-                running.tick,
-                &velocities,
-                &running.ids,
-                running.region.as_deref(),
-                &running.parts.env.dimension,
-            )?;
-            Ok((atoms::done(), random, out).encode(env))
-        }
-    }
+    keep_located(inner, &mut parts.moving);
+    let velocities = ticker.finish(&pushers);
+    let (moved, changes) = finish_out(
+        env,
+        &rules,
+        physics,
+        inner,
+        state,
+        &velocities,
+        region.as_deref(),
+        &parts.env.dimension,
+    )?;
+    Ok((random, moved, changes).encode(env))
 }
 
 /// The bosses never travel through portals (`canUsePortal`).
 const BOSSES: [&str; 2] = ["minecraft:ender_dragon", "minecraft:wither"];
 
-/// The tick's end: `{elixir, moved, changes}` (see the module docs). A
-/// native mob that touched a portal renews its cooldown, or, off cooldown,
-/// tells its owner `{:portal, kind, cell}` among its effects.
+/// The tick's end: `(moved, changes)` (see the module docs). A mob that
+/// touched a portal renews its cooldown, or, off cooldown, tells its owner
+/// `{:portal, kind, cell}` among its effects.
 #[allow(clippy::too_many_arguments)]
 fn finish_out<'a>(
     env: Env<'a>,
@@ -1239,21 +922,10 @@ fn finish_out<'a>(
     inner: &mut ms::Inner,
     state: Tick,
     velocities: &[[f64; 3]],
-    ids: &[i32],
     region: Option<&Region>,
     dimension: &valimc_core::mobs::term::Atom,
-) -> NifResult<Term<'a>> {
+) -> NifResult<(Term<'a>, Vec<Term<'a>>)> {
     use valimc_core::mobs::term::Value;
-    let elixir: Vec<(i32, Vec3)> = state
-        .order
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| **e == Entrant::Elixir)
-        .filter_map(|(i, _)| {
-            let v = velocities.get(i)?;
-            Some((*ids.get(i)?, (v[0], v[1], v[2])))
-        })
-        .collect();
     let steps = tick::finish(&mut inner.section, state, velocities);
     let section = &mut inner.section;
     let store = match region {
@@ -1353,7 +1025,7 @@ fn finish_out<'a>(
         inner.section.slots().map(|(_, s)| &s.mob),
         dimension,
     );
-    Ok((elixir, crate::bytes(env, moved), changes).encode(env))
+    Ok((crate::bytes(env, moved).encode(env), changes))
 }
 
 // ----------------------------------------------------------------- ageing

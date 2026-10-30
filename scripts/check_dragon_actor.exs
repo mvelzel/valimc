@@ -1,19 +1,17 @@
-# `--native` (VMC-081d): each dragon lives in a native section and ticks as
-# the native actor (`Native.dragon_oracle_actor/4`: its timers, then its
-# tick; a destroyed crystal) over the same hand-built env (graph heights,
-# podium, the player, sight, blocks and ground, its contact targets,
-# crystals and rules); its phases start through `dragon_oracle_phases/3`,
-# and the checks read its body from its record.
-alias Valimc.AI.{Random, Mind}
-alias Valimc.AI.Dragon.{Actor, Flight, Paths, Phases}
-alias Valimc.Entity.{Body, Store}
+# Each dragon lives in a native section and ticks as the native actor
+# (`Native.dragon_oracle_actor/4`: its timers, then its tick; a destroyed
+# crystal) over a hand-built env (graph heights, podium, the player, sight,
+# blocks and ground, its contact targets, crystals and rules); its phases
+# start through `dragon_oracle_phases/3`, and the checks read its body from
+# its record. Its actor is the term the record keeps (maps tagged
+# `Valimc.Entity.Dragon.Actor`, `.Phases` and `.Flight`).
+alias Valimc.Data.JavaRandom
+alias Valimc.Entity.{Body, Dragon, Store}
 alias Valimc.Native
 
-{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
-native? = native != []
-[file] = argv
+[file] = System.argv()
 raw = file |> File.read!() |> JSON.decode!()
-if native?, do: Valimc.Entity.NativeMobs.install!()
+Valimc.Entity.MobFacts.install!()
 end_stone = Valimc.Data.Blocks.default_state("end_stone")
 
 true =
@@ -39,6 +37,57 @@ defmodule DragonActorCheck do
     <<b::signed-32>> = <<n::float-32>>
     b
   end
+
+  # The phases term of a fresh dragon flying from `position` at yaw 25.
+  def phases(position, random) do
+    flight = %{
+      __struct__: Valimc.Entity.Dragon.Flight,
+      position: position,
+      velocity: {0.0, 0.0, 0.0},
+      yaw: 25.0,
+      turn: 0.0,
+      history: nil,
+      parts: Tuple.duplicate({0.0, 0.0, 0.0}, 8)
+    }
+
+    %{
+      __struct__: Valimc.Entity.Dragon.Phases,
+      phase: 10,
+      flight: flight,
+      random: random,
+      target: nil,
+      leaving: nil,
+      path: nil,
+      clockwise: %{0 => false, 1 => false},
+      ticks: 0,
+      flames: 0,
+      attack: nil,
+      charge: 0,
+      first: true,
+      flame_live: false,
+      head_yaw: 0.0,
+      pitch: 0.0,
+      effects: []
+    }
+  end
+
+  # The actor term holding `phases`.
+  def actor(phases) do
+    %{
+      __struct__: Valimc.Entity.Dragon.Actor,
+      phases: phases,
+      tick: 0,
+      ambient: 0,
+      body_yaw: 0.0,
+      stable_head: 0.0,
+      stable_time: 0,
+      wall: false,
+      crystal: nil,
+      flame: nil,
+      graph: nil,
+      world_tick: nil
+    }
+  end
 end
 
 for row <- raw["cases"] do
@@ -53,7 +102,7 @@ for row <- raw["cases"] do
     | yaw: 25.0,
       head_yaw: 25.0,
       data: %{body.data | phase: row["start_phase"] || 10},
-      mob: %{body.mob | no_ai: scene == 1, ai: %Mind{random: Random.new(7241 + scene)}}
+      mob: %{body.mob | no_ai: scene == 1}
   }
 
   body = put_in(body.mob.living.health.value, if(dead, do: 0.0, else: 180.0))
@@ -73,26 +122,14 @@ for row <- raw["cases"] do
     end
 
   player = %{id: row["player_id"], position: {8.0, 90.0, 2.0}, height: 1.7999999523162842}
-  phase_env = %{graph: Paths.graph(fn _, _ -> 90 end), crystals: nil}
   phase_scene = %{height: 90}
-
-  start = %Phases{
-    flight: %Flight{position: initial, yaw: 25.0},
-    random: Random.new(7241 + scene)
-  }
-
-  phases =
-    if native?,
-      do: elem(Native.dragon_oracle_phases(start, {:set, body.data.phase}, phase_scene), 0),
-      else: Phases.set(start, body.data.phase)
+  start = DragonActorCheck.phases(initial, JavaRandom.new(7241 + scene))
+  {phases, _} = Native.dragon_oracle_phases(start, {:set, body.data.phase}, phase_scene)
 
   phases =
     cond do
-      phases.phase == 1 and native? ->
-        elem(Native.dragon_oracle_phases(phases, {:strafe, player}, phase_scene), 0)
-
       phases.phase == 1 ->
-        Phases.strafe(phases, player, phase_env)
+        elem(Native.dragon_oracle_phases(phases, {:strafe, player}, phase_scene), 0)
 
       phases.phase == 8 ->
         %{phases | target: player.position}
@@ -103,18 +140,14 @@ for row <- raw["cases"] do
 
   body = %{
     body
-    | data: %{body.data | brain: %Actor{phases: phases}},
-      mob: %{body.mob | ai: %{body.mob.ai | random: phases.random}}
+    | data: %{body.data | brain: DragonActorCheck.actor(phases)},
+      mob: %{body.mob | ai: %{random: phases.random}}
   }
 
   # The native dragon's section.
-  section =
-    if native? do
-      ref = Native.mob_section_oracle_new()
-      record = Store.body_record(body, entity.uuid, initial)
-      {:ok, [_]} = Native.mob_section_insert(ref, [{1, record}], false)
-      ref
-    end
+  section = Native.mob_section_oracle_new()
+  record = Store.body_record(body, entity.uuid, initial)
+  {:ok, [_]} = Native.mob_section_insert(section, [{1, record}], false)
 
   crystal_uuid = <<800::128>>
 
@@ -153,101 +186,25 @@ for row <- raw["cases"] do
   end
 
   Enum.with_index(row["ticks"])
-  |> Enum.reduce({body, entity, blocks}, fn {tick, index}, {body, entity, blocks} ->
-    read = fn {_, by, _} = cell ->
-      Map.get(
-        blocks,
-        cell,
-        if(by < 70, do: Valimc.Data.Blocks.default_state("end_stone"), else: 0)
-      )
+  |> Enum.reduce(blocks, fn {tick, index}, blocks ->
+    if not dead and index == 100 do
+      striker =
+        {player.id, player.position, player.height, true,
+         %{uuid: <<1::128>>, entity_id: player.id, player: true, type: "minecraft:player"}}
+
+      _ =
+        Native.dragon_oracle_actor(
+          section,
+          1,
+          {:crystal, crystal_uuid, {crystal_uuid, 800, crystal}, striker},
+          native_scene.(blocks, index)
+        )
     end
 
-    env = %{
-      graph: Paths.graph(fn _, _ -> 90 end),
-      podium: {0, 90, 0},
-      players: if(dead, do: [], else: [player]),
-      visible: fn _ -> true end,
-      solid: fn cell -> not Valimc.Data.BlockFacts.air?(read.(cell)) end,
-      read: read,
-      targets:
-        if(dead,
-          do: [],
-          else: [
-            %{
-              ref: :player,
-              position: player.position,
-              box: {7.7, 90.0, 1.7, 8.3, 91.79999995231628, 2.3},
-              recent: index < 2
-            }
-          ]
-        ),
-      crystal_bodies: if(crystal_row && index < 100, do: [crystal_row], else: []),
-      crystals: nil,
-      mob_griefing: scene != 3,
-      mob_drops: true,
-      previous_kill: row["previous"] != false
-    }
+    {at, events, effects} =
+      Native.dragon_oracle_actor(section, 1, :tick, native_scene.(blocks, index))
 
-    body =
-      if native? and not dead and index == 100 do
-        striker =
-          {player.id, player.position, player.height, true,
-           %{uuid: <<1::128>>, entity_id: player.id, player: true, type: "minecraft:player"}}
-
-        _ =
-          Native.dragon_oracle_actor(
-            section,
-            1,
-            {:crystal, crystal_uuid, {crystal_uuid, 800, crystal}, striker},
-            native_scene.(blocks, index)
-          )
-
-        body
-      else
-        body
-      end
-
-    body =
-      if not native? and not dead and index == 100 do
-        {cx, cy, cz} = crystal
-
-        direct = %{
-          uuid: 800,
-          entity_id: 800,
-          player: false,
-          type: "minecraft:end_crystal",
-          position: {cx, cy, cz}
-        }
-
-        target =
-          Map.merge(player, %{
-            eligible: true,
-            attacker: %{
-              uuid: <<1::128>>,
-              entity_id: player.id,
-              player: true,
-              type: "minecraft:player",
-              mainhand: nil
-            }
-          })
-
-        {body, _} = Actor.crystal_destroyed(body, entity, 800, direct, target, env)
-        body
-      else
-        body
-      end
-
-    {body, at, events, effects} =
-      if native? do
-        {at, events, effects} =
-          Native.dragon_oracle_actor(section, 1, :tick, native_scene.(blocks, index))
-
-        {native_body.(), at, events, effects}
-      else
-        {body, _, _} = Body.tick(body)
-        Actor.tick(body, entity, env)
-      end
-
+    body = native_body.()
     actor = body.data.brain
 
     actor =
@@ -276,7 +233,12 @@ for row <- raw["cases"] do
       DragonActorCheck.equal(value, tick[key], label <> " " <> key)
     end
 
-    DragonActorCheck.equal(Flight.boxes(actor.phases.flight), tick["parts"], label <> " parts")
+    DragonActorCheck.equal(
+      Dragon.boxes(actor.phases.flight.parts),
+      tick["parts"],
+      label <> " parts"
+    )
+
     removed = for {:dragon_break, cell, _} <- effects, do: cell
     DragonActorCheck.equal(removed, tick["breaks"], label <> " breaks")
     particles = for {:particles, name, at, _, _, _} <- events, do: {name, at}
@@ -355,9 +317,7 @@ for row <- raw["cases"] do
       )
     end
 
-    blocks = Enum.reduce(removed, blocks, &Map.put(&2, &1, 0))
-    {nx, ny, nz} = at
-    {body, %{entity | x: nx, y: ny, z: nz}, blocks}
+    Enum.reduce(removed, blocks, &Map.put(&2, &1, 0))
   end)
 end
 
@@ -377,6 +337,5 @@ for [difficulty, distance, persistent, removed, idle] <- raw["despawn"] do
 end
 
 IO.puts(
-  "PASS: #{length(raw["cases"])} complete native dragon sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, crystal healing, wall breaking, inherited rotation/random and death/XP" <>
-    if(native?, do: ", every tick the native dragon's", else: "")
+  "PASS: #{length(raw["cases"])} complete native dragon sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, crystal healing, wall breaking, inherited rotation/random and death/XP, every tick the native dragon's"
 )

@@ -1,44 +1,29 @@
-alias Valimc.AI.{Facts, Mind, Self, World}
-alias Valimc.Entity.Body
+alias Valimc.Entity.{Body, MobFacts, Store}
+alias Valimc.Native
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 unless length(cases) == 6, do: raise("Incomplete pufferfish contact fixtures")
+MobFacts.install!()
 
 for row <- cases do
   {:ok, body} = Body.new("minecraft:pufferfish")
   body = %{body | data: %{body.data | puff: row["puff"]}}
-  {width, height, eye} = Body.dimensions(body)
+  section = Native.mob_section_oracle_new()
 
-  target = %{
-    kind: :player,
-    uuid: <<2::128>>,
-    alive: true,
-    mode: :survival,
-    x: 0.0,
-    y: 64.0,
-    z: 0.0,
-    width: 0.6,
-    height: 1.8
-  }
+  {:ok, _} =
+    Native.mob_section_insert(
+      section,
+      [{1, Store.body_record(body, <<1::128>>, {0.0, 64.0, 0.0})}],
+      false
+    )
 
-  self =
-    Valimc.AI.Mobs.Pufferfish.after_ai(%Self{
-      type: body.type,
-      uuid: <<1::128>>,
-      x: 0.0,
-      y: 64.0,
-      z: 0.0,
-      width: width,
-      height: height,
-      eye: eye,
-      data: body.data,
-      mob: body.mob,
-      mind: %Mind{},
-      facts: Facts.mob(body.type),
-      world: %World{players: [target]}
-    })
+  target = %{uuid: <<2::128>>, mode: :survival, position: {0.0, 64.0, 0.0}}
 
-  case self.effects do
+  # `Pufferfish.aiStep` after its super: the players it touches.
+  {_, _, _, effects, _, _} =
+    Native.mob_oracle_body_turn(section, 1, :after_ai, %{players: [target]})
+
+  case effects do
     [] ->
       true = row["damage"] == nil and row["effects"] == [] and row["packets"] == []
 

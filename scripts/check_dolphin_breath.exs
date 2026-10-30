@@ -1,8 +1,9 @@
-alias Valimc.Entity.{Body, MobMotion}
+alias Valimc.Entity.{Body, MobFacts, Store}
 alias Valimc.Physics.Kernel
 [path] = System.argv()
 rows = JSON.decode!(File.read!(path))
 unless length(rows) == 480, do: raise("Incomplete dolphin breathing fixtures")
+MobFacts.install!()
 
 point = fn hexes ->
   hexes
@@ -29,7 +30,7 @@ for row <- rows do
       mob: %{body.mob | motion: motion}
   }
 
-  input = MobMotion.kernel(body.type, at, body)
+  {input, _} = Valimc.Native.mob_oracle_body_kernel(Store.body_record(body, <<1::128>>, at))
 
   states =
     Enum.reduce(row["cells"], air, fn [x, y, z, state], acc -> Map.put(acc, {x, y, z}, state) end)

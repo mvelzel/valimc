@@ -505,6 +505,7 @@ mod mob_atoms {
 /// step_height, water_efficiency, friction_modifier, air_drag_modifier}` and
 /// its travel effects.
 #[derive(rustler::NifMap)]
+#[cfg(feature = "parity")]
 pub(crate) struct MobT {
     position: Vec3,
     yaw: f64,
@@ -560,7 +561,8 @@ pub(crate) struct MobT {
 
 /// A ghast's move control (`valimc_core::physics::mob::Float`).
 #[derive(rustler::NifMap)]
-struct FloatT {
+#[cfg(feature = "parity")]
+pub(crate) struct FloatT {
     wanted: Option<Vec3>,
     duration: i32,
     random: i64,
@@ -569,7 +571,8 @@ struct FloatT {
 
 /// A rabbit's hopping controls (`valimc_core::physics::mob::Hop`).
 #[derive(rustler::NifMap)]
-struct HopT {
+#[cfg(feature = "parity")]
+pub(crate) struct HopT {
     jumping: bool,
     wanted: Vec3,
     speed: f64,
@@ -583,7 +586,8 @@ struct HopT {
 
 /// A mob's tick: the mob after it and what its living rules read.
 #[derive(rustler::NifMap)]
-struct TickedT {
+#[cfg(feature = "parity")]
+pub(crate) struct TickedT {
     mob: MobT,
     water: bool,
     lava: bool,
@@ -608,6 +612,7 @@ struct TickedT {
     splash: Option<(f64, f64, f64)>,
 }
 
+#[cfg(feature = "parity")]
 pub(crate) fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
     use valimc_core::physics::mob::{Attributes, Control, Mob, Travel};
     let (op, target, speed) = m.control;
@@ -739,7 +744,8 @@ pub(crate) fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
     })
 }
 
-fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
+#[cfg(feature = "parity")]
+pub(crate) fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
     use valimc_core::physics::mob::{Control, Travel};
     let a = &m.attributes;
     let control = match m.control {
@@ -849,77 +855,6 @@ fn mob_t(m: &valimc_core::physics::mob::Mob) -> MobT {
     }
 }
 
-/// One tick of every mob of an owner, in order (`LivingEntity.aiStep` and
-/// `pushEntities`; `players` are `{feet, box}` that push the mobs they
-/// touch): `{:ok, results}` in input order, each `{:ok, ticked}` or `{:error,
-/// reason}` (that mob keeps its state).
-#[rustler::nif]
-fn physics_mobs<'a>(
-    env: Env<'a>,
-    view_term: Term<'a>,
-    mobs: Vec<MobT>,
-    players: Vec<(Vec3, BoxT)>,
-    border: Option<(f64, f64, f64, f64)>,
-) -> NifResult<Term<'a>> {
-    mobs_step(env, view_term, mobs, players, border)
-}
-
-/// `physics_mobs` for batches past the normal scheduler's budget.
-#[rustler::nif(schedule = "DirtyCpu")]
-fn physics_mobs_dirty<'a>(
-    env: Env<'a>,
-    view_term: Term<'a>,
-    mobs: Vec<MobT>,
-    players: Vec<(Vec3, BoxT)>,
-    border: Option<(f64, f64, f64, f64)>,
-) -> NifResult<Term<'a>> {
-    mobs_step(env, view_term, mobs, players, border)
-}
-
-fn mobs_step<'a>(
-    env: Env<'a>,
-    view_term: Term<'a>,
-    mobs: Vec<MobT>,
-    players: Vec<(Vec3, BoxT)>,
-    border: Option<(f64, f64, f64, f64)>,
-) -> NifResult<Term<'a>> {
-    let facts = facts()?;
-    let bodies = mobs.iter().map(mob).collect::<NifResult<Vec<_>>>()?;
-    let Some(region) = union(
-        &bodies
-            .iter()
-            .map(|m| {
-                let p = m.position;
-                let half = m.size.width / 2.0 + 2.0;
-                Aabb::new(
-                    [p[0] - half, p[1] - 2.0, p[2] - half],
-                    [p[0] + half, p[1] + m.size.height + 2.0, p[2] + half],
-                )
-                .expand_towards(m.velocity)
-            })
-            .collect::<Vec<_>>(),
-    ) else {
-        return Ok(ok(env, Vec::<Term>::new()));
-    };
-    let view = view(view_term, facts, &region)?;
-    let world = valimc_core::physics::player::World {
-        source: &view,
-        facts,
-        border: crate::player::border(border),
-        entities: &[],
-    };
-    let players: Vec<([f64; 3], Aabb)> =
-        players.into_iter().map(|(f, b)| (v3(f), aabb(b))).collect();
-    let results: Vec<Term> = valimc_core::physics::mob::tick_all(&world, &bodies, &players)
-        .iter()
-        .map(|r| match r {
-            Ok(t) => ok(env, ticked_t(t)),
-            Err(f) => crate::player::fault(env, *f),
-        })
-        .collect();
-    Ok(ok(env, results))
-}
-
 /// A shared snapshot a kernel resource holds for its whole tick.
 #[derive(Clone)]
 pub(crate) struct SnapshotArc(pub(crate) rustler::ResourceArc<Snapshot>);
@@ -966,12 +901,14 @@ pub(crate) fn owned_view(term: Term, facts: &Facts, region: &Aabb) -> NifResult<
     Ok(View::Rows(rows))
 }
 
-/// An owner's mobs ticking one at a time (VMC-043e): the view read once,
-/// the mobs' motion and the push grid kept between the steps the owner's AI
-/// interleaves (`valimc_core::physics::mob::Ticker`). Owned by the owner
-/// for one tick.
+/// Mobs ticking one at a time over the kernel (VMC-043e), for the oracle
+/// checks that drive it step by step: the view read once, the mobs' motion
+/// and the push grid kept between the steps (`valimc_core::physics::mob::
+/// Ticker`). A section's tick holds its ticker in Rust (`mob_tick`).
+#[cfg(feature = "parity")]
 pub struct MobTicker(std::sync::Mutex<Option<TickerState>>);
 
+#[cfg(feature = "parity")]
 pub(crate) struct TickerState {
     pub(crate) view: View<SnapshotArc>,
     pub(crate) border: Option<(f64, f64, f64, f64)>,
@@ -979,16 +916,11 @@ pub(crate) struct TickerState {
     pub(crate) ticker: valimc_core::physics::mob::Ticker,
 }
 
-impl MobTicker {
-    /// The tick's state, for a section's native turns (VMC-081d).
-    pub(crate) fn state(&self) -> NifResult<std::sync::MutexGuard<'_, Option<TickerState>>> {
-        self.0.lock().map_err(|_| invalid())
-    }
-}
-
+#[cfg(feature = "parity")]
 #[rustler::resource_impl]
 impl rustler::Resource for MobTicker {}
 
+#[cfg(feature = "parity")]
 fn ticker_begin(
     view_term: Term,
     mobs: Vec<MobT>,
@@ -1000,8 +932,8 @@ fn ticker_begin(
     ticker_of(view_term, bodies, players, border, colliders)
 }
 
-/// A mob ticker over `view_term` for `bodies` in ticker order (a section's
-/// native and Elixir mobs together, VMC-081d).
+/// A mob ticker over `view_term` for `bodies` in ticker order.
+#[cfg(feature = "parity")]
 pub(crate) fn ticker_of(
     view_term: Term,
     bodies: Vec<valimc_core::physics::mob::Mob>,
@@ -1036,24 +968,9 @@ pub(crate) fn ticker_of(
     )?))
 }
 
-/// A ticker resource over a native section's view and ticker, for the
-/// Elixir mobs' turns of a tick that yields to them (VMC-081d).
-pub(crate) fn ticker_over_ticker(
-    view: View<SnapshotArc>,
-    ticker: valimc_core::physics::mob::Ticker,
-    players: Vec<([f64; 3], Aabb)>,
-    border: Option<(f64, f64, f64, f64)>,
-) -> MobTicker {
-    MobTicker(std::sync::Mutex::new(Some(TickerState {
-        view,
-        border,
-        players,
-        ticker,
-    })))
-}
-
 /// A mob ticker over a view already held (a native mob section's resident
 /// one, VMC-081d) for `bodies` in ticker order.
+#[cfg(feature = "parity")]
 pub(crate) fn ticker_over(
     view: View<SnapshotArc>,
     bodies: Vec<valimc_core::physics::mob::Mob>,
@@ -1078,6 +995,7 @@ pub(crate) fn ticker_over(
 
 /// Begin an owner's mob tick over `view` (the cells around every mob),
 /// `mobs` as they start it, the `players` that push them and the border.
+#[cfg(feature = "parity")]
 #[rustler::nif]
 fn physics_mobs_begin(
     view_term: Term,
@@ -1090,6 +1008,7 @@ fn physics_mobs_begin(
 }
 
 /// `physics_mobs_begin` for views past the normal scheduler's budget.
+#[cfg(feature = "parity")]
 #[rustler::nif(schedule = "DirtyCpu")]
 fn physics_mobs_begin_dirty(
     view_term: Term,
@@ -1101,56 +1020,8 @@ fn physics_mobs_begin_dirty(
     ticker_begin(view_term, mobs, players, border, colliders)
 }
 
-/// A mob's pre-AI fluid depths and eye state, reusing the ticker's view.
-#[rustler::nif]
-fn physics_mobs_sense<'a>(
-    env: Env<'a>,
-    resource: rustler::ResourceArc<MobTicker>,
-    body: BoxT,
-    eye: Vec3,
-) -> NifResult<Term<'a>> {
-    ticker_sense(env, resource, body, eye)
-}
-
-/// The same read for a body past the normal scheduler's scan budget.
-#[rustler::nif(schedule = "DirtyCpu")]
-fn physics_mobs_sense_dirty<'a>(
-    env: Env<'a>,
-    resource: rustler::ResourceArc<MobTicker>,
-    body: BoxT,
-    eye: Vec3,
-) -> NifResult<Term<'a>> {
-    ticker_sense(env, resource, body, eye)
-}
-
-fn ticker_sense<'a>(
-    env: Env<'a>,
-    resource: rustler::ResourceArc<MobTicker>,
-    body: BoxT,
-    eye: Vec3,
-) -> NifResult<Term<'a>> {
-    let facts = facts()?;
-    let guard = resource.0.lock().map_err(|_| invalid())?;
-    let state = guard.as_ref().ok_or(invalid())?;
-    let eye = v3(eye);
-    let found = match fluid::contacts(&state.view, facts, &aabb(body)) {
-        Ok(Some(found)) => found,
-        Ok(None) => return Ok(ok(env, rustler::types::atom::nil())),
-        Err(u) => return Ok(unreadable(env, u)),
-    };
-    let depths = fluid::depths(&found);
-    let water = match fluid::eyes_in(&state.view, facts, &found, eye) {
-        Ok((water, _)) => water,
-        Err(u) => return Ok(unreadable(env, u)),
-    };
-    let p = eye.map(|v| v.floor() as i32);
-    Ok(match state.view.state(p[0], p[1], p[2]) {
-        Some(block) => ok(env, (depths.water, depths.lava, (water, block))),
-        None => rustler::types::atom::error().encode(env),
-    })
-}
-
-fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
+#[cfg(feature = "parity")]
+pub(crate) fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
     TickedT {
         mob: mob_t(&t.mob),
         water: t.water,
@@ -1176,6 +1047,7 @@ fn ticked_t(t: &valimc_core::physics::mob::Ticked) -> TickedT {
 /// Mob `index`'s tick with `input` (its AI's): `{result, pushed}`, the
 /// result `{:ok, ticked}` or `{:error, reason}` (it keeps its state) and
 /// the mobs it pushed, `[{index, velocity}]`.
+#[cfg(feature = "parity")]
 #[rustler::nif]
 fn physics_mobs_step<'a>(
     env: Env<'a>,
@@ -1187,6 +1059,7 @@ fn physics_mobs_step<'a>(
 }
 
 /// `physics_mobs_step` for a step past the normal scheduler's budget.
+#[cfg(feature = "parity")]
 #[rustler::nif(schedule = "DirtyCpu")]
 fn physics_mobs_step_dirty<'a>(
     env: Env<'a>,
@@ -1197,6 +1070,7 @@ fn physics_mobs_step_dirty<'a>(
     ticker_step(env, resource, index, input)
 }
 
+#[cfg(feature = "parity")]
 fn ticker_step<'a>(
     env: Env<'a>,
     resource: rustler::ResourceArc<MobTicker>,
@@ -1232,6 +1106,7 @@ fn ticker_step<'a>(
 }
 
 /// An external lid move interleaved with the owner's mob turns.
+#[cfg(feature = "parity")]
 #[rustler::nif(schedule = "DirtyCpu")]
 fn physics_mobs_displace<'a>(
     env: Env<'a>,
@@ -1265,6 +1140,7 @@ fn physics_mobs_displace<'a>(
 }
 
 /// Pure observation of a goal's own move against this ticker's live colliders.
+#[cfg(feature = "parity")]
 #[rustler::nif(schedule = "DirtyCpu")]
 fn physics_mobs_goal_position<'a>(
     env: Env<'a>,
@@ -1292,6 +1168,7 @@ fn physics_mobs_goal_position<'a>(
 }
 
 /// A solid family's box and position as its owner just left them.
+#[cfg(feature = "parity")]
 #[rustler::nif]
 fn physics_mobs_collider(
     resource: rustler::ResourceArc<MobTicker>,
@@ -1308,23 +1185,9 @@ fn physics_mobs_collider(
     Ok(atoms::ok())
 }
 
-/// Mob `index`'s motion as its tick ended (a squid's stroke): later pushes
-/// add to it.
-#[rustler::nif]
-fn physics_mobs_velocity(
-    resource: rustler::ResourceArc<MobTicker>,
-    index: usize,
-    velocity: Vec3,
-) -> NifResult<Atom> {
-    let mut guard = resource.0.lock().map_err(|_| invalid())?;
-    let state = guard.as_mut().ok_or(invalid())?;
-    let mob = state.ticker.current.get_mut(index).ok_or(invalid())?;
-    mob.velocity = v3(velocity);
-    Ok(atoms::ok())
-}
-
 /// The tick's end: the players push, and every mob's motion for its next
 /// tick, in order. The resource is spent.
+#[cfg(feature = "parity")]
 #[rustler::nif]
 fn physics_mobs_finish(resource: rustler::ResourceArc<MobTicker>) -> NifResult<Vec<Vec3>> {
     let mut guard = resource.0.lock().map_err(|_| invalid())?;
@@ -1722,31 +1585,6 @@ fn physics_fluids<'a>(env: Env<'a>, view_term: Term<'a>, body: BoxT) -> NifResul
             ok(env, (d.water, d.lava, contacts))
         }
         Err(u) => unreadable(env, u),
-    })
-}
-
-/// Whether the eye at `eye` of a body is in water and the block there
-/// (`updateFluidOnEyes`, a mob's first base tick): `{:ok, {water, state}}`.
-#[rustler::nif]
-fn physics_eyes<'a>(
-    env: Env<'a>,
-    view_term: Term<'a>,
-    body: BoxT,
-    eye: (f64, f64, f64),
-) -> NifResult<Term<'a>> {
-    use valimc_core::physics::source::BlockSource;
-    let facts = facts()?;
-    let body = aabb(body);
-    let eye = [eye.0, eye.1, eye.2];
-    let view = view(view_term, facts, &body)?;
-    let water = match fluid::eyes(&view, facts, &body, eye) {
-        Ok(found) => found.map(|(water, _)| water).unwrap_or(false),
-        Err(u) => return Ok(unreadable(env, u)),
-    };
-    let p = eye.map(|v| v.floor() as i32);
-    Ok(match view.state(p[0], p[1], p[2]) {
-        Some(state) => ok(env, (water, state)),
-        None => rustler::types::atom::error().encode(env),
     })
 }
 

@@ -53,7 +53,7 @@ pub struct MobFacts {
     /// Consumable items' defaults by item id (`Valimc.Living.FoodItems`),
     /// where given.
     pub food: HashMap<i32, FoodItem>,
-    /// The ender dragon's facts (`Valimc.AI.Dragon.Facts`), where given.
+    /// The ender dragon's facts (`dragon_facts.json`), where given.
     pub dragon: Option<crate::mobs::boss::dragon::DragonFacts>,
 }
 

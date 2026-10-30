@@ -1,8 +1,8 @@
-//! The dragon's brain as the Elixir keeps it in its body's `brain` field:
-//! `%Valimc.AI.Dragon.Actor{}` holding `%Valimc.AI.Dragon.Phases{}` and
-//! `%Valimc.AI.Dragon.Flight{}`, every field the term the Elixir writes
-//! (integers where it keeps integers, floats where it keeps floats), so a
-//! native dragon's record equals an Elixir one's.
+//! The dragon's brain as its record keeps it in its body's `brain` field:
+//! a map tagged `Valimc.Entity.Dragon.Actor` (its `__struct__` key) holding
+//! maps tagged `Valimc.Entity.Dragon.Phases` and `Valimc.Entity.Dragon.Flight`,
+//! integers and floats as vanilla's fields are; the owner reads its phase
+//! and part boxes from them (`Valimc.Entity.Dragon`).
 
 use super::actor::Actor;
 use super::flight::Flight;
@@ -11,9 +11,9 @@ use super::phases::{PhaseEffect, Phases};
 use crate::mobs::random::LegacyRandom;
 use crate::mobs::term::{Map, Value, NIL};
 
-pub const ACTOR: &str = "Elixir.Valimc.AI.Dragon.Actor";
-pub const PHASES: &str = "Elixir.Valimc.AI.Dragon.Phases";
-pub const FLIGHT: &str = "Elixir.Valimc.AI.Dragon.Flight";
+pub const ACTOR: &str = "Elixir.Valimc.Entity.Dragon.Actor";
+pub const PHASES: &str = "Elixir.Valimc.Entity.Dragon.Phases";
+pub const FLIGHT: &str = "Elixir.Valimc.Entity.Dragon.Flight";
 
 fn opt_vec3(v: Option<[f64; 3]>) -> Value {
     Value::or_nil(v, Value::vec3)

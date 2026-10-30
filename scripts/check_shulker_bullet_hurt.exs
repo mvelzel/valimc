@@ -12,6 +12,7 @@ end
 
 point = fn list -> list |> Enum.map(double) |> List.to_tuple() end
 sound_id = Data.id(:play, :clientbound, "sound")
+sound_ids = Valimc.Data.Facts.read!("registry/ai_facts.json")["sounds"]
 
 for row <- rows do
   at = {x, y, z} = point.(row["position"])
@@ -72,7 +73,7 @@ for row <- rows do
         case event do
           {:sound, name, source, position, volume, pitch} ->
             CombatPackets.sound(
-              Valimc.AI.Facts.sound_id(name),
+              Map.fetch!(sound_ids, name),
               source,
               position,
               volume,

@@ -1,13 +1,11 @@
-# `--native` (VMC-081d): each scene's phases set, strafe and tick as the
-# native dragon's (`Native.dragon_oracle_phases/3`) over the same hand-built
-# env (its graph's heights, podium, crystals, players, sight and ground).
-alias Valimc.AI.{Random, Dragon.Flight, Dragon.Paths, Dragon.Phases}
-
-{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
-native? = native != []
-[file] = argv
+# Each scene's phases set, strafe and tick as the native dragon's
+# (`Native.dragon_oracle_phases/3`) over a hand-built env: its graph's
+# heights, podium, crystals, players, sight and ground. The phases are the
+# term the dragon's record keeps (maps tagged `Valimc.Entity.Dragon.Phases` and
+# `.Flight`).
+[file] = System.argv()
 raw = file |> File.read!() |> JSON.decode!()
-if native?, do: Valimc.Entity.NativeMobs.install!()
+Valimc.Entity.MobFacts.install!()
 
 true =
   raw["version"] == "26.3" and raw["server_sha1"] == "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"
@@ -32,31 +30,58 @@ defmodule DragonPhaseCheck do
 
   def equal(actual, expected, label),
     do: raise("#{label}: #{inspect(actual)} differs from #{inspect(expected)}")
+
+  # The phases term of a fresh dragon flying from `position` at yaw 25.
+  def phases(position, random) do
+    flight = %{
+      __struct__: Valimc.Entity.Dragon.Flight,
+      position: position,
+      velocity: {0.0, 0.0, 0.0},
+      yaw: 25.0,
+      turn: 0.0,
+      history: nil,
+      parts: Tuple.duplicate({0.0, 0.0, 0.0}, 8)
+    }
+
+    %{
+      __struct__: Valimc.Entity.Dragon.Phases,
+      phase: 10,
+      flight: flight,
+      random: random,
+      target: nil,
+      leaving: nil,
+      path: nil,
+      clockwise: %{0 => false, 1 => false},
+      ticks: 0,
+      flames: 0,
+      attack: nil,
+      charge: 0,
+      first: true,
+      flame_live: false,
+      head_yaw: 25.0,
+      pitch: 0.0,
+      effects: []
+    }
+  end
 end
 
 for row <- raw["cases"] do
-  env = %{
-    graph: Paths.graph(fn _, _ -> 90 end),
-    podium: {0, 90, 0},
-    crystals: if(row["crystals"] < 0, do: nil, else: row["crystals"]),
-    players:
-      Enum.map(
-        row["players"],
-        &%{id: &1["id"], position: List.to_tuple(&1["position"]), height: &1["height"]}
-      ),
-    visible: fn _ -> row["scene"] != 3 end,
-    solid: fn {_, y, _} -> y < if(row["scene"] == 3, do: 0, else: 70) end
-  }
+  podium = {0, 90, 0}
+  crystals = if(row["crystals"] < 0, do: nil, else: row["crystals"])
 
-  flight = %Flight{position: List.to_tuple(row["position"]), yaw: 25.0}
+  all_players =
+    Enum.map(
+      row["players"],
+      &%{id: &1["id"], position: List.to_tuple(&1["position"]), height: &1["height"]}
+    )
 
-  # The native scene: the same graph heights, podium, crystals and players,
-  # its sight as `visible`, its ground below where `solid` says.
+  # The scene: every graph height 90, the podium, crystals and players, its
+  # sight, its ground below y 70 (below 0 in scene 3).
   scene = fn players, collision ->
     %{
       height: 90,
-      podium: env.podium,
-      crystals: env.crystals,
+      podium: podium,
+      crystals: crystals,
       players: players,
       sees: row["scene"] != 3,
       floor: if(row["scene"] == 3, do: 0, else: 70),
@@ -71,46 +96,26 @@ for row <- raw["cases"] do
     state
   end
 
-  start = %Phases{flight: flight, head_yaw: 25.0, random: Random.new(4519 + row["scene"])}
-
-  state =
-    if native?,
-      do: native.(start, {:set, row["start_phase"]}, env.players, false),
-      else: Phases.set(start, row["start_phase"])
-
-  player = List.first(env.players)
+  random = Valimc.Data.JavaRandom.new(4519 + row["scene"])
+  start = DragonPhaseCheck.phases(List.to_tuple(row["position"]), random)
+  state = native.(start, {:set, row["start_phase"]}, all_players, false)
+  player = List.first(all_players)
 
   state =
     cond do
-      state.phase == 1 and player != nil and native? ->
-        native.(state, {:strafe, player}, env.players, false)
-
-      state.phase == 1 and player ->
-        Phases.strafe(state, player, env)
-
-      state.phase == 8 and player ->
-        %{state | target: player.position}
-
-      true ->
-        state
+      state.phase == 1 and player != nil -> native.(state, {:strafe, player}, all_players, false)
+      state.phase == 8 and player -> %{state | target: player.position}
+      true -> state
     end
 
   Enum.with_index(row["ticks"])
   |> Enum.reduce(state, fn {tick, index}, state ->
     players =
       if tick["player_present"],
-        do: Enum.map(env.players, &%{&1 | position: List.to_tuple(tick["player_position"])}),
+        do: Enum.map(all_players, &%{&1 | position: List.to_tuple(tick["player_position"])}),
         else: []
 
-    state =
-      if native? do
-        native.(state, {:tick, false}, players, tick["collision"])
-      else
-        Phases.tick(
-          state,
-          env |> Map.put(:players, players) |> Map.put(:collision, tick["collision"])
-        )
-      end
+    state = native.(state, {:tick, false}, players, tick["collision"])
 
     label =
       "start #{row["start_phase"]} scene #{row["scene"]} crystals #{row["crystals"]} tick #{index}"
@@ -137,8 +142,7 @@ for row <- raw["cases"] do
         ],
         do: DragonPhaseCheck.equal(actual, tick[key], label <> " " <> key)
 
-    boxes = if native?, do: Process.get(:dragon_boxes), else: Flight.boxes(state.flight)
-    DragonPhaseCheck.equal(boxes, tick["parts"], label <> " parts")
+    DragonPhaseCheck.equal(Process.get(:dragon_boxes), tick["parts"], label <> " parts")
 
     effects =
       for effect <- state.effects,
@@ -173,6 +177,5 @@ for row <- raw["cases"] do
 end
 
 IO.puts(
-  "PASS: #{length(raw["cases"])} native dragon phase sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, paths, random, fireballs and breath" <>
-    if(native?, do: ", every tick the native dragon's", else: "")
+  "PASS: #{length(raw["cases"])} native dragon phase sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["ticks"])))} ticks, paths, random, fireballs and breath, every tick the native dragon's"
 )

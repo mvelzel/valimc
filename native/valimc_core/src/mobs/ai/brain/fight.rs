@@ -195,12 +195,37 @@ pub fn within_attack_range(t: &Turn, target: &Seen, buffer: i32) -> bool {
     }
 }
 
-/// `isHoldingUsableNonMeleeWeapon` as the Elixir reads it: a crossbow (the
-/// spears' kinetic weapon component it looks for is never among the items'
-/// default components it reads).
-fn non_melee(t: &Turn) -> bool {
+/// `isHoldingUsableNonMeleeWeapon`: a hand holds what its type can use
+/// that way (`canUseNonMeleeWeapon`): a piglin's crossbow or a weapon with
+/// the kinetic weapon component (a spear); none for other mobs.
+pub(crate) fn non_melee(t: &Turn) -> bool {
+    if t.mob.body.entity_type != "minecraft:piglin" {
+        return false;
+    }
     let crossbow = item(t, "minecraft:crossbow");
-    crossbow.is_some() && held(t).contains(&crossbow)
+    let equipment = &t.mob.body.mob.equipment;
+    [Slot::Mainhand, Slot::Offhand].iter().any(|&slot| {
+        let Some(stack) = equipment.get(slot) else {
+            return false;
+        };
+        let id = item_id(stack);
+        id.is_some() && (id == crossbow || kinetic(t, stack))
+    })
+}
+
+/// `ItemStack.has(DataComponents.KINETIC_WEAPON)`: its own component, else
+/// its item's stock one, unless the stack removes it.
+fn kinetic(t: &Turn, stack: &crate::mobs::term::Value) -> bool {
+    use crate::mobs::living::items;
+    const KINETIC: &str = "minecraft:kinetic_weapon";
+    if items::removed(stack, KINETIC) {
+        return false;
+    }
+    items::component(stack, KINETIC).is_some()
+        || t.ctx
+            .as_ref()
+            .zip(items::item_id(stack))
+            .is_some_and(|(ctx, id)| ctx.rules.living.item(id).kinetic_default)
 }
 
 /// `MeleeAttack.create(predicate, cooldown)`: a target in sight within

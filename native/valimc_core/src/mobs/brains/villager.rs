@@ -1256,16 +1256,16 @@ fn nearest_bed(t: &mut Turn) {
     }
 }
 
-/// `SecondaryPoiSensor`: its trade's secondary blocks 4 around and 2 up
-/// and down. The Elixir compares a block's name without its namespace to
-/// the facts' namespaced names, so it finds none: this does as it does.
+/// `SecondaryPoiSensor`: its profession's secondary blocks (a farmer's
+/// farmland) 4 around and 2 up and down; none found erases the memory.
 fn secondary_pois(t: &mut Turn) {
-    let blocks = t
+    let registry = &t.level.facts.blocks;
+    let blocks: Vec<u16> = t
         .level
         .facts
         .village
         .profession(&profession(t.data()))
-        .map(|p| p.secondary.clone())
+        .map(|p| p.secondary.iter().filter_map(|b| registry.id(b)).collect())
         .unwrap_or_default();
     let [cx, cy, cz] = t.block();
     let mut sites = Vec::new();
@@ -1274,23 +1274,22 @@ fn secondary_pois(t: &mut Turn) {
             for y in -2..=2 {
                 for z in -4..=4 {
                     let pos = [cx + x, cy + y, cz + z];
-                    let Some(state) = t.level.block(pos) else {
-                        continue;
-                    };
-                    let facts = &t.level.facts.blocks;
-                    let name = facts
-                        .block_id(state)
-                        .and_then(|b| facts.block(b))
-                        .map(|b| b.name.trim_start_matches("minecraft:"))
-                        .unwrap_or("");
-                    if blocks.iter().any(|b| b == name) {
+                    let block = t
+                        .level
+                        .block(pos)
+                        .and_then(|state| t.level.facts.blocks.block_id(state));
+                    if block.is_some_and(|b| blocks.contains(&b)) {
                         sites.push(poi::global(t, pos));
                     }
                 }
             }
         }
     }
-    t.remember(Mem::SecondaryJobSite, MemValue::Globals(sites));
+    if sites.is_empty() {
+        t.forget(Mem::SecondaryJobSite);
+    } else {
+        t.remember(Mem::SecondaryJobSite, MemValue::Globals(sites));
+    }
 }
 
 // ## Its behaviours

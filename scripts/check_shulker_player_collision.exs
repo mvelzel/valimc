@@ -1,10 +1,11 @@
-alias Valimc.Entity.Body
+alias Valimc.Entity.{Body, MobFacts, Store}
 alias Valimc.Player.{Kinetics, GameMode, Abilities, Input}
 alias Valimc.Physics.Kernel
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 unless length(cases) == 840, do: raise("Incomplete player/shulker collision fixtures")
 Valimc.Data.BlockFacts.install!()
+MobFacts.install!()
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -26,11 +27,11 @@ for row <- cases do
   body = %{body | data: %{body.data | attach_face: row["face"], peek_amount: float.(row["peek"])}}
   body = if row["dead"], do: put_in(body.mob.living.health.value, 0.0), else: body
 
-  boxes =
-    case Valimc.AI.Mobs.Shulker.collider(body, {0.5, 64.0, 0.5}) do
-      nil -> []
-      box -> [box]
-    end
+  # The box its native family blocks others with (a living shulker's).
+  {_, collider} =
+    Valimc.Native.mob_oracle_body_kernel(Store.body_record(body, <<1::128>>, {0.5, 64.0, 0.5}))
+
+  boxes = if collider, do: [collider], else: []
 
   {x, y, z} = point.(row["position"])
   {dx, dy, dz} = point.(row["motion"])

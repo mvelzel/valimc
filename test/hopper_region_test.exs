@@ -436,6 +436,29 @@ defmodule Valimc.DispenserRegionTest do
     assert Enum.any?(entities(ctx.owner, :object), &(&1.body.type == "minecraft:tnt"))
   end
 
+  test "a dispenser puts armour on the mob in front that picks up loot", ctx do
+    {x, z} = {ctx.x + 50, ctx.z + 20}
+    {dispenser, power, front} = {{x, 66, z}, {x, 66, z - 1}, {x + 1, 66, z}}
+    stone = BlockRegistry.default_state("stone")
+    set(ctx.owner, %{dispenser => machine("dispenser", "east"), {x + 1, 65, z} => stone})
+
+    {:ok, body} = Valimc.Entity.Body.new("minecraft:zombie")
+    body = %{body | mob: %{body.mob | can_pick_up_loot: true, no_ai: true}}
+    {fx, fy, fz} = front
+    record = Valimc.Entity.Store.body_record(body, <<77::128>>, {fx + 0.5, fy * 1.0, fz + 0.5})
+    :ok = Region.drop_items(ctx.owner, [record])
+
+    fill(ctx.owner, dispenser, [ItemStack.new("iron_helmet")])
+    fire(ctx.owner, power)
+    assert slots(ctx.owner, dispenser) |> Enum.all?(&is_nil/1)
+
+    [zombie] = entities(ctx.owner, :mob)
+    worn = Valimc.TestBodies.body(zombie)
+    assert worn.mob.equipment[:head].item_id == ItemStack.new("iron_helmet").item_id
+    assert worn.mob.drop_chances == %{head: 2.0} and worn.mob.persistent
+    assert entities(ctx.owner, :item) == []
+  end
+
   test "a dispenser's bone meal grows a crop; on stone it fails and stays", ctx do
     {x, z} = {ctx.x + 60, ctx.z + 20}
     {dispenser, power, crop, soil} = {{x, 65, z}, {x, 65, z - 1}, {x + 1, 65, z}, {x + 1, 64, z}}

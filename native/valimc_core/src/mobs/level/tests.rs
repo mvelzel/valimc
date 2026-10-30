@@ -1,6 +1,6 @@
 //! The level's predicates over a made-up state table: air, stone, a water
-//! source, a fence and a shulker box. The ExUnit parity test compares them
-//! with `Valimc.AI.World` over generated terrain.
+//! source, a fence and a shulker box (the vanilla stages check the level
+//! over real terrain).
 
 use super::*;
 use crate::mobs::facts::tests::fixture;

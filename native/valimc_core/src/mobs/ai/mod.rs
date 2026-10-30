@@ -34,6 +34,7 @@ pub mod random_pos;
 pub mod selector;
 pub mod shapes;
 pub mod spawn;
+pub mod spawn_group;
 pub mod think;
 pub mod turn;
 

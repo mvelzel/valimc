@@ -1,5 +1,5 @@
 //! One dragon's free flight and its eight part positions
-//! (`Valimc.AI.Dragon.Flight`, vanilla's `EnderDragon.aiStep` movement):
+//! (vanilla's `EnderDragon.aiStep` movement):
 //! its height and yaw recorded before a phase picks the target, then one
 //! steer toward it. The parts share its 64-sample history; they are boxes,
 //! never separate owners.

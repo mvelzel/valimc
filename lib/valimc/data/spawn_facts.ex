@@ -20,8 +20,9 @@ defmodule Valimc.Data.SpawnFacts do
   @types @facts["types"]
   @dimensions @facts["dimensions"]
 
-  @doc "Whether a mob of `type` breathes under water (`canBreatheUnderwater`)."
-  def water_breather?(type), do: match?(%{"water_breather" => true}, @types[type])
+  @doc "The types that breathe under water (`canBreatheUnderwater`)."
+  def water_breathers,
+    do: for({name, %{"water_breather" => true}} <- @types, do: name)
 
   @doc "A dimension's spawn facts (string keys), or nil."
   def dimension(name), do: @dimensions[name]

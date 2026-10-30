@@ -51,16 +51,12 @@ defmodule Valimc.Native do
     physics_items: {120, :physics_items_dirty},
     # An orb tick scans as an item tick does.
     physics_orbs: {120, :physics_orbs_dirty},
-    # Per cell a mob tick scans (`Physics.Kernel.mobs/4` estimates them): its
-    # move, fluid, footing and contact scans, as an item's (VMC-015i).
-    physics_mobs: {120, :physics_mobs_dirty},
     # Per supplied cell a mob ticker's view decodes (oracles and benches;
     # published rows decode nothing), VMC-043e.
     physics_mobs_begin: {100, :physics_mobs_begin_dirty},
-    # Per cell one mob's step scans, as `physics_mobs`.
+    # Per cell one mob's step scans: its move, fluid, footing and contact
+    # scans, as an item's (VMC-015i).
     physics_mobs_step: {120, :physics_mobs_step_dirty},
-    # One fluid scan plus eye checks over the ticker's existing view.
-    physics_mobs_sense: {120, :physics_mobs_sense_dirty},
     # A primed TNT or falling block scans as an item does (VMC-050a).
     physics_block_bodies: {120, :physics_block_bodies_dirty},
     # Per cell a projectile tick's ray and fluid scans read (VMC-037o).
@@ -68,14 +64,13 @@ defmodule Valimc.Native do
     # Per simulated chunk: its categories' starts and packs, with the
     # despawn checks over resident inputs (`World.Spawning`, VMC-081g2).
     mob_world_spawn: {2_000, :mob_world_spawn_dirty},
-    # Per node a path search may visit (`Valimc.AI.Paths`, VMC-041b): its
+    # Per node a path search may visit (VMC-041b): its
     # neighbours' path types over the mob's box, each a few block reads; a
     # zombie's search that visits all 560 took at most 0.86 ms.
     path_find: {2_500, :path_find_dirty},
     # Per mob of a section's native tick (VMC-081d): its ageing-free turn
     # (sense, think, kernel step, vitals) and its change report.
     mob_section_tick: {10_000, :mob_section_tick_dirty},
-    mob_section_resume: {10_000, :mob_section_resume_dirty},
     # Per generated column installed from its handle (VMC-081c2): its light
     # crossing its faces into the known chunks beside it, about 50 µs on the
     # development Mac; a ring chunk sent as an image without light is lit
@@ -259,8 +254,6 @@ defmodule Valimc.Native do
 
   def physics_items(_view, _items, _border, _refresh), do: :erlang.nif_error(:nif_not_loaded)
   def physics_orbs(_view, _orbs, _border), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_mobs(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_mobs_dirty(_view, _mobs, _players, _border), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_mobs_begin(_view, _mobs, _players, _border, _colliders \\ []),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -270,9 +263,6 @@ defmodule Valimc.Native do
 
   def physics_mobs_step(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_step_dirty(_ticker, _index, _mob), do: :erlang.nif_error(:nif_not_loaded)
-
-  def physics_mobs_sense(_ticker, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_mobs_sense_dirty(_ticker, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
 
   def physics_mobs_displace(_ticker, _index, _mob, _delta),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -286,18 +276,11 @@ defmodule Valimc.Native do
   def physics_mobs_collider(_ticker, _index, _position, _box),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def physics_mobs_velocity(_ticker, _index, _velocity), do: :erlang.nif_error(:nif_not_loaded)
   def physics_mobs_finish(_ticker), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Native mobs (VMC-081d)
 
   def mob_kinds, do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_think(_region, _zoom_seed, _record_facts, _scene),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_dragon(_region, _zoom_seed, _record_facts, _scene),
-    do: :erlang.nif_error(:nif_not_loaded)
 
   def dragon_oracle_flight(_flight, _target, _phase, _wall, _no_ai),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -305,15 +288,6 @@ defmodule Valimc.Native do
   def dragon_oracle_paths(_scene, _closest, _finds), do: :erlang.nif_error(:nif_not_loaded)
   def dragon_oracle_phases(_phases, _op, _scene), do: :erlang.nif_error(:nif_not_loaded)
   def dragon_oracle_actor(_section, _id, _op, _scene), do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_interact(_record_facts, _record, _item, _player, _infinite, _leash, _loot),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_convert(_record_facts, _record, _uuid, _to, _special),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_death_drops(_record_facts, _record), do: :erlang.nif_error(:nif_not_loaded)
-  def mob_parity_split(_record_facts, _record, _uuids), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_record_facts(_facts), do: :erlang.nif_error(:nif_not_loaded)
   def mob_record_roundtrip(_facts, _record), do: :erlang.nif_error(:nif_not_loaded)
@@ -325,6 +299,10 @@ defmodule Valimc.Native do
   def mob_section_info(_section), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_insert(_section, _entries, _written), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_row(_record), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_fresh(_type), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_finalize(_entries, _randoms), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_leashable, do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_properties(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_records(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_withdraw(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_take(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
@@ -341,16 +319,10 @@ defmodule Valimc.Native do
 
   def mob_world_set(_world, _changes), do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_tick(_section, _source, _tick, _mask, _random, _entrants, _extra),
+  def mob_section_tick(_section, _source, _tick, _mask, _random, _extra),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_tick_dirty(_section, _source, _tick, _mask, _random, _entrants, _extra),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_section_resume(_section, _ticker, _from, _random, _resense),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_section_resume_dirty(_section, _ticker, _from, _random, _resense),
+  def mob_section_tick_dirty(_section, _source, _tick, _mask, _random, _extra),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_age_tick(_section, _tick, _budget, _min_y),
@@ -369,10 +341,8 @@ defmodule Valimc.Native do
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_settle(_section, _kept), do: :erlang.nif_error(:nif_not_loaded)
-  def mob_section_hurt(_section, _ticker, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_section_hit(_section, _ticker, _id, _hit, _push),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_hurt(_section, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_hit(_section, _id, _hit, _push), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_kills(_section, _id, _hit), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_kill(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
@@ -389,20 +359,16 @@ defmodule Valimc.Native do
       ),
       do: :erlang.nif_error(:nif_not_loaded)
 
-  def mob_section_push(_section, _ticker, _id, _impulse), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_push(_section, _id, _impulse), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_blast(_section, _id, _source, _amount, _impulse),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_name(_section, _id, _name), do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_section_motion(_section, _ticker, _id, _position, _velocity, _on_ground, _rotation),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_equip(_section, _id, _slot, _stack), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_sync(_section, _id, _position, _rotation, _velocity, _on_ground, _cooldown),
     do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_section_displace(_section, _ticker, _id, _delta), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_cooldown(_section, _id, _ticks), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_effect(_section, _id, _action), do: :erlang.nif_error(:nif_not_loaded)
@@ -446,6 +412,20 @@ defmodule Valimc.Native do
   def mob_section_oracle_minds(_section, _ids), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_mind(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_health(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
+
+  # One native mob's body for the vanilla stages: kernel input, hooks, travel traces.
+  def mob_oracle_body_kernel(_record), do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_oracle_body_opening(_face, _previous, _current, _at),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def mob_oracle_body_turn(_section, _id, _hook, _scene), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_oracle_body_travel(_view, _mobs, _ticks), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Spawns, breedings and packs of mobs made as the AI stages' oracles make them.
+  def mob_oracle_ai_spawn(_record, _scene, _loot, _death), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_oracle_ai_breed(_parent, _partner, _random), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_oracle_ai_finalize(_entries, _randoms), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Path search (VMC-041b)
 
@@ -612,7 +592,6 @@ defmodule Valimc.Native do
 
   # A mob's initial body and eye fluid samples, before its first travel tick.
   def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
-  def physics_eyes(_view, _body, _eye), do: :erlang.nif_error(:nif_not_loaded)
 
   ## Parity and benchmarks (dev, test and bench builds)
 
@@ -715,20 +694,4 @@ defmodule Valimc.Native do
 
   def worldgen_structure_time(_state, _biome_source, _origin, _size),
     do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_fact(_query), do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_level(_region, _zoom_seed, _darken, _queries),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_sight(_region, _pairs), do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_sensing(_region, _difficulty, _seer, _players, _mobs, _queries),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_living(_record_facts, _record, _op), do: :erlang.nif_error(:nif_not_loaded)
-
-  def mob_parity_ai_think(_region, _zoom_seed, _scene), do: :erlang.nif_error(:nif_not_loaded)
-  def mob_parity_ai_random(_region, _zoom_seed, _cases), do: :erlang.nif_error(:nif_not_loaded)
-  def mob_parity_ai_controls(_region, _zoom_seed, _cases), do: :erlang.nif_error(:nif_not_loaded)
 end

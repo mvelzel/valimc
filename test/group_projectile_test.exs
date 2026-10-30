@@ -1,6 +1,5 @@
 defmodule Valimc.GroupProjectileTest do
   use ExUnit.Case, async: true
-  alias Valimc.AI.Dragon.{Flight, Phases}
   alias Valimc.Entity.{Body, EffectCloud, Projectile, Store}
   alias Valimc.Storage.{Log, RegionLog}
   alias Valimc.TestScope
@@ -193,7 +192,12 @@ defmodule Valimc.GroupProjectileTest do
     owner = {c.pa, c.ea}
 
     {_, delta} =
-      Valimc.AI.Mobs.Shulker.opening(4, 0.5, Valimc.Data.Float32.round(0.55), {0.0, 0.0, 0.0})
+      Valimc.Native.mob_oracle_body_opening(
+        4,
+        0.5,
+        Valimc.Data.Float32.round(0.55),
+        {0.0, 0.0, 0.0}
+      )
 
     dx = elem(delta, 0)
 
@@ -225,7 +229,12 @@ defmodule Valimc.GroupProjectileTest do
     motion = %Valimc.Entity.ItemMotionState{no_gravity: true}
 
     {_, {dx, _, _}} =
-      Valimc.AI.Mobs.Shulker.opening(4, 0.5, Valimc.Data.Float32.round(0.55), {0.0, 0.0, 0.0})
+      Valimc.Native.mob_oracle_body_opening(
+        4,
+        0.5,
+        Valimc.Data.Float32.round(0.55),
+        {0.0, 0.0, 0.0}
+      )
 
     for {source, target, sign, face, base} <- [{a, b, 1, 4, 731}, {b, a, -1, 5, 751}],
         {kind, offset, half, n} <- [
@@ -349,14 +358,10 @@ defmodule Valimc.GroupProjectileTest do
     dragons =
       for {phase, n, offset} <- [{6, 510, 20.5}, {0, 511, 44.5}] do
         at = {c.edge + 1.5, 80.0, c.z + offset}
-        flight = Flight.step(%Flight{position: at, yaw: -90.0}, nil, phase)
+        {phases, _} = Valimc.TestBodies.dragon_phases(phase, at, -90.0)
+        flight = phases.flight
         body = body("minecraft:ender_dragon")
-
-        body = %{
-          body
-          | yaw: -90.0,
-            data: %{body.data | phase: phase, brain: %Phases{phase: phase, flight: flight}}
-        }
+        body = %{body | yaw: -90.0, data: %{body.data | phase: phase, brain: phases}}
 
         {record(body, n, at), elem(flight.parts, 0)}
       end

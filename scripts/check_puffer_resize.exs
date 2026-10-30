@@ -1,8 +1,9 @@
-alias Valimc.AI.{Facts, Mind, Self, World}
-alias Valimc.Entity.Body
+alias Valimc.Entity.{Body, MobFacts, Store}
+alias Valimc.Native
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 unless length(cases) >= 500, do: raise("Incomplete pufferfish resize fixtures")
+MobFacts.install!()
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -14,35 +15,28 @@ air = Valimc.Data.Blocks.default_state("air")
 for row <- cases do
   {:ok, body} = Body.new("minecraft:pufferfish")
   body = %{body | data: %{body.data | puff: row["old"]}}
-  {width, height, eye} = Body.dimensions(body)
   [x, y, z] = Enum.map(row["before"], double)
-  cells = Map.new(row["cells"], fn [x, y, z, state] -> {{x, y, z}, state} end)
+  section = Native.mob_section_oracle_new()
 
-  self =
-    Valimc.AI.Mobs.Pufferfish.tick_start(%Self{
-      type: body.type,
-      uuid: <<1::128>>,
-      x: x,
-      y: y,
-      z: z,
-      width: width,
-      height: height,
-      eye: eye,
-      data: body.data,
-      mob: body.mob,
-      facts: Facts.mob(body.type),
-      mind: %Mind{
-        random: Valimc.AI.Random.new(7),
-        own: %{inflate: if(row["old"] == 0, do: 1, else: 41), deflate: 0}
-      },
-      world: %World{
-        read: &Map.get(cells, &1, air),
-        border: row["border"] && List.to_tuple(row["border"])
-      }
+  {:ok, _} =
+    Native.mob_section_insert(
+      section,
+      [{1, Store.body_record(body, <<1::128>>, {x, y, z})}],
+      false
+    )
+
+  # `Pufferfish.tick` before its super, inflating from its old puff.
+  {{ax, ay, az}, _row, {width, height, eye}, _, _, _} =
+    Native.mob_oracle_body_turn(section, 1, :tick_start, %{
+      cells: row["cells"],
+      air: air,
+      border: row["border"] && List.to_tuple(row["border"]),
+      random: 7,
+      inflate: if(row["old"] == 0, do: 1, else: 41)
     })
 
   expected = Enum.map(row["after"], double)
-  actual = [self.x, self.y, self.z]
+  actual = [ax, ay, az]
 
   if actual != expected,
     do:
@@ -55,7 +49,7 @@ for row <- cases do
     n
   end
 
-  true = Enum.map([self.width, self.height, self.eye], bits) == row["dimensions"]
+  true = Enum.map([width, height, eye], bits) == row["dimensions"]
 end
 
 IO.puts("PASS: #{length(cases)} native pufferfish collision-resize positions and dimensions")

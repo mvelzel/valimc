@@ -208,6 +208,11 @@ impl EntityTypes {
     pub fn name(&self, id: u16) -> Option<&str> {
         self.get(id).map(|t| t.name.as_str())
     }
+
+    /// Every type, in registry id order.
+    pub fn types(&self) -> impl Iterator<Item = &EntityType> {
+        self.types.iter()
+    }
 }
 
 /// An attribute's registry facts (`Attributes.fetch/1`).

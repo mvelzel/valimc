@@ -3,9 +3,13 @@ alias Valimc.Entity.ItemMotionState
 alias Valimc.Physics.BlockScan
 alias Valimc.Data.Box
 alias Valimc.World.ItemStep
+alias Valimc.Entity.{MobFacts, Store}
+alias Valimc.Native
 [path] = System.argv()
 cases = path |> File.read!() |> :json.decode()
 unless length(cases) == 12960, do: raise("Incomplete native travel traces")
+MobFacts.install!()
+{:ok, dolphin} = Valimc.Entity.Body.new("minecraft:dolphin")
 
 # The cells an item tick may read: its body grown by the current, gravity and
 # buoyancy envelope (the scan adds its halo).
@@ -55,29 +59,26 @@ for {row, index} <- Enum.with_index(cases) do
   {:ok, travel} = result
   {x, y, z} = travel.position
 
+  # A native dolphin where the item ended up, sensing it.
   sensed = %{
-    kind: :item,
     uuid: <<1::128>>,
-    x: x,
-    y: y,
-    z: z,
-    width: 0.25,
-    height: 0.25,
+    position: {x, y, z},
     count: 3,
     pickup_delay: 0,
     in_water: travel.motion.in_water
   }
 
-  self = %Valimc.AI.Self{
-    x: x,
-    y: y,
-    z: z,
-    width: 0.9,
-    height: 0.6,
-    world: %Valimc.AI.World{items: [sensed], read: fn p -> states[p] end}
-  }
+  section = Native.mob_section_oracle_new()
 
-  allowed = Valimc.AI.Mobs.Dolphin.items(self) != []
+  {:ok, _} =
+    Native.mob_section_insert(
+      section,
+      [{1, Store.body_record(dolphin, <<2::128>>, {x, y, z})}],
+      false
+    )
+
+  {_, _, _, _, _, ready} = Native.mob_oracle_body_turn(section, 1, :items, %{items: [sensed]})
+  allowed = ready > 0
 
   unless allowed == row["after"]["play_ready"],
     do: raise("Dolphin native item predicate mismatch #{index}")

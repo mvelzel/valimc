@@ -1,5 +1,5 @@
-//! Sensing over small scenes (the ExUnit parity test compares it with
-//! `Valimc.AI.World` over generated terrain).
+//! Sensing over small scenes (the vanilla stages check it over real
+//! terrain).
 
 use super::*;
 use crate::mobs::facts::tests::fixture;

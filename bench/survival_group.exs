@@ -190,8 +190,7 @@ defmodule Bench.SurvivalGroup do
       Valimc.Entity.Store,
       Valimc.Entity.Body,
       Valimc.Entity.MobTicks,
-      Valimc.AI,
-      Valimc.AI.World,
+      Valimc.Entity.NativeMobs,
       Valimc.Native,
       Valimc.Player.Host,
       Valimc.World.Spawning

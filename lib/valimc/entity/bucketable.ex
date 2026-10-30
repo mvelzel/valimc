@@ -5,9 +5,8 @@ defmodule Valimc.Entity.Bucketable do
   releases the body with the player's held stack in its existing callback.
   """
   import Bitwise
-  alias Valimc.AI.{Mind, Random, Self}
-  alias Valimc.Entity.{Body, Leashes, Mob}
-  alias Valimc.Entity.Animals.Interaction
+  alias Valimc.Data.{Float32, JavaRandom, Mth}
+  alias Valimc.Entity.{Body, Leashes, Mob, Store}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
 
   @types Valimc.Data.BucketFacts.types()
@@ -69,10 +68,10 @@ defmodule Valimc.Entity.Bucketable do
       sound = @types[type]["pickup_sound"]
 
       {:ok, body,
-       Interaction.outcome(
+       Leashes.outcome(
          hand: {:capture, stack},
          discard: true,
-         events: [Interaction.sound(sound, "neutral", 1.0, 1.0)],
+         events: [Leashes.sound(sound, "neutral", 1.0, 1.0)],
          drops: drops,
          free: free
        )}
@@ -123,9 +122,6 @@ defmodule Valimc.Entity.Bucketable do
     %{ItemStack.new(@types[type]["item"]) | components: components}
   end
 
-  defp cooldown(data, %Mind{brain: %{memories: memories}}),
-    do: cooldown(data, %{memories: memories})
-
   defp cooldown(data, %{memories: %{has_hunting_cooldown: {_, ttl}}}) when is_integer(ttl),
     do: Map.put(data, "HuntingCooldown", {:long, ttl})
 
@@ -168,48 +164,37 @@ defmodule Valimc.Entity.Bucketable do
     end
   end
 
-  @doc "Finalize the spawn before applying its saved components/data, keeping level random draws."
-  def spawn(stack, uuid, {x, y, z}, world) do
+  @doc """
+  `MobBucketItem.spawn` of `stack` as `uuid` at `{x, y, z}`: the spawn
+  finished for a bucket (its family's, `Native.mob_finalize/2`, on the
+  level's `random` after the facing it draws), then its saved components and
+  data. `{:ok, body, random}`.
+  """
+  def spawn(stack, uuid, at, random) do
     with {:ok, loaded} <- release(stack),
          {:ok, initial} <- Body.new(loaded.type) do
-      {f, random} = Random.float(world.random)
-      yaw = Valimc.AI.Mth.wrap(Valimc.Data.Float32.round(f * 360.0))
-      {width, height, eye} = Body.dimensions(initial)
-
-      made =
-        Valimc.AI.Spawn.finalize(%Self{
-          uuid: uuid,
-          type: initial.type,
-          x: x,
-          y: y,
-          z: z,
-          yaw: yaw,
-          head: yaw,
-          pitch: 0.0,
-          on_ground: false,
-          velocity: {0.0, 0.0, 0.0},
-          mob: %{initial.mob | finalize: :bucket},
-          mind: Valimc.AI.mind(initial.type, uuid, nil, initial.data),
-          facts: Valimc.AI.Facts.mob(initial.type),
-          width: width,
-          height: height,
-          eye: eye,
-          world: %{world | random: random},
-          data: initial.data
-        })
+      {f, random} = JavaRandom.next_float(random)
+      yaw = Mth.wrap(Float32.round(f * 360.0))
 
       initial = %{
         initial
         | yaw: yaw,
           head_yaw: yaw,
-          data: made.data,
-          mob: %{made.mob | ai: made.mind}
+          pitch: 0.0,
+          mob: %{initial.mob | finalize: :bucket}
       }
+
+      {:ok, {[{record, nil}], [random]}} =
+        Valimc.Native.mob_finalize([{0, nil, nil, Store.body_record(initial, uuid, at)}], [
+          random
+        ])
+
+      {:ok, made} = Body.restore(record)
 
       {:compound, tag} =
         ItemStack.component(stack, "minecraft:bucket_entity_data") || {:compound, %{}}
 
-      {:ok, restore(initial, stack, tag), made.world}
+      {:ok, restore(made, stack, tag), random}
     end
   end
 
@@ -269,14 +254,9 @@ defmodule Valimc.Entity.Bucketable do
         else: Map.delete(memories, :has_hunting_cooldown)
     end
 
-    case mob.ai do
-      %Mind{brain: brain} = mind ->
-        %{mob | ai: %{mind | brain: %{brain | memories: update.(brain.memories)}}}
-
-      kept ->
-        kept = kept || %{random: Random.new(:crypto.strong_rand_bytes(16))}
-        %{mob | ai: Map.put(kept, :memories, update.(Map.get(kept, :memories, %{})))}
-    end
+    <<seed::signed-64, _::binary>> = :crypto.strong_rand_bytes(16)
+    kept = mob.ai || %{random: JavaRandom.new(seed)}
+    %{mob | ai: Map.put(kept, :memories, update.(Map.get(kept, :memories, %{})))}
   end
 
   defp component(stack, name, default),

@@ -143,6 +143,9 @@ pub struct ItemFacts {
     pub max_damage: Option<i64>,
     /// Whether its stock components hold `minecraft:damage` (0).
     pub damage_default: bool,
+    /// Whether its stock components hold `minecraft:kinetic_weapon` (a
+    /// spear's).
+    pub kinetic_default: bool,
     /// The damage type its attacks deal (`Weapons.damage_type/2`).
     pub damage_type: Option<u16>,
     /// Its stock attribute modifiers in order (`Weapons.modifiers/2`).
@@ -218,6 +221,7 @@ pub struct LivingFacts {
 static NO_ITEM: ItemFacts = ItemFacts {
     max_damage: None,
     damage_default: false,
+    kinetic_default: false,
     damage_type: None,
     modifiers: Vec::new(),
 };
@@ -240,6 +244,8 @@ impl LivingFacts {
     /// The facts from the installer's map (`Valimc.Living.NativeFacts`):
     /// `enchantments` (the definitions), `items` (`protocol/items.json`'s),
     /// `damage_defaults` (item ids whose stock components hold damage),
+    /// `kinetic_defaults` (those whose stock components hold a kinetic
+    /// weapon),
     /// `combat_items` (`combat_facts`' items), `landing` (the block facts'
     /// landing column) and `water_breathers` (type names), over `mob`.
     pub fn parse(json: &Json, mob: &MobFacts) -> Result<LivingFacts, String> {
@@ -360,6 +366,11 @@ impl LivingFacts {
         }
         for id in at("damage_defaults")?.as_array()? {
             items.entry(id.as_i32()?).or_default().damage_default = true;
+        }
+        if let Some(ids) = json.get("kinetic_defaults") {
+            for id in ids.as_array()? {
+                items.entry(id.as_i32()?).or_default().kinetic_default = true;
+            }
         }
         for (name, components) in at("combat_items")?.entries()? {
             let id = mob

@@ -1,7 +1,7 @@
 defmodule Valimc.DragonTest do
   use ExUnit.Case, async: true
-  alias Valimc.AI.Dragon.{Flight, Phases}
   alias Valimc.Entity.{Body, Dragon, Ids, Projectile, Store}
+  alias Valimc.TestBodies
   alias Valimc.World.Region
 
   test "one persisted body reserves eight client parts and keeps them through handoff" do
@@ -13,7 +13,7 @@ defmodule Valimc.DragonTest do
       )
 
     assert body.data.phase == 6 and body.data.sitting_damage == 12.5 and body.data.death_time == 9
-    brain = %Phases{phase: 6, flight: Flight.step(%Flight{position: {40.0, 90.0, 40.0}}, nil, 6)}
+    {brain, boxes} = TestBodies.dragon_phases(6, {40.0, 90.0, 40.0})
     body = %{body | data: %{body.data | brain: brain}}
 
     {:ok, store, handle = {_, id, _}} =
@@ -30,16 +30,13 @@ defmodule Valimc.DragonTest do
     assert empty.entries == %{}
     {:ok, moved, {_, ^id, _}} = Store.create_record(Store.new(), {0, 0}, record)
     assert moved.entries[id].body.data.brain == brain
-    assert Dragon.boxes(moved.entries[id].body) == Flight.boxes(brain.flight)
+    assert Dragon.boxes(moved.entries[id].body) == boxes
     {:ok, restored} = Store.restore({0, 0}, [Store.record(moved.entries[id])])
     [{restored_id, restored_entry}] = Map.to_list(restored.entries)
     assert restored_id > next and restored_entry.body.data == body.data
     {:ok, after_restore} = Ids.next()
     assert after_restore > restored_id + 8
     assert Body.kill(body) == :remove
-    body = put_in(body.mob.living.health.value, 0.0)
-    {_, events, done} = Enum.reduce(1..25, {body, [], false}, fn _, {b, _, _} -> Body.tick(b) end)
-    assert events == [] and not done
   end
 
   test "the owner rejects and ignites a perched arrow, then accepts a head hit in flight" do
@@ -57,12 +54,13 @@ defmodule Valimc.DragonTest do
     {sx, sz} = key
     at = {sx * 128 + 40.0, 80.0, sz * 128 + 40.0}
     {:ok, body} = Body.new("minecraft:ender_dragon")
-    flight = Flight.step(%Flight{position: at}, nil, 6)
+    {phases, _} = TestBodies.dragon_phases(6, at)
+    flight = phases.flight
 
     body = %{
       body
       | mob: %{body.mob | no_ai: true},
-        data: %{body.data | phase: 6, brain: %Phases{phase: 6, flight: flight}}
+        data: %{body.data | phase: 6, brain: phases}
     }
 
     :ok = Region.drop_items(owner, [Store.body_record(body, <<62::128>>, at)])
@@ -99,7 +97,6 @@ end
 defmodule Valimc.DragonConnectionTest do
   use ExUnit.Case, async: false
   @moduletag :tcp
-  alias Valimc.AI.Dragon.{Flight, Phases}
   alias Valimc.Entity.{Body, Store}
   alias Valimc.Menus.Inventory
   alias Valimc.Protocol.{ItemStack, Wire}
@@ -124,12 +121,12 @@ defmodule Valimc.DragonConnectionTest do
     {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
     at = {ctx.pose.x + 2.0, 64.0, ctx.pose.z + 6.5}
     {:ok, body} = Body.new("minecraft:ender_dragon")
-    flight = Flight.step(%Flight{position: at}, nil, 6)
+    {phases, _} = Valimc.TestBodies.dragon_phases(6, at)
 
     body = %{
       body
       | mob: %{body.mob | no_ai: true},
-        data: %{body.data | phase: 6, brain: %Phases{phase: 6, flight: flight}}
+        data: %{body.data | phase: 6, brain: phases}
     }
 
     :ok = Region.drop_items(owner, [Store.body_record(body, <<66::128>>, at)])

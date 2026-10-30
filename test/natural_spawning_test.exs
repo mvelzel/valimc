@@ -410,7 +410,7 @@ defmodule Valimc.NaturalSpawningTest do
 
     sections =
       Map.new(owners, fn {key, owner} ->
-        {key, %{Valimc.TestRegion.section(owner) | ai_random: Valimc.AI.Random.new(13)}}
+        {key, %{Valimc.TestRegion.section(owner) | ai_random: Valimc.Data.JavaRandom.new(13)}}
       end)
 
     records =
@@ -459,7 +459,6 @@ defmodule Valimc.NaturalSpawningTest do
           {:ok, restored} = body |> Body.record() |> Body.restore()
           assert restored.data == body.data
           assert restored.mob.ai.random == body.mob.ai.random
-          assert Valimc.AI.Mobs.Fish.school(restored.mob.ai).leader == nil
           {record.uuid, Map.put(body, :school, Valimc.TestBodies.school(entry))}
         end
       )

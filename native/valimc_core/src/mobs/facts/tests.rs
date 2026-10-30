@@ -1,5 +1,5 @@
-//! Facts parsing over small fixtures (the ExUnit parity test compares the
-//! installed facts with the Elixir accessors on the real files).
+//! Facts parsing over small fixtures (the vanilla stages read the real
+//! files).
 
 use super::*;
 use crate::worldgen::json::Json;

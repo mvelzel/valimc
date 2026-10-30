@@ -582,11 +582,16 @@ defmodule Valimc.Entity.Tracking do
     view
     |> Map.take([:type, :yaw, :pitch, :alive])
     |> Map.put(:box, Valimc.Entity.Body.box(view.body, view.at))
-    |> Map.put(:collider, Valimc.AI.Mobs.hook(view.type, :collider, [view.body, view.at], nil))
+    |> Map.put(:collider, collider(view.body, view.at))
     |> Map.put(:range, Valimc.Data.EntityTypes.tracking_range(view.type))
     |> takeable(view)
     |> multipart(view)
   end
+
+  defp collider(%Valimc.Entity.NativeBody{} = row, at),
+    do: Valimc.Entity.NativeBody.collider(row, at)
+
+  defp collider(_body, _at), do: nil
 
   # Keep the bounded part boxes in the observation, rather than copying the
   # dragon's phase paths and flight history to every nearby player.

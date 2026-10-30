@@ -1,9 +1,11 @@
-alias Valimc.AI.Mobs.Shulker
 alias Valimc.Data.{Blocks, Box}
+alias Valimc.Entity.{Body, MobFacts, Store}
+alias Valimc.Native
 alias Valimc.Physics.Kernel
 [path] = System.argv()
 rows = JSON.decode!(File.read!(path))
 unless length(rows) == 5376, do: raise("Incomplete native lid push fixtures")
+MobFacts.install!()
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -27,7 +29,10 @@ for row <- rows do
   half = row["width"] / 2.0
   height = row["height"]
   box = {x - half, y, z - half, x + half, y + height, z + half}
-  opening = Shulker.opening(row["face"], float.(row["old"]), float.(row["new"]), at)
+
+  opening =
+    Native.mob_oracle_body_opening(row["face"], float.(row["old"]), float.(row["new"]), at)
+
   type = row["kind"]
   velocity = point.(row["before_velocity"])
 
@@ -78,30 +83,29 @@ for row <- rows do
   unless point.(row["shell"]) == at, do: raise("Native shulker anchor moved")
 
   if row["kind"] in ["husk", "no_ai", "slime", "spider"] and actual != {start, velocity, true} do
-    {:ok, body} =
-      Valimc.Entity.Body.new("minecraft:" <> if(type == "no_ai", do: "husk", else: type))
-
+    {:ok, body} = Body.new("minecraft:" <> if(type == "no_ai", do: "husk", else: type))
     body = %{body | velocity: velocity, on_ground: true}
     body = put_in(body.mob.no_ai, type == "no_ai")
-    input = Valimc.Entity.MobMotion.kernel(body.type, start, body)
+    {input, _} = Native.mob_oracle_body_kernel(Store.body_record(body, <<2::128>>, start))
     {_, _, eye} = input.size
     input = %{input | size: {row["width"], height, eye}}
 
     states =
       Enum.reduce(row["blocks"], air, fn [a, b, c], acc -> Map.put(acc, {a, b, c}, stone) end)
 
-    {:ok, shell} = Valimc.Entity.Body.new("minecraft:shulker")
+    {:ok, shell} = Body.new("minecraft:shulker")
 
     shell = %{
       shell
       | data: %{shell.data | attach_face: row["face"], peek_amount: float.(row["new"])}
     }
 
-    shell_input = Valimc.Entity.MobMotion.kernel(shell.type, at, shell)
+    {shell_input, collider} =
+      Native.mob_oracle_body_kernel(Store.body_record(shell, <<1::128>>, at))
 
     ticker =
       Kernel.mobs_begin(Valimc.World.View.of(states), [input, shell_input], [], nil, [
-        {1, Shulker.collider(shell, at)}
+        {1, collider}
       ])
 
     {_, delta} = opening

@@ -50,7 +50,7 @@ use crate::mobs::term::{Atom, Value};
 use std::any::Any;
 
 pub const AXOLOTL: &str = "minecraft:axolotl";
-const COMMONS: [i64; 4] = [0, 1, 2, 3];
+pub const COMMONS: [i64; 4] = [0, 1, 2, 3];
 const BLUE: i64 = 4;
 const NAMES: [&str; 5] = ["lucy", "wild", "gold", "cyan", "blue"];
 const CONTROLS: SmoothSwimming = SmoothSwimming {

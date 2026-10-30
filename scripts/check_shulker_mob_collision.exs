@@ -1,8 +1,10 @@
-alias Valimc.Entity.{Body, MobMotion}
+alias Valimc.Entity.{Body, MobFacts, Store}
+alias Valimc.Native
 alias Valimc.Physics.Kernel
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 unless length(cases) == 1512, do: raise("Incomplete mob/shulker collision fixtures")
+MobFacts.install!()
 
 double = fn hex ->
   <<v::float-64>> = Base.decode16!(hex, case: :lower)
@@ -29,11 +31,14 @@ for row <- cases do
 
   shell = if row["dead"], do: put_in(shell.mob.living.health.value, 0.0), else: shell
   at = {0.5, 64.0, 0.5}
-  box = Valimc.AI.Mobs.Shulker.collider(shell, at)
+  # The kernel's inputs of both native mobs, and the shell's solid box.
+  {shell_input, box} = Native.mob_oracle_body_kernel(Store.body_record(shell, <<1::128>>, at))
   {:ok, mover} = Body.new(row["type"])
   mover = %{mover | no_gravity: true, velocity: point.(row["motion"])}
-  input = MobMotion.kernel(mover.type, point.(row["position"]), mover)
-  shell_input = MobMotion.kernel(shell.type, at, shell)
+
+  {input, _} =
+    Native.mob_oracle_body_kernel(Store.body_record(mover, <<2::128>>, point.(row["position"])))
+
   ticker = Kernel.mobs_begin(view, [input, shell_input], [], nil, [{1, box}])
   :ok = Kernel.mob_collider(ticker, 1, at, box)
   {{:ok, %{mob: %{position: actual}}}, _} = Kernel.mob_step(ticker, 0, input)

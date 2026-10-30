@@ -9,23 +9,19 @@
 # sleeping place and path, the level random, the tickets taken of each POI
 # and its block state must equal vanilla's.
 #
-# `--native` (VMC-081d): every mob takes its turns in a native section
-# (`MobTicks.native_steps/7`), a villager's brain built natively with the
-# oracle's gates, activity order, sensor countdowns and remade brains' gates
+# Every mob takes its turns in a native section (`MobTicks.native_steps/4`,
+# VMC-081d), a villager's brain built with the oracle's gates, activity
+# order, sensor countdowns and remade brains' gates
 # (`mob_section_oracle_villager`); melee hits land in the section within the
 # attacker's turn, as vanilla's do, and the checks read each mob's body,
 # mind and brain from its section.
-alias Valimc.AI
-alias Valimc.AI.Brains.Villager
-alias Valimc.Entity.{Body, Combat, MobTicks, NativeMobs, Store}
+alias Valimc.Data.JavaRandom
+alias Valimc.Entity.{Body, MobTicks, NativeMobs, Store}
 alias Valimc.Native
 invisibility = Valimc.Data.EffectTypes.id("invisibility")
 
-{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
-native? = native != []
-[path] = argv
-if native?, do: NativeMobs.install!()
-native_ticks = :counters.new(1, [])
+[path] = System.argv()
+Valimc.Entity.MobFacts.install!()
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
@@ -127,8 +123,30 @@ memory = fn mind, name ->
   end
 end
 
-# A native mob as the checks read it: its record's body, its mind and brain
-# from its section.
+# The POI tickets the villagers' memories take (`PoiManager`'s tickets of
+# their home, job site, potential job site and meeting point), by block.
+claims_of = fn memories ->
+  for m <- memories,
+      name <- [:home, :job_site, :potential_job_site, :meeting_point],
+      {{_dimension, pos}, _ttl} <- [m[name]],
+      reduce: %{},
+      do: (acc -> Map.update(acc, pos, 1, &(&1 + 1)))
+end
+
+# The goals and target goals each type registers, in order, by their
+# vanilla names (MobAiOracle's facts).
+registered =
+  for {type, m} <- :json.decode(File.read!("priv/registry/ai_facts.json"))["mobs"],
+      into: %{},
+      do:
+        {type,
+         %{
+           goals: Enum.map(m["goals"], &Enum.at(&1, 1)),
+           targets: Enum.map(m["targets"], &Enum.at(&1, 1))
+         }}
+
+# A mob as the checks read it: its record's body, its mind and brain from
+# its section.
 native_body = fn ref, id ->
   [record] = Native.mob_section_records(ref, [id])
   {:ok, body} = Body.restore(record)
@@ -141,7 +159,6 @@ native_body = fn ref, id ->
     case Native.mob_section_oracle_brain_view(ref, id) do
       {running, activity, _, memories} ->
         %{
-          native: true,
           running: running,
           activity: activity && Atom.to_string(activity),
           memories:
@@ -170,13 +187,13 @@ native_body = fn ref, id ->
   put_in(body.mob.ai, mind)
 end
 
-# A native mob of `entry` (its body as the harness made it) in section
-# `ref`: `{id, entry}` with its row.
+# A mob of `entry` (its body as the harness made it, facing `body_yaw`) in
+# section `ref`: `{id, entry}` with its row.
 native_insert = fn ref, id, entry ->
   e = entry.entity
   record = Store.body_record(entry.body, e.uuid, {e.x, e.y, e.z})
   {:ok, [{^id, _, row}]} = Native.mob_section_insert(ref, [{id, record}], false)
-  :ok = Native.mob_section_oracle_prepare(ref, id, entry.body.mob.ai.body_yaw, nil)
+  :ok = Native.mob_section_oracle_prepare(ref, id, entry.body_yaw, nil)
   {id, entry |> Map.put(:body, row) |> Map.merge(%{native: ref, made: entry.body})}
 end
 
@@ -187,50 +204,12 @@ checked =
       pois = Enum.map(c["pois"], &List.to_tuple/1)
       start = c["start"]
 
-      world0 = fn scene, time ->
-        view = {:states, packed.(scene)}
-
-        %AI.World{
-          read: &Map.get(scene, &1, air),
-          find: fn {x0, y0, z0, x1, y1, z1}, states ->
-            for {{x, y, z} = p, s} <- scene,
-                x in x0..x1 and y in y0..y1 and z in z0..z1 and MapSet.member?(states, s),
-                do: {p, s}
-          end,
-          search: fn request ->
-            [result] = AI.Paths.find(view, [request])
-            result
-          end,
-          stand_up: fn _type, head, facing, yaw ->
-            dense =
-              for x <- -16..16,
-                  y <- 56..80,
-                  z <- -16..16,
-                  into: %{},
-                  do: {{x, y, z}, Map.get(scene, {x, y, z}, air)}
-
-            Valimc.World.StandUp.bed(Valimc.World.View.of(dense), head, facing, yaw)
-          end,
-          sky: fn {x, y, z} ->
-            not Enum.any?(scene, fn {{bx, by, bz}, s} ->
-              bx == x and bz == z and by > y and s != air
-            end)
-          end,
-          random: AI.Random.new(7),
-          difficulty: :normal,
-          time: time,
-          day: time,
-          # A scene that follows the sky (a trader's, VMC-044a4): bright while
-          # the overworld's sky darkens by less than 4.
-          bright:
-            c["real_sky"] == true and
-              Valimc.World.Spawning.darken("minecraft:overworld", time, 0.0, 0.0) < 4
-        }
+      # A scene that follows the sky (a trader's, VMC-044a4): bright while
+      # the overworld's sky darkens by less than 4.
+      bright = fn time ->
+        c["real_sky"] == true and
+          Valimc.World.Spawning.darken("minecraft:overworld", time, 0.0, 0.0) < 4
       end
-
-      gate_map = fn rows -> Map.new(rows, fn [key, seed] -> {key, AI.Random.new(seed)} end) end
-
-      world = world0.(scene0, start)
 
       entries =
         for {m, i} <- Enum.with_index(c["mobs"]) do
@@ -250,51 +229,12 @@ checked =
                 body
             end
 
-          mind = AI.mind(m["type"], uuid, %{random: AI.Random.new(m["seed"])}, body.data, nil)
-
-          mind =
-            case m["type"] do
-              "minecraft:villager" ->
-                {brain, _} =
-                  Villager.brain(
-                    AI.Random.new(0),
-                    gate_map.(Enum.at(c["gates"], i)),
-                    body.data,
-                    Map.new(Enum.at(c["orders"], i), fn {p, acts} ->
-                      {String.to_integer(p), Enum.map(acts, &String.to_atom/1)}
-                    end)
-                  )
-
-                sensors =
-                  Enum.zip_with(brain.sensors, Enum.at(c["sensors"], i), fn s, t ->
-                    %{s | time: t}
-                  end)
-
-                refresh =
-                  for row <- c["ticks"],
-                      %{"reseeded" => seeds} <- [Enum.at(row["mobs"], i)],
-                      do: gate_map.(seeds)
-
-                mind = %{mind | brain: %{brain | sensors: sensors, refresh: refresh}}
-
-                Villager.started(%AI.Self{
-                  uuid: uuid,
-                  type: m["type"],
-                  mind: mind,
-                  world: world,
-                  data: body.data
-                }).mind
-
-              _ ->
-                mind
-            end
-
-          mind = %{mind | random: AI.Random.new(m["seed"]), body_yaw: yaw}
-
-          # What a native villager's brain is built with.
+          # What a villager's brain is built with: the oracle's gates,
+          # activity order, sensor countdowns and remade brains' gates, its
+          # schedule's start, its random and when it last slept.
           seeding =
             if m["type"] == "minecraft:villager" do
-              keyed = fn rows -> for [key, seed] <- rows, do: {key, AI.Random.new(seed)} end
+              keyed = fn rows -> for [key, seed] <- rows, do: {key, JavaRandom.new(seed)} end
 
               {keyed.(Enum.at(c["gates"], i)),
                for({p, acts} <- Enum.at(c["orders"], i), do: {String.to_integer(p), acts}),
@@ -303,16 +243,10 @@ checked =
                  row <- c["ticks"],
                  %{"reseeded" => seeds} <- [Enum.at(row["mobs"], i)],
                  do: keyed.(seeds)
-               ), {start, start, AI.Random.new(m["seed"]), if(m["slept"] >= 0, do: m["slept"])}}
+               ), {start, start, JavaRandom.new(m["seed"]), if(m["slept"] >= 0, do: m["slept"])}}
             end
 
-          # When it last slept (a golem's summoners).
-          mind =
-            if mind.brain && m["slept"] >= 0,
-              do: put_in(mind.brain.memories[:last_slept], {m["slept"], :never}),
-              else: mind
-
-          mob = %{body.mob | ai: mind, no_ai: m["no_ai"]}
+          mob = %{body.mob | ai: %{random: JavaRandom.new(m["seed"])}, no_ai: m["no_ai"]}
 
           # A wandering trader's setup (VMC-044a4): its wander target and
           # home, despawn delay, and invisibility.
@@ -365,41 +299,37 @@ checked =
              kind: :mob,
              entity: %{uuid: uuid, entity_id: m["id"], x: x, y: y, z: z},
              body: body,
+             body_yaw: yaw,
              revision: 1,
              seeding: seeding
            }}
         end
 
-      # A native mode's section, every mob there from its record.
-      section =
-        if native?, do: %NativeMobs{ref: Native.mob_section_oracle_new(), types: MapSet.new()}
+      # The scene's section, every mob there from its record.
+      section = %NativeMobs{ref: Native.mob_section_oracle_new()}
 
       entries =
-        if native? do
-          for {id, entry} <- entries do
-            {id, native} = native_insert.(section.ref, id, entry)
+        for {id, entry} <- entries do
+          {id, native} = native_insert.(section.ref, id, entry)
 
-            case entry.seeding do
-              {gates, order, sensors, refresh, timing} ->
-                :ok =
-                  Native.mob_section_oracle_villager(
-                    section.ref,
-                    id,
-                    gates,
-                    order,
-                    sensors,
-                    refresh,
-                    timing
-                  )
+          case entry.seeding do
+            {gates, order, sensors, refresh, timing} ->
+              :ok =
+                Native.mob_section_oracle_villager(
+                  section.ref,
+                  id,
+                  gates,
+                  order,
+                  sensors,
+                  refresh,
+                  timing
+                )
 
-              nil ->
-                :ok
-            end
-
-            {id, native}
+            nil ->
+              :ok
           end
-        else
-          entries
+
+          {id, native}
         end
 
       # A scene ends with the tick a mob held still dies: the owner lands a
@@ -416,71 +346,56 @@ checked =
         c["ticks"]
         |> Enum.take(if death, do: death + 1, else: length(c["ticks"]))
         |> Enum.with_index()
-        |> Enum.reduce({entries, scene0, AI.Random.new(7), count}, fn
+        |> Enum.reduce({entries, scene0, JavaRandom.new(7), count}, fn
           {row, tick}, {entries, scene, level_random, count} ->
             time = start + 1 + tick
-
-            memories =
-              for {_, %{body: %{mob: %{ai: %AI.Mind{brain: %{memories: m}}}}}} <- entries, do: m
-
-            world = %{world0.(scene, time) | random: level_random, pois: AI.Pois.claims(memories)}
             kernel_view = {:states, packed.(scene)}
 
             # Each body's timers (a hurt mob's invulnerability) run first, as
             # the owner ages its bodies.
             entries =
-              for {id, e} <- entries do
-                case e do
-                  %{native: ref} ->
-                    [{^id, _, row, _, _}] = Native.mob_section_age(ref, [{id, 1}], true)
-                    {id, if(row, do: %{e | body: NativeMobs.merge(row, e.body)}, else: e)}
-
-                  e ->
-                    {body, _, _} = Body.tick(e.body)
-                    {id, %{e | body: body}}
-                end
+              for {id, %{native: ref} = e} <- entries do
+                [{^id, _, row, _, _}] = Native.mob_section_age(ref, [{id, 1}], true)
+                {id, if(row, do: %{e | body: NativeMobs.merge(row, e.body)}, else: e)}
               end
 
-            {steps, world} =
-              if native? do
-                # The scene's sky: full light above each column's top block.
-                tops =
-                  for {{x, z}, y} <-
-                        Enum.reduce(scene, %{}, fn
-                          {_, ^air}, acc -> acc
-                          {{x, y, z}, _}, acc -> Map.update(acc, {x, z}, y, &max(&1, y))
-                        end),
-                      do: {x, z, y}
+            # The scene's sky: full light above each column's top block.
+            tops =
+              for {{x, z}, y} <-
+                    Enum.reduce(scene, %{}, fn
+                      {_, ^air}, acc -> acc
+                      {{x, y, z}, _}, acc -> Map.update(acc, {x, z}, y, &max(&1, y))
+                    end),
+                  do: {x, z, y}
 
-                level = %{
-                  time: time,
-                  day: time,
-                  difficulty: :normal,
-                  darken: 0,
-                  bright: world.bright,
-                  monsters_burn: false,
-                  halloween: false,
-                  mob_griefing: true,
-                  mob_drops: true,
-                  entity_drops: true,
-                  universal_anger: false,
-                  goals: true,
-                  min_y: -64,
-                  max_y: 319,
-                  sea_level: 63,
-                  border: nil,
-                  knots: [],
-                  wet: false,
-                  zoom_seed: 0,
-                  tops: tops,
-                  no_chunks: true
-                }
+            level = %{
+              time: time,
+              day: time,
+              difficulty: :normal,
+              darken: 0,
+              bright: bright.(time),
+              monsters_burn: false,
+              halloween: false,
+              mob_griefing: true,
+              mob_drops: true,
+              entity_drops: true,
+              universal_anger: false,
+              goals: true,
+              min_y: -64,
+              max_y: 319,
+              sea_level: 63,
+              border: nil,
+              knots: [],
+              wet: false,
+              zoom_seed: 0,
+              tops: tops,
+              no_chunks: true
+            }
 
-                env = %{region: nil, level: level, players: [], items: [], reach: 0}
-                MobTicks.native_steps(kernel_view, entries, world, nil, [], section, env)
-              else
-                MobTicks.steps(kernel_view, entries, world, nil)
-              end
+            env = %{region: nil, level: level, players: [], items: [], random: level_random}
+
+            {steps, %{random: level_random}} =
+              MobTicks.native_steps(kernel_view, entries, section, env)
 
             unless length(steps) == length(entries),
               do: raise("#{c["name"]} tick #{tick}: a mob did not tick")
@@ -489,58 +404,13 @@ checked =
             # owner's kernel moves every mob, so scenery stays where it was.
             entries =
               Enum.zip_with(entries, steps, fn {id, entry}, step ->
-                no_ai =
-                  case entry do
-                    %{native: _} -> step.body.no_ai
-                    _ -> entry.body.mob.no_ai
-                  end
-
                 {x, y, z} =
-                  if no_ai,
+                  if step.body.no_ai,
                     do: {entry.entity.x, entry.entity.y, entry.entity.z},
                     else: step.position
 
                 {id, %{entry | body: step.body, entity: %{entry.entity | x: x, y: y, z: z}}}
               end)
-
-            # Melee hits on mobs through the one hurt path (`Combat`), as
-            # the owner lands them after the tick.
-            entries =
-              for step <- steps,
-                  not native?,
-                  effect <- step.effects,
-                  {target, own} <-
-                    (case effect do
-                       {:attack, {:mob, t}} ->
-                         [
-                           {t,
-                            Enum.find_value(step.effects, %{}, fn
-                              {:attack_extra, {:mob, ^t}, extras} -> extras
-                              _ -> nil
-                            end)}
-                         ]
-
-                       _ ->
-                         []
-                     end),
-                  reduce: entries do
-                entries ->
-                  store = %{entries: Map.new(entries)}
-                  i = Enum.find_index(entries, fn {_, e} -> e.entity.uuid == target end)
-                  {tid, te} = Enum.at(entries, i)
-                  {:ok, hit} = Combat.mob_hit(store, step.id, te.body.type)
-
-                  hit =
-                    Map.merge(
-                      %{hit | amount: own[:amount] || hit.amount},
-                      Map.delete(own, :amount)
-                    )
-
-                  case Combat.hurt_body(te.body, te.entity, hit) do
-                    :ignored -> entries
-                    {body, _, _} -> List.replace_at(entries, i, {tid, %{te | body: body}})
-                  end
-              end
 
             # Mobs the mobs summoned (a golem), ticking from the next tick
             # with the oracle's ids and randoms.
@@ -552,9 +422,6 @@ checked =
                 {:ok, body} = Body.new(type)
                 uuid = <<made["id"]::64, 0::64>>
 
-                mind =
-                  AI.mind(type, uuid, %{random: AI.Random.new(made["seed"])}, body.data, world)
-
                 follow = %{
                   base: nil,
                   modifiers: [{"minecraft:random_spawn_bonus", opts.follow_bonus, 1}]
@@ -562,7 +429,7 @@ checked =
 
                 mob = %{
                   body.mob
-                  | ai: %{mind | body_yaw: opts.yaw},
+                  | ai: %{random: JavaRandom.new(made["seed"])},
                     left_handed: opts.left_handed,
                     attributes: Map.put(body.mob.attributes, "minecraft:follow_range", follow)
                 }
@@ -574,15 +441,12 @@ checked =
                    kind: :mob,
                    entity: %{uuid: uuid, entity_id: made["id"], x: x, y: y, z: z},
                    body: %{body | yaw: opts.yaw, head_yaw: opts.yaw, mob: mob},
+                   body_yaw: opts.yaw,
                    revision: 1
                  }}
               end
 
-            entries =
-              entries ++
-                if native?,
-                  do: for({id, e} <- spawned, do: native_insert.(section.ref, id, e)),
-                  else: spawned
+            entries = entries ++ for({id, e} <- spawned, do: native_insert.(section.ref, id, e))
 
             scene =
               for step <- steps, effect <- step.effects, reduce: scene do
@@ -594,23 +458,9 @@ checked =
               end
 
             claims =
-              AI.Pois.claims(
-                for {id, e} <- entries,
-                    m =
-                      (case e do
-                         %{native: ref} ->
-                           case native_body.(ref, id).mob.ai.brain do
-                             %{memories: m} -> m
-                             _ -> nil
-                           end
-
-                         %{body: %{mob: %{ai: %AI.Mind{brain: %{memories: m}}}}} ->
-                           m
-
-                         _ ->
-                           nil
-                       end),
-                    m != nil,
+              claims_of.(
+                for {id, %{native: ref}} <- entries,
+                    %{memories: m} <- [native_body.(ref, id).mob.ai.brain],
                     do: m
               )
 
@@ -621,22 +471,13 @@ checked =
               raise "#{c["name"]} tick #{tick}: POIs vanilla #{inspect({row["taken"], row["states"]})} ours #{inspect({taken, states})}"
             end
 
-            unless world.random == row["level_seed"] do
-              raise "#{c["name"]} tick #{tick}: level random vanilla #{row["level_seed"]} ours #{world.random}"
+            unless level_random == row["level_seed"] do
+              raise "#{c["name"]} tick #{tick}: level random vanilla #{row["level_seed"]} ours #{level_random}"
             end
 
             checks =
               Enum.zip_with([entries, steps, row["mobs"]], fn [{id, entry}, step, expected] ->
-                body =
-                  case entry do
-                    %{native: ref} ->
-                      :counters.add(native_ticks, 1, 1)
-                      native_body.(ref, id)
-
-                    _ ->
-                      entry.body
-                  end
-
+                body = native_body.(entry.native, id)
                 mind = body.mob.ai
                 {x, y, z} = step.position
 
@@ -686,23 +527,13 @@ checked =
                   ambient: expected["ambient"]
                 }
 
+                # A mind's running goals by registration index: a goal its
+                # native module names by the vanilla goal registered there.
                 goal_names = fn which ->
-                  {goals, targets} = AI.Mobs.registered(body.type)
-                  registered = if which == :goals, do: goals, else: targets
-                  running = if which == :goals, do: mind.goals, else: mind.targets
+                  names = registered[body.type][which]
 
-                  if is_list(running) do
-                    # A native mind's running goals by registration index.
-                    for {i, name} <- running do
-                      if String.starts_with?(name, "Valimc."),
-                        do: elem(Enum.at(registered, i), 1),
-                        else: name
-                    end
-                  else
-                    entries = Tuple.to_list(running)
-
-                    for {%{running: true}, {_, name, _, _, _}} <- Enum.zip(entries, registered),
-                        do: name
+                  for {i, name} <- Map.fetch!(mind, which) do
+                    if String.starts_with?(name, "Valimc."), do: Enum.at(names, i), else: name
                   end
                 end
 
@@ -732,18 +563,6 @@ checked =
 
                 {got, want} =
                   if mind.brain do
-                    self = %AI.Self{mind: mind}
-
-                    {behaviors, activity} =
-                      case mind.brain do
-                        %{native: true} = b ->
-                          {b.running, b.activity}
-
-                        _ ->
-                          {AI.Brain.running(self),
-                           AI.Brain.activity(self) |> then(&(&1 && Atom.to_string(&1)))}
-                      end
-
                     walk =
                       case memory.(mind, :walk_target) do
                         nil ->
@@ -758,8 +577,8 @@ checked =
                       end
 
                     {Map.merge(got, %{
-                       behaviors: behaviors,
-                       activity: activity,
+                       behaviors: mind.brain.running,
+                       activity: mind.brain.activity,
                        profession: body.data.profession,
                        home: global.(memory.(mind, :home)),
                        job_site: global.(memory.(mind, :job_site)),
@@ -872,13 +691,12 @@ checked =
                 1
               end)
 
-            {entries, scene, world.random, count + Enum.sum(checks)}
+            {entries, scene, level_random, count + Enum.sum(checks)}
         end)
 
       count
   end
 
 IO.puts(
-  "PASS: #{checked} villager ticks of #{length(cases)} scenes equal vanilla's (brains, schedules, POIs, beds, professions, motion, randoms)" <>
-    if(native?, do: ", #{:counters.get(native_ticks, 1)} of them native", else: "")
+  "PASS: #{checked} villager ticks of #{length(cases)} scenes equal vanilla's (brains, schedules, POIs, beds, professions, motion, randoms)"
 )

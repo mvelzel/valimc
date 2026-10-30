@@ -1,7 +1,7 @@
 defmodule Valimc.DragonActorTest do
   use ExUnit.Case, async: true
-  alias Valimc.AI.Dragon.{Actor, Flight, Paths, Phases}
   alias Valimc.Entity.{Body, Store}
+  alias Valimc.TestBodies
   alias Valimc.World.Region
 
   setup do
@@ -48,13 +48,8 @@ defmodule Valimc.DragonActorTest do
 
   defp dragon(at, phase, yaw \\ 0.0) do
     {:ok, body} = Body.new("minecraft:ender_dragon")
-    flight = Flight.step(%Flight{position: at, yaw: yaw}, nil, phase)
-
-    actor = %Actor{
-      graph: Paths.graph(fn _, _ -> 80 end),
-      phases: %Phases{phase: phase, flight: flight}
-    }
-
+    {phases, _} = TestBodies.dragon_phases(phase, at, yaw)
+    actor = TestBodies.dragon_actor(phases)
     %{body | yaw: yaw, head_yaw: yaw, data: %{body.data | phase: phase, brain: actor}}
   end
 

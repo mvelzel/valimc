@@ -69,7 +69,7 @@ defmodule Valimc.TestBodies do
 
   def entry(entry), do: entry
 
-  @doc "A schooling fish's school (`Fish.school/1`; a native mind's from its section)."
+  @doc "A schooling fish's school, from its section."
   def school(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}) do
     own =
       case Native.mob_section_oracle_mind(ref, id) do
@@ -80,47 +80,29 @@ defmodule Valimc.TestBodies do
     Map.merge(%{leader: nil, school: 1}, Map.take(own, [:leader, :school]))
   end
 
-  def school(%{body: %{mob: %{ai: mind}}}), do: Valimc.AI.Mobs.Fish.school(mind)
-
-  @doc "Whether goal `module` runs in the entry's mind (a native mind's by name)."
-  def running?(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}, module) do
+  @doc "Whether goal `name` (`\"Tempt\"`, `\"Panic\"`, ...) runs in the entry's native mind."
+  def running?(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}, name) do
     [{_, goals, _, _, _}] = Native.mob_section_oracle_minds(ref, [id])
-    inspect(module) in goals
+    Enum.any?(goals, &(&1 == name or String.ends_with?(&1, "." <> name)))
   end
 
-  def running?(%{body: %{mob: %{ai: %Valimc.AI.Mind{goals: goals}}}}, module),
-    do: Enum.any?(Tuple.to_list(goals), &(&1.running and &1.module == module))
-
-  def running?(_entry, _module), do: false
+  def running?(_entry, _name), do: false
 
   @doc """
   The store with entry `id` changed beside its record, in the owner's
   process: `{:no_ai, flag}`, `{:cooldown, ticks}` (its hurt cooldown) or
-  `{:move_to, {x, y, z}, speed}` (its move control's wanted position,
-  `MobMotion.move_to/3`); a native mob's in its section (its mind kept), its
-  row the store's.
+  `{:move_to, {x, y, z}, speed}` (its move control's wanted position); in
+  its section (its mind kept), its row the store's.
   """
   def set(store, id, change) do
-    case {store.entries[id], change} do
-      {%{body: %NativeBody{}, native: ref}, _} ->
-        {_, row} = Native.mob_section_oracle_set(ref, id, change)
-        Store.change_body(store, id, row)
-
-      {%{body: body}, {:no_ai, flag}} ->
-        Store.change_body(store, id, put_in(body.mob.no_ai, flag))
-
-      {%{body: body}, {:cooldown, ticks}} ->
-        Store.change_body(store, id, put_in(body.mob.living.health.cooldown, ticks))
-
-      {%{body: body}, {:move_to, target, speed}} ->
-        motion = Valimc.Entity.MobMotion.move_to(body.mob.motion, target, speed)
-        Store.change_body(store, id, put_in(body.mob.motion, motion))
-    end
+    %{body: %NativeBody{}, native: ref} = store.entries[id]
+    {_, row} = Native.mob_section_oracle_set(ref, id, change)
+    Store.change_body(store, id, row)
   end
 
   @doc """
-  The entry's brain memories, `%{name => {value, ttl}}` as the Elixir brain
-  keeps them (a native brain's from its section); nil without a brain.
+  The entry's brain memories, `%{name => {value, ttl}}` (a native brain's
+  from its section); nil without a brain.
   """
   def memories(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}) do
     case Native.mob_section_oracle_brain_view(ref, id) do
@@ -131,9 +113,6 @@ defmodule Valimc.TestBodies do
         nil
     end
   end
-
-  def memories(%{body: %{mob: %{ai: %Valimc.AI.Mind{brain: %{memories: memories}}}}}),
-    do: memories
 
   def memories(_entry), do: nil
 
@@ -153,17 +132,11 @@ defmodule Valimc.TestBodies do
     end
   end
 
-  def activity(%{body: %{mob: %{ai: %Valimc.AI.Mind{brain: brain} = mind}}}) when brain != nil,
-    do: Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
-
   def activity(_entry), do: nil
 
   @doc "The nodes of the entry's navigation path, nil without one (a native mind's from its section)."
   def path(%{native: ref, entity: %{entity_id: id}, body: %NativeBody{}}),
     do: Native.mob_section_oracle_path(ref, id)
-
-  def path(%{body: %{mob: %{ai: %Valimc.AI.Mind{navigation: %{path: %{nodes: nodes}}}}}}),
-    do: Tuple.to_list(nodes)
 
   def path(_entry), do: nil
 
@@ -175,6 +148,66 @@ defmodule Valimc.TestBodies do
     end
   end
 
-  def target(%{body: %{mob: %{ai: %{target: target}}}}), do: target
   def target(_entry), do: nil
+
+  @doc """
+  A dragon's phases in `phase` (the term its record keeps, which
+  `mobs::boss::dragon::codec` reads) with its flight at `position` facing
+  `yaw` stepped once with no target, and the eight part boxes after.
+  """
+  def dragon_phases(phase, position, yaw \\ 0.0) do
+    Valimc.Entity.MobFacts.install!()
+
+    flight = %{
+      __struct__: Valimc.Entity.Dragon.Flight,
+      position: position,
+      velocity: {0.0, 0.0, 0.0},
+      yaw: yaw * 1.0,
+      turn: 0.0,
+      history: nil,
+      parts: Tuple.duplicate({0.0, 0.0, 0.0}, 8)
+    }
+
+    {flight, boxes} = Native.dragon_oracle_flight(flight, nil, phase, false, false)
+
+    phases = %{
+      __struct__: Valimc.Entity.Dragon.Phases,
+      phase: phase,
+      flight: flight,
+      random: 0,
+      target: nil,
+      leaving: nil,
+      path: nil,
+      clockwise: %{0 => false, 1 => false},
+      ticks: 0,
+      flames: 0,
+      attack: nil,
+      charge: 0,
+      first: true,
+      flame_live: false,
+      head_yaw: 0.0,
+      pitch: 0.0,
+      effects: []
+    }
+
+    {phases, boxes}
+  end
+
+  @doc "A dragon actor holding `phases`, its arena graph made on its first tick."
+  def dragon_actor(phases) do
+    %{
+      __struct__: Valimc.Entity.Dragon.Actor,
+      phases: phases,
+      tick: 0,
+      ambient: 0,
+      body_yaw: 0.0,
+      stable_head: 0.0,
+      stable_time: 0,
+      wall: false,
+      crystal: nil,
+      flame: nil,
+      graph: nil,
+      world_tick: nil
+    }
+  end
 end

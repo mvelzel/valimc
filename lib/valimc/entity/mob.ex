@@ -3,10 +3,11 @@ defmodule Valimc.Entity.Mob do
   The living part of a mob's record (VMC-043a), as vanilla's `LivingEntity`
   and `Mob` hold it: its living state (`Valimc.Living`: health with its hurt
   and death timers, absorption, effects, fire, air, freezing), its equipment
-  by slot, its attribute overrides over the type's defaults, its AI (`ai`:
-  a `Valimc.AI.Mind` once it thought, or what its record kept of one: its
-  random, VMC-041a), and whether it is persistent (a name tag's
-  `setPersistenceRequired`, VMC-042a).
+  by slot, its attribute overrides over the type's defaults, what its
+  record keeps of its AI (`ai`: its random and a brain's saved memories,
+  VMC-041a) and whether it is persistent (a name tag's
+  `setPersistenceRequired`, VMC-042a). A mob lives in its section's
+  resource (VMC-081d); this is the record it starts from and is read as.
 
   Attributes are the type's generated defaults (`Valimc.Data.EntityTypes`)
   with `attributes` overriding a base value and adding modifiers, as
@@ -25,9 +26,9 @@ defmodule Valimc.Entity.Mob do
   (`delayedLeashInfo`: it looks for its holder first). Its `home` is
   `Mob.setHomeTo`'s `{{x, y, z}, radius}`, nil for none; both are saved.
   """
-  alias Valimc.Data.{EntityTypes, Float32}
+  alias Valimc.Data.EntityTypes
   alias Valimc.Living
-  alias Valimc.Living.{Attributes, DamageSource, Health, Weapons}
+  alias Valimc.Living.{Attributes, Health, Weapons}
   alias Valimc.Protocol.ItemStack
 
   alias Valimc.Entity.MobMotion
@@ -67,29 +68,13 @@ defmodule Valimc.Entity.Mob do
   @slots [mainhand: 0, offhand: 1, feet: 2, legs: 3, chest: 4, head: 5, body: 6, saddle: 7]
   def slots, do: @slots
 
-  @doc "A fresh mob of `type`: full health at its maximum."
-  def new(type) do
-    {:ok, health} = Health.restore(nil, max_health(type, %{}))
-    # A rabbit moves by hopping (VMC-043c); made at the origin, its
-    # constructor's `setSpeedModifier(0.0)` leaves its move control wanting
-    # the origin, which it turns toward first.
-    motion =
-      if type == "minecraft:rabbit",
-        do: %MobMotion{hop: MobMotion.hop(), control: {:move_to, {0.0, 0.0, 0.0}, 0.0}},
-        else: %MobMotion{}
-
-    # `getMaxAirSupply` (a dolphin's own, VMC-043e).
-    air = Valimc.AI.Mobs.hook(type, :max_air, [], 300)
-    %__MODULE__{living: %Living{health: health, air_supply: air}, motion: motion}
-  end
-
   @doc "The record a store saves."
   def record(%__MODULE__{} = mob) do
     %{
       living: Living.saved(mob.living),
       equipment: mob.equipment,
       attributes: mob.attributes,
-      ai: ai_record(mob.ai),
+      ai: mob.ai,
       no_ai: mob.no_ai,
       motion: %{mob.motion | jump: false, rise: false},
       hurt_by_player: mob.hurt_by_player,
@@ -128,7 +113,7 @@ defmodule Valimc.Entity.Mob do
     with true <- valid_equipment?(equipment) and valid_attributes?(attributes),
          true <- MobMotion.valid?(motion),
          ai = Map.get(record, :ai),
-         true <- ai == nil or Valimc.AI.Mind.valid?(ai),
+         true <- ai == nil or valid_ai?(ai),
          no_ai = Map.get(record, :no_ai, false),
          true <- is_boolean(no_ai),
          true <- is_integer(memory) and memory in 0..@player_memory,
@@ -168,126 +153,14 @@ defmodule Valimc.Entity.Mob do
 
   def restore(_type, _record), do: {:error, :invalid_mob}
 
-  defp ai_record(%Valimc.AI.Mind{} = mind), do: Valimc.AI.Mind.record(mind)
-  defp ai_record(kept), do: kept
+  # A mind's record: its random, a legacy random's 48-bit state.
+  defp valid_ai?(%{random: random}),
+    do: is_integer(random) and random >= 0 and random < 0x1000000000000
+
+  defp valid_ai?(_ai), do: false
 
   @doc "Whether the mob is alive (`LivingEntity.isAlive`)."
   def alive?(%__MODULE__{living: %{health: %{value: value}}}), do: value > 0
-
-  @doc """
-  One tick of its hurt and death timers: `{mob, done}`, `done` once the death
-  animation's 20 ticks passed (vanilla `tickDeath`).
-  """
-  def tick(%__MODULE__{} = mob) do
-    # The freezing clock needs the body's environment samples (VMC-015i).
-    health = Health.tick(mob.living.health)
-    memory = max(0, mob.player_memory - 1)
-
-    {%{
-       mob
-       | living: %{mob.living | health: health},
-         player_memory: memory,
-         hurt_by_player: if(memory > 0, do: mob.hurt_by_player)
-     }, health.value <= 0 and health.death_ticks >= 20}
-  end
-
-  @doc """
-  `/kill` (`LivingEntity.kill`: `genericKill` damage of `Float.MAX_VALUE`):
-  `{:ok, mob}` dying, or `:ignored` for one already dying.
-  """
-  def kill(%__MODULE__{} = mob) do
-    with {:ok, selected} <- Health.hurt_window(mob.living.health, 3.4028234663852886e38, true),
-         {:ok, %{living: living}} <-
-           Living.Damage.resolve(mob.living, %{}, selected, :generic_kill) do
-      {:ok, %{mob | living: Living.die(living)}}
-    else
-      _ -> :ignored
-    end
-  end
-
-  @doc """
-  `LivingEntity.hurtServer` on a mob of `type`, up to its death (VMC-037n):
-  `hit` holds `:source` (a `Living.DamageSource`), `:amount` and `:attacker`
-  (the living entity that caused it, `%{uuid, player}`, or nil). Its
-  invulnerabilities, the hurt window and cooldown, armor, toughness and
-  enchantment protection from its armor attributes, Resistance and
-  absorption. `{:ok, mob, %{full, died}}`: `full` for a hit outside the
-  cooldown (the hurt animation, the damage event and knockback), `died` when
-  it took its last health. `:ignored` when it takes nothing.
-  """
-  def hurt(%__MODULE__{} = mob, type, %{source: source, amount: amount} = hit) do
-    # A hit its class makes it vulnerable to (a ghast's reflected fireball,
-    # VMC-043d) passes its immunities.
-    if not alive?(mob) or (not Map.get(hit, :bypass_immunity, false) and immune?(type, source)) do
-      :ignored
-    else
-      damage = max(0.0, Float32.round(amount))
-
-      damage =
-        if DamageSource.is?(source, :is_freezing) and
-             EntityTypes.tag?(type, "freeze_hurts_extra_types"),
-           do: Float32.round(damage * 5.0),
-           else: damage
-
-      # Helmet wear is the wearer's (`hurtHelmet`), which mobs do not wear.
-      damage =
-        if DamageSource.is?(source, :damages_helmet) and mob.equipment[:head],
-          do: Float32.round(damage * 0.75),
-          else: damage
-
-      armor = %{
-        armor: value(type, mob, "minecraft:armor"),
-        toughness: value(type, mob, "minecraft:armor_toughness")
-      }
-
-      with {:ok, selected} <-
-             Health.hurt_window(
-               mob.living.health,
-               damage,
-               DamageSource.is?(source, :bypasses_cooldown)
-             ),
-           {:ok, %{living: living}} <-
-             Living.Damage.resolve(mob.living, mob.equipment, selected, source,
-               armor: armor,
-               infinite: true
-             ) do
-        attacker = Map.get(hit, :attacker)
-        died = living.health.value <= 0
-
-        mob = %{
-          mob
-          | living: if(died, do: Living.die(living), else: living),
-            hurt_by:
-              if(attacker && not DamageSource.is?(source, :no_anger),
-                do: attacker.uuid,
-                else: mob.hurt_by
-              )
-        }
-
-        mob =
-          if attacker && attacker.player,
-            do: %{mob | hurt_by_player: attacker.uuid, player_memory: @player_memory},
-            else: mob
-
-        {:ok, mob, %{full: selected.notify, died: died}}
-      else
-        _ -> :ignored
-      end
-    end
-  end
-
-  @doc """
-  Whether a hurt of `source` gets past `hurtServer`'s first checks (alive,
-  not immune) so that it restarts the mob's idle time even when its damage
-  cooldown then turns it away (VMC-043b).
-  """
-  def stirs?(%__MODULE__{} = mob, type, source), do: alive?(mob) and not immune?(type, source)
-
-  # `isInvulnerableToBase`: fire for fire-immune types, falls for immune ones.
-  defp immune?(type, source),
-    do:
-      (DamageSource.is?(source, :is_fire) and EntityTypes.fetch(type).fire_immune) or
-        (DamageSource.is?(source, :is_fall) and EntityTypes.tag?(type, "fall_damage_immune"))
 
   @doc """
   The value of attribute `name` (`getAttributeValue`): the base, its
@@ -403,13 +276,6 @@ defmodule Valimc.Entity.Mob do
       | living: %{living | effects: Map.put(living.effects, id, [rung])},
         attributes: attributes
     }
-  end
-
-  @doc "`setDropChance`, kept only where it differs from the default."
-  def put_drop_chance(%__MODULE__{drop_chances: chances} = mob, slot, chance) do
-    if chance == Valimc.Data.HostileFacts.drop_chance(),
-      do: %{mob | drop_chances: Map.delete(chances, slot)},
-      else: %{mob | drop_chances: Map.put(chances, slot, chance)}
   end
 
   defp valid_attributes?(attributes) when is_map(attributes),

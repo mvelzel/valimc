@@ -1,9 +1,7 @@
-//! What a section's native turns read of the world (VMC-081d): the level
-//! (`mobs::level::Level`, as `RegionData.mob_world/3` builds
-//! `Valimc.AI.World`) over the ticker's published snapshots and the
-//! section's store, the sensed rows of the group's players and items and
-//! of the section's Elixir mobs (`AI.sensed/1`'s maps), and the effects
-//! leaving native mobs as the Elixir effect tuples the owner applies.
+//! What a section's turns read of the world (VMC-081d): the level
+//! (`mobs::level::Level`) over the ticker's published snapshots and the
+//! section's store, the sensed rows of the group's players and items, and
+//! the effects leaving mobs as the effect tuples the owner applies.
 
 use crate::mob_term;
 use crate::physics as physics_nif;
@@ -11,14 +9,10 @@ use crate::region::Region;
 use rustler::{NifResult, Term};
 use std::collections::HashMap;
 use valimc_core::mobs::ai::effect::{Eaten, Effect};
-use valimc_core::mobs::ai::Extra;
 use valimc_core::mobs::facts::MobFacts;
 use valimc_core::mobs::level::{Difficulty, Environment, Level, Rules as LevelRules};
-use valimc_core::mobs::model::FamilyData;
 use valimc_core::mobs::random::LegacyRandom;
-use valimc_core::mobs::sensing::{
-    GameMode, Kind, Ref, SensedItem, SensedMob, SensedPlayer, EQUIPMENT,
-};
+use valimc_core::mobs::sensing::{GameMode, Kind, Ref, SensedItem, SensedPlayer, EQUIPMENT};
 use valimc_core::mobs::term::{Map, Value, NIL};
 use valimc_core::mobs::tick::tagged;
 use valimc_core::physics::Aabb;
@@ -333,20 +327,6 @@ impl Environment for SectionEnv<'_> {
     }
 }
 
-fn reference(v: &Value) -> Option<Ref> {
-    let [kind, id] = v.as_tuple_n::<2>()?;
-    let kind = match kind.as_atom()?.as_str() {
-        "player" => Kind::Player,
-        "mob" => Kind::Mob,
-        "item" => Kind::Item,
-        _ => return None,
-    };
-    Some(Ref {
-        kind,
-        uuid: id.as_binary()?.try_into().ok()?,
-    })
-}
-
 fn ref_value(r: &Ref) -> Value {
     let kind = match r.kind {
         Kind::Player => "player",
@@ -432,70 +412,6 @@ pub fn item(term: Term) -> NifResult<SensedItem> {
         pickup_delay: int(m, "pickup_delay").unwrap_or(0) as i32,
         in_water: flag(m, "in_water"),
         components,
-    })
-}
-
-/// A sensed mob (`AI.sensed/1`'s map) of an Elixir mob.
-pub fn mob(facts: &MobFacts, term: Term) -> NifResult<SensedMob<Extra>> {
-    let v = mob_term::decode(term)?;
-    let m = map_of(&v)?;
-    let name = get(m, "type")?.as_binary().ok_or_else(bad)?;
-    let type_id = facts
-        .entities
-        .id(std::str::from_utf8(name).map_err(|_| bad())?)
-        .ok_or_else(bad)?;
-    let own_box = m
-        .get_atom("box")
-        .and_then(Value::as_tuple)
-        .filter(|t| t.len() == 6)
-        .and_then(|t| {
-            let n: Option<Vec<f64>> = t.iter().map(Value::as_number).collect();
-            let n = n?;
-            Some(Aabb::new([n[0], n[1], n[2]], [n[3], n[4], n[5]]))
-        });
-    Ok(SensedMob {
-        uuid: uuid(get(m, "uuid")?)?,
-        id: int(m, "id")? as i32,
-        type_id,
-        position: [num(m, "x")?, num(m, "y")?, num(m, "z")?],
-        yaw: num(m, "yaw").unwrap_or(0.0) as f32,
-        pitch: num(m, "pitch").unwrap_or(0.0) as f32,
-        eye: num(m, "eye")?,
-        width: num(m, "width")?,
-        height: num(m, "height")?,
-        own_box,
-        alive: flag(m, "alive"),
-        recent_mob_hurt: flag(m, "recent_mob_hurt"),
-        baby: flag(m, "baby"),
-        huntable: m.get_atom("huntable").and_then(Value::as_bool) != Some(false),
-        target: m.get_atom("target").and_then(reference),
-        in_love: int(m, "in_love").unwrap_or(0) as i32,
-        age: int(m, "age").unwrap_or(0) as i32,
-        in_water: flag(m, "in_water"),
-        invulnerable: flag(m, "invulnerable"),
-        killed_by: m.get_atom("killed_by").and_then(reference).map(|r| r.uuid),
-        panicking: flag(m, "panicking"),
-        extra: Extra {
-            data: m
-                .get_atom("data")
-                .and_then(Value::as_map)
-                .filter(|d| !d.is_empty())
-                .and_then(|d| {
-                    let fields = d
-                        .iter()
-                        .map(|(k, v)| Some((k.as_atom()?.clone(), v.clone())))
-                        .collect::<Option<Vec<_>>>()?;
-                    FamilyData::new(fields)
-                }),
-            // An Elixir mob's own state is its own (a native family's
-            // fields are sensed natively).
-            own: None,
-            // A brain mob's memories (a villager's last sleep a golem
-            // reads).
-            memories: m.get_atom("memories").filter(|v| !v.is_nil()).cloned(),
-            path_step: None,
-            start: None,
-        },
     })
 }
 

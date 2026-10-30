@@ -34,8 +34,18 @@ defmodule CheckCombat do
     Attributes.value(name, Weapons.player_base(name), modifiers)
   end
 
-  # A zombie of 100 health at `position`, wearing `equipment`. The cases are
-  # around the origin; here they are 64 blocks into region {0, 0}.
+  # A store of region {0, 0} whose mobs live in its native section.
+  def store, do: %{Store.new() | native: Valimc.Entity.NativeMobs.new({0, 0})}
+
+  # The health of mob `id`, from its section.
+  def health(store, id) do
+    {value, _, _, _, _, _} = Valimc.Native.mob_section_oracle_health(store.native.ref, id)
+    value
+  end
+
+  # A zombie of 100 health at `position`, wearing `equipment`, in the store's
+  # native section. The cases are around the origin; here they are 64
+  # blocks into region {0, 0}.
   def zombie(store, uuid, [x, y, z], ground, yaw, equipment) do
     {x, z} = {x + 64.0, z + 64.0}
     {:ok, body} = Body.new("minecraft:zombie")
@@ -89,7 +99,7 @@ attack_failures =
 
       {store, target} =
         CheckCombat.zombie(
-          Store.new(),
+          CheckCombat.store(),
           <<1::128>>,
           row["target"],
           row["target_ground"],
@@ -210,9 +220,9 @@ attack_failures =
               end
 
             %{
-              health: store.entries[target].body.mob.living.health.value,
+              health: CheckCombat.health(store, target),
               velocity: store.entries[target].body.velocity,
-              beside: store.entries[beside].body.mob.living.health.value,
+              beside: CheckCombat.health(store, beside),
               beside_velocity: store.entries[beside].body.velocity,
               sounds: before ++ sweep_sounds ++ for({:sound, s} <- effects, do: s),
               particles: sweep_particles ++ for({:particles, p, n} <- effects, do: "#{p}:#{n}"),
@@ -243,7 +253,7 @@ hit_failures =
 
       {store, zombie_id} =
         CheckCombat.zombie(
-          Store.new(),
+          CheckCombat.store(),
           <<3::128>>,
           row["zombie"],
           true,

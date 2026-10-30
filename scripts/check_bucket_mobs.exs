@@ -1,4 +1,4 @@
-alias Valimc.AI.Random
+alias Valimc.Data.JavaRandom
 alias Valimc.Entity.{Body, Bucketable}
 alias Valimc.Protocol.ItemStack
 
@@ -63,7 +63,10 @@ for row <- cases do
 
   mob =
     if special and input["type"] == "minecraft:axolotl",
-      do: %{mob | ai: %{random: Random.new(7), memories: %{has_hunting_cooldown: {true, 1234}}}},
+      do: %{
+        mob
+        | ai: %{random: JavaRandom.new(7), memories: %{has_hunting_cooldown: {true, 1234}}}
+      },
       else: mob
 
   body = %{
@@ -156,12 +159,12 @@ IO.puts(
 
 for row <- JSON.decode!(File.read!(spawn_path)) do
   stack = decode.(row["bucket"], row)
-  world = %Valimc.AI.World{random: Random.new(row["seed"]), difficulty: :normal}
-  {:ok, body, world} = Bucketable.spawn(stack, <<7::128>>, {0.5, 64.0, 0.5}, world)
+  random = JavaRandom.new(row["seed"])
+  {:ok, body, random} = Bucketable.spawn(stack, <<7::128>>, {0.5, 64.0, 0.5}, random)
   <<yaw::signed-32>> = <<body.yaw::float-32>>
 
-  if yaw != row["yaw"] or world.random != row["level_after"],
-    do: raise("Bucket spawn random/yaw #{inspect(row)}: #{inspect({yaw, world.random})}")
+  if yaw != row["yaw"] or random != row["level_after"],
+    do: raise("Bucket spawn random/yaw #{inspect(row)}: #{inspect({yaw, random})}")
 
   same.(Bucketable.capture(body), decode.(row["recaptured"], row), "finalized bucket spawn")
 end

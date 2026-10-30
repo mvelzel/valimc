@@ -8,7 +8,7 @@
 //! Elixir does for a family without it (vanilla's `PathfinderMob`).
 //!
 //! A `Registry` maps entity type ids to the ported families; a type without
-//! one is not native (its section yields it to Elixir). The registry is also
+//! one is a plain mob (no AI of its own). The registry is also
 //! the living rules' `combat::Families`.
 //!
 //! Hooks run on the mob as its AI sees it (`Turn`): what the Elixir hook
@@ -438,7 +438,7 @@ impl Registry {
         Ok(Registry { kinds, by_type })
     }
 
-    /// The family of type `type_id`; None: not native.
+    /// The family of type `type_id`; None: a plain mob's type.
     pub fn kind(&self, type_id: u16) -> Option<&dyn Kind> {
         self.by_type.get(&type_id).map(|&i| &*self.kinds[i])
     }

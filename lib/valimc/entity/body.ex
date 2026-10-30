@@ -7,18 +7,19 @@ defmodule Valimc.Entity.Body do
   living part. Its position and uuid are the store entry's, as for every kind.
 
   Only modelled types (`modelled?/1`) are made: their entity data is known
-  value by value, so what a client is sent is what vanilla sends. Mob
-  families (VMC-043b–e) and world effects (VMC-050a) add theirs. Generation
-  makes a body of any type (`generated/3`, VMC-042b): one not modelled yet
-  is inert, its type's data at the client's defaults, and keeps what
-  generation gave it (`preserved`) for its family.
+  value by value, so what a client is sent is what vanilla sends. A mob's
+  body is only the record its section starts from (VMC-081d): a fresh one
+  is its family's (`Native.mob_section_fresh/1`), and once stored it lives
+  in its section. Generation makes a body of any type (`generated/3`,
+  VMC-042b): one not modelled yet is inert, its type's data at the client's
+  defaults, and keeps what generation gave it (`preserved`).
 
-  `values/2` gives every modelled entity data field with its value and
-  vanilla's default; a spawn sends those that differ (vanilla's
-  `getNonDefaultValues`), a tracker those that changed.
+  `values/1` gives every modelled entity data field of a body that is not a
+  mob with its value and vanilla's default; a spawn sends those that differ
+  (vanilla's `getNonDefaultValues`), a tracker those that changed.
   """
   alias Valimc.Data.{Blocks, EntityTypes}
-  alias Valimc.Entity.{Animal, Mob, Projectile}
+  alias Valimc.Entity.{Mob, Projectile}
   alias Valimc.Protocol.{EntityPackets, Packets}
 
   defstruct type: nil,
@@ -48,22 +49,9 @@ defmodule Valimc.Entity.Body do
   @knot "minecraft:leash_knot"
   @crystal "minecraft:end_crystal"
   @dragon "minecraft:ender_dragon"
-  # An ender pearl's endermites (VMC-037o) are bodies with their type's data;
-  # their family's behaviour is VMC-043b's. Farm animals are VMC-043c's.
   @modelled MapSet.new(
-              [
-                "minecraft:zombie",
-                "minecraft:endermite",
-                @tnt,
-                @falling,
-                @cloud,
-                @knot,
-                @crystal,
-                @villager,
-                "minecraft:iron_golem",
-                "minecraft:wandering_trader"
-              ] ++
-                Projectile.types() ++ Valimc.AI.Mobs.Zombie.types() ++ Animal.types()
+              [@tnt, @falling, @cloud, @knot, @crystal, @villager, "minecraft:iron_golem"] ++
+                Projectile.types()
             )
   @plain for name <- EntityTypes.names(),
              EntityTypes.living?(name) and EntityTypes.fetch(name).category != :misc,
@@ -72,9 +60,7 @@ defmodule Valimc.Entity.Body do
 
   @doc """
   Whether type `type` is modelled (it can be summoned and stored): the types
-  above, and every living type of a spawning category as a plain mob (its
-  own entity data at vanilla's defaults, VMC-042a) until its family models
-  what `finalizeSpawn` gives it.
+  above, and every living type of a spawning category (VMC-042a).
   """
   def modelled?(type), do: MapSet.member?(@modelled, type) or MapSet.member?(@plain, type)
 
@@ -85,11 +71,35 @@ defmodule Valimc.Entity.Body do
 
   @doc "A fresh body of modelled type `type`, as `/summon` makes it."
   def new(type) do
-    if modelled?(type) do
-      body = %__MODULE__{type: type, data: data(type)}
-      {:ok, if(kind(type) == :mob, do: %{body | mob: Mob.new(type)}, else: body)}
-    else
-      {:error, :unmodelled_type}
+    cond do
+      not modelled?(type) -> {:error, :unmodelled_type}
+      kind(type) == :mob -> {:ok, fresh(type)}
+      true -> {:ok, %__MODULE__{type: type, data: data(type)}}
+    end
+  end
+
+  # A fresh mob as its family makes it (VMC-081d): its data, full health,
+  # its family's air and motion. A chicken's first egg comes after
+  # `random.nextInt(6000) + 6000` ticks of a random vanilla never seeds.
+  defp fresh(type) do
+    {:ok, body} = restore(fresh_record(type))
+
+    case body.data do
+      %{egg_time: _} -> %{body | data: %{body.data | egg_time: 5999 + :rand.uniform(6000)}}
+      _ -> body
+    end
+  end
+
+  defp fresh_record(type) do
+    case :persistent_term.get({__MODULE__, :fresh, type}, nil) do
+      nil ->
+        Valimc.Entity.MobFacts.install!()
+        {:ok, record} = Valimc.Native.mob_section_fresh(type)
+        :persistent_term.put({__MODULE__, :fresh, type}, record)
+        record
+
+      record ->
+        record
     end
   end
 
@@ -128,26 +138,31 @@ defmodule Valimc.Entity.Body do
     if EntityTypes.fetch(type) == nil do
       {:error, :unknown_type}
     else
-      body = generated_data(%__MODULE__{type: type, data: data(type), preserved: preserved})
-
       body =
-        if kind(type) == :mob,
-          do: %{body | mob: %{Mob.new(type) | persistent: persistent}},
-          else: body
+        if kind(type) == :mob do
+          body = fresh(type)
+          %{body | preserved: preserved, mob: %{body.mob | persistent: persistent}}
+        else
+          %__MODULE__{type: type, data: data(type), preserved: preserved}
+        end
 
-      {:ok, body}
+      {:ok, generated_data(body)}
     end
   end
 
   # A villager reads what generation gave it (VMC-044a1).
   defp generated_data(%__MODULE__{type: @villager, preserved: preserved} = body),
-    do: %{body | data: Valimc.Entity.Villager.from_preserved(preserved), preserved: nil}
+    do: %{
+      body
+      | data: Valimc.Entity.Villager.from_preserved(preserved, body.data),
+        preserved: nil
+    }
 
   defp generated_data(%__MODULE__{type: @crystal, preserved: preserved} = body),
     do: %{body | data: Valimc.Entity.EndCrystal.from_preserved(preserved), preserved: nil}
 
   defp generated_data(%__MODULE__{type: @dragon, preserved: preserved} = body),
-    do: %{body | data: Valimc.Entity.Dragon.from_preserved(preserved), preserved: nil}
+    do: %{body | data: Valimc.Entity.Dragon.from_preserved(preserved, body.data), preserved: nil}
 
   defp generated_data(body), do: body
 
@@ -216,12 +231,13 @@ defmodule Valimc.Entity.Body do
   # counts from it).
   defp data(@knot), do: %{since: 0}
 
-  # A mob family's own (VMC-043b–e: a zombie's baby flag), a projectile's.
-  defp data(type) do
-    case Valimc.AI.Mobs.data(type) do
-      nil -> if Projectile.projectile?(type), do: Projectile.data(type), else: %{}
-      data -> data
-    end
+  # A projectile's.
+  defp data(type), do: if(Projectile.projectile?(type), do: Projectile.data(type), else: %{})
+
+  # The keys a record's data holds: a mob's family's (VMC-081d).
+  defp data_keys(type) do
+    data = if kind(type) == :mob, do: fresh_record(type).data, else: data(type)
+    Map.keys(data)
   end
 
   @doc "The fields a record saves of `body` (position and uuid are the entry's)."
@@ -266,7 +282,7 @@ defmodule Valimc.Entity.Body do
          true <- Enum.all?([yaw, pitch, head, vx, vy, vz], &is_float/1),
          true <- preserved == nil or is_binary(preserved),
          true <- is_boolean(on_ground) and is_boolean(no_gravity),
-         true <- is_map(data) and Map.keys(data) == Map.keys(data(type)),
+         true <- is_map(data) and Map.keys(data) == data_keys(type),
          true <- valid_water_age?(type, data),
          cooldown = Map.get(record, :portal_cooldown, 0),
          true <- is_integer(cooldown) and cooldown in 0..32_767,
@@ -306,7 +322,7 @@ defmodule Valimc.Entity.Body do
       end
 
     if Enum.sort(Map.keys(data)) == Enum.sort(old_keys),
-      do: Map.merge(Valimc.Entity.Animal.ageable_data(), data),
+      do: Map.merge(%{age: 0, forced_age: 0, age_locked: false}, data),
       else: data
   end
 
@@ -327,56 +343,20 @@ defmodule Valimc.Entity.Body do
   def alive?(%__MODULE__{mob: mob}), do: Mob.alive?(mob)
 
   @doc """
-  One tick of the body's timers: `{body, events, done}`. Its portal cooldown
-  runs down (`processPortalCooldown`). A dying mob's
-  timers run until its death animation ends (`done`), with the poof (entity
-  event 60) one tick before it is removed, so observers still track it. A
-  primed TNT is inert until VMC-050a.
+  `ticks` ticks of the body's timers: its portal cooldown runs down
+  (`processPortalCooldown`); a mob's timers are its section's.
   """
-  def tick(%__MODULE__{portal_cooldown: cooldown} = body) when cooldown > 0,
-    do: tick_timers(%{body | portal_cooldown: cooldown - 1})
+  def tick(%__MODULE__{portal_cooldown: cooldown} = body, ticks),
+    do: %{body | portal_cooldown: max(cooldown - ticks, 0)}
 
-  def tick(body), do: tick_timers(body)
-
-  defp tick_timers(%__MODULE__{type: @dragon} = body), do: Valimc.Entity.Dragon.timers(body)
-
-  defp tick_timers(%__MODULE__{mob: nil} = body), do: {body, [], false}
-
-  defp tick_timers(%__MODULE__{mob: mob} = body) do
-    {next, done} = Mob.tick(mob)
-    health = next.living.health
-    events = if health.value <= 0 and health.death_ticks == 19, do: [{:event, 60}], else: []
-    {%{body | mob: next}, events, done}
-  end
-
-  @doc """
-  `/kill`: a mob dies (`{:dying, body, events}`: the hurt and death events,
-  then its death animation), any other body is removed (`:remove`).
-  """
-  def kill(%__MODULE__{mob: nil}), do: :remove
-  def kill(%__MODULE__{type: @dragon}), do: :remove
-
-  def kill(%__MODULE__{mob: mob} = body) do
-    case Mob.kill(mob) do
-      {:ok, mob} -> {:dying, %{body | mob: mob}, [{:damage, :generic_kill}, {:event, 3}]}
-      :ignored -> :ignored
-    end
-  end
+  @doc "`/kill` of a body that is not a mob: it is removed."
+  def kill(%__MODULE__{}), do: :remove
 
   @doc """
   A hit of `amount` from damage type `source` with no attacker (explosions
-  and falling blocks, VMC-050a): `{body, events}` through the one hurt path
-  (`Entity.Combat.hurt_body/3`); other bodies take no damage.
+  and falling blocks, VMC-050a) on a body that is not a mob: no damage.
   """
-  def hurt(%__MODULE__{} = body, source, amount) do
-    case Valimc.Entity.Combat.hurt_body(body, nil, %{
-           source: Valimc.Living.DamageSource.new(source),
-           amount: amount
-         }) do
-      :ignored -> {body, []}
-      {body, events, _} -> {body, events}
-    end
-  end
+  def hurt(%__MODULE__{} = body, _source, _amount), do: {body, []}
 
   @doc """
   A name tag used on a living body (`NameTagItem.interactLivingEntity`): its
@@ -400,9 +380,9 @@ defmodule Valimc.Entity.Body do
   def event_packet(id, {:swing, hand}, _) when hand in [:main_hand, :off_hand],
     do:
       binary(
-        Valimc.Protocol.Packets.packet("swing_animation", [
+        Packets.packet("swing_animation", [
           Valimc.Protocol.Wire.varint(id),
-          Valimc.AI.Facts.swing_fields(hand)
+          Valimc.Data.AiFacts.swing_fields(hand)
         ])
       )
 
@@ -454,24 +434,15 @@ defmodule Valimc.Entity.Body do
   def values(%__MODULE__{} = body) do
     common = [
       {:shared_flags, shared_flags(body), 0},
-      {:air_supply, air(body), 300},
+      {:air_supply, 300, 300},
       {:custom_name, body.custom_name, nil},
       {:no_gravity, body.no_gravity, false},
-      {:pose, pose(body), :standing},
-      {:frozen_ticks, frozen(body), 0}
+      {:pose, :standing, :standing},
+      {:frozen_ticks, 0, 0}
     ]
 
     common ++ own(body)
   end
-
-  defp own(%__MODULE__{mob: %Mob{living: living} = mob} = body),
-    do:
-      [
-        {:living_flags, living_flags(mob), 0},
-        {:health, living.health.value, 1.0},
-        {:sleeping_pos, sleeping(body), nil},
-        {:mob_flags, mob_flags(mob), 0}
-      ] ++ Valimc.AI.Mobs.values(body)
 
   defp own(%__MODULE__{type: @tnt, data: data}),
     do: [
@@ -487,21 +458,6 @@ defmodule Valimc.Entity.Body do
   defp own(%__MODULE__{type: @knot}), do: []
   defp own(%__MODULE__{} = body), do: Projectile.values(body)
 
-  # `LivingEntity`'s using flags: using an item (bit 0) in the off hand
-  # (bit 1), a skeleton drawing its bow (VMC-043b).
-  defp living_flags(%Mob{using: {:off_hand, _}}), do: 3
-  defp living_flags(%Mob{using: {:main_hand, _}}), do: 1
-  defp living_flags(_mob), do: 0
-
-  # `Mob.setNoAi` (bit 0), `setLeftHanded` (bit 1) and `setAggressive`
-  # (bit 2): a zombie raising its arms (VMC-041a).
-  defp mob_flags(%Mob{} = mob) do
-    no_ai = if mob.no_ai, do: 1, else: 0
-    left = if mob.left_handed, do: 2, else: 0
-    aggressive = if match?(%{aggressive: true}, mob.ai), do: 4, else: 0
-    no_ai + left + aggressive
-  end
-
   @doc """
   The body's dimensions, `{width, height, eye height}` as floats
   (`getDimensions`): its type's, or what its family changes (a baby's,
@@ -509,74 +465,30 @@ defmodule Valimc.Entity.Body do
   """
   def dimensions(%Valimc.Entity.NativeBody{dimensions: dimensions}), do: dimensions
 
-  def dimensions(%__MODULE__{type: type} = body) do
-    case Valimc.AI.Mobs.dimensions(body) do
-      nil ->
-        facts = EntityTypes.fetch(type)
+  def dimensions(%__MODULE__{type: type}) do
+    facts = EntityTypes.fetch(type)
 
-        {Valimc.Data.Float32.round(facts.width), Valimc.Data.Float32.round(facts.height),
-         Valimc.Data.Float32.round(facts.eye_height)}
-
-      dimensions ->
-        dimensions
-    end
+    {Valimc.Data.Float32.round(facts.width), Valimc.Data.Float32.round(facts.height),
+     Valimc.Data.Float32.round(facts.eye_height)}
   end
 
-  @doc "The body's physical bounding box, including a family's opening or offset geometry."
-  # A native mob's row (VMC-081d) keeps its family's data: a shulker's lid
-  # opens its box as an Elixir body's does.
-  def box(%Valimc.Entity.NativeBody{type: type} = body, position) do
-    case Valimc.AI.Mobs.hook(type, :box, [body, position], nil) do
-      nil -> Valimc.Entity.NativeBody.box(body, position)
-      box -> box
-    end
-  end
+  @doc "The body's physical bounding box (a mob's row's, `NativeBody.box/2`)."
+  def box(%Valimc.Entity.NativeBody{} = body, position),
+    do: Valimc.Entity.NativeBody.box(body, position)
 
   def box(%__MODULE__{type: @knot}, {x, y, z}),
     do: {x + 0.3125, y + 0.375, z + 0.3125, x + 0.6875, y + 0.875, z + 0.6875}
 
-  def box(%__MODULE__{type: type} = body, {x, y, z} = position) do
-    case Valimc.AI.Mobs.hook(type, :box, [body, position], nil) do
-      nil ->
-        {w, h, _} = dimensions(body)
-        {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
-
-      box ->
-        box
-    end
+  def box(%__MODULE__{} = body, {x, y, z}) do
+    {w, h, _} = dimensions(body)
+    {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}
   end
 
-  # Vanilla's on-fire flag (bit 0) for a burning body that is not fire
-  # immune, sprinting (bit 3: a cat, VMC-044a3), swimming (bit 4) and invisible (bit 5: a
-  # wandering trader, VMC-044a4).
-  defp shared_flags(%__MODULE__{mob: %Mob{living: %{fire_ticks: ticks}}, type: type} = body) do
-    fire = if ticks > 0 and not EntityTypes.fetch(type).fire_immune, do: 1, else: 0
-    sprinting = if Map.get(body.data, :sprinting) == true, do: 8, else: 0
-    invisible = if Map.get(body.data, :invisible) == true, do: 32, else: 0
-    # Swimming (bit 4: a drowned, VMC-043b2).
-    swimming = if Map.get(body.data, :swimming) == true, do: 16, else: 0
-    fire + sprinting + swimming + invisible
-  end
-
-  defp shared_flags(%__MODULE__{mob: nil, data: %{fire: _}} = body),
+  # Vanilla's on-fire flag (bit 0) for a burning projectile.
+  defp shared_flags(%__MODULE__{data: %{fire: _}} = body),
     do: if(Projectile.burning?(body), do: 1, else: 0)
 
   defp shared_flags(_body), do: 0
-
-  defp air(%__MODULE__{mob: %Mob{living: living}}), do: living.air_supply
-  defp air(_body), do: 300
-
-  defp frozen(%__MODULE__{mob: %Mob{living: living}}), do: living.freezing.frozen_ticks
-  defp frozen(_body), do: 0
-
-  defp pose(%__MODULE__{mob: %Mob{living: %{health: %{value: value}}}}) when value <= 0,
-    do: :dying
-
-  defp pose(%__MODULE__{data: %{crouching: true}}), do: :crouching
-  defp pose(body), do: if(sleeping(body), do: :sleeping, else: :standing)
-
-  # The bed a mob sleeps in (`LivingEntity.getSleepingPos`, a villager's, VMC-044a1).
-  defp sleeping(%__MODULE__{data: data}), do: Map.get(data, :sleeping)
 
   @doc """
   What observers are shown of `body` beyond its motion: its entity data
@@ -584,19 +496,12 @@ defmodule Valimc.Entity.Body do
   equal packets, so a body that only moved keeps its encoded ones.
   """
   def shown(%Valimc.Entity.NativeBody{shown: shown}), do: shown
-  def shown(%__MODULE__{mob: nil} = body), do: {values(body), nil, nil, nil}
-
-  def shown(%__MODULE__{mob: mob} = body),
-    do: {values(body), mob.attributes, mob.equipment, link(mob)}
-
-  # The holder observers see a mob leashed to (VMC-043c3), nil for none.
-  defp link(%Mob{leash: %{id: id}}), do: id
-  defp link(_mob), do: nil
+  def shown(%__MODULE__{} = body), do: {values(body), nil, nil, nil}
 
   @doc """
   What an observer that starts tracking entity `id` is sent after its spawn
-  (`ServerEntity.sendPairingData`): its non-default entity data, a mob's
-  synced attributes and its equipment.
+  (`ServerEntity.sendPairingData`): its non-default entity data (a mob's
+  synced attributes and equipment too, `NativeBody.pairing/2`).
   """
   def pairing(id, %Valimc.Entity.NativeBody{} = body),
     do: Valimc.Entity.NativeBody.pairing(id, body)
@@ -605,76 +510,24 @@ defmodule Valimc.Entity.Body do
     data =
       for {field, value, default} <- values(body), value != default, do: {field, value}
 
-    data = if data == [], do: [], else: [EntityPackets.metadata(id, data)]
-
-    living =
-      case body.mob do
-        nil ->
-          []
-
-        mob ->
-          equipment = Mob.equipment_changes(mob.equipment, %{})
-
-          [Packets.attributes(id, Mob.synced(body.type, mob.attributes))] ++
-            if(equipment == [], do: [], else: [EntityPackets.equipment(id, equipment)]) ++
-            case link(mob) do
-              nil -> []
-              holder -> [EntityPackets.link(id, holder)]
-            end
-      end
-
-    Enum.map(data ++ living, &binary/1)
+    if data == [], do: [], else: [binary(EntityPackets.metadata(id, data))]
   end
 
   @doc """
-  The packets of what changed from `old` to `new` (entity data, attributes,
-  equipment), for observers already tracking entity `id`.
+  The packets of what changed from `old` to `new` (entity data, a mob's
+  attributes and equipment) once what they show differs, for observers
+  already tracking entity `id`.
   """
-  def changes(_id, same, same), do: []
-
-  def changes(id, %Valimc.Entity.NativeBody{} = old, %Valimc.Entity.NativeBody{} = new) do
-    if old.shown == new.shown, do: [], else: shown_changes(id, old, new)
-  end
-
-  def changes(id, %__MODULE__{} = old, %__MODULE__{} = new) do
-    if shown(old) == shown(new), do: [], else: shown_changes(id, old, new)
-  end
-
-  @doc false
-  # `changes/3` once the projections are known to differ.
   def shown_changes(id, %Valimc.Entity.NativeBody{} = old, %Valimc.Entity.NativeBody{} = new),
     do: Valimc.Entity.NativeBody.shown_changes(id, old, new)
 
   def shown_changes(id, old, new) do
-    old_values = values(old)
-
     data =
-      for {{field, value, _}, {_, before, _}} <- Enum.zip(values(new), old_values),
+      for {{field, value, _}, {_, before, _}} <- Enum.zip(values(new), values(old)),
           value != before,
           do: {field, value}
 
-    data = if data == [], do: [], else: [EntityPackets.metadata(id, data)]
-
-    living =
-      case {old.mob, new.mob} do
-        {%Mob{} = a, %Mob{} = b} ->
-          attributes = Mob.synced(new.type, b.attributes)
-
-          changed =
-            attributes -- Mob.synced(old.type, a.attributes)
-
-          equipment = Mob.equipment_changes(b.equipment, a.equipment)
-
-          link = if link(a) == link(b), do: [], else: [EntityPackets.link(id, link(b))]
-
-          if(changed == [], do: [], else: [Packets.attributes(id, changed)]) ++
-            if(equipment == [], do: [], else: [EntityPackets.equipment(id, equipment)]) ++ link
-
-        _ ->
-          []
-      end
-
-    Enum.map(data ++ living, &binary/1)
+    if data == [], do: [], else: [binary(EntityPackets.metadata(id, data))]
   end
 
   defp binary({id, payload}), do: {id, IO.iodata_to_binary(payload)}

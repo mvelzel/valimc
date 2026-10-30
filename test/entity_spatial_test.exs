@@ -1,7 +1,10 @@
 defmodule Valimc.EntitySpatialTest do
   use ExUnit.Case, async: true
-  alias Valimc.Entity.{Body, Store}
+  alias Valimc.Entity.{Body, NativeBody, NativeMobs, Store}
   alias Valimc.Data.{Box, Grid}
+
+  # A store whose mobs are native, as an owner's are.
+  defp new_store, do: %{Store.new() | native: NativeMobs.new({0, 0})}
 
   defp check(store) do
     types =
@@ -29,8 +32,8 @@ defmodule Valimc.EntitySpatialTest do
     area = {-200.0, -100.0, -200.0, 200.0, 200.0, 200.0}
 
     expected =
-      for {id, %{kind: :mob, body: body, entity: e} = entry} <- store.entries,
-          box = Valimc.AI.Mobs.hook(body.type, :collider, [body, {e.x, e.y, e.z}], nil),
+      for {id, %{kind: :mob, body: %NativeBody{} = body, entity: e} = entry} <- store.entries,
+          box = NativeBody.collider(body, {e.x, e.y, e.z}),
           box != nil,
           Box.intersects?(area, box),
           into: %{},
@@ -87,14 +90,24 @@ defmodule Valimc.EntitySpatialTest do
 
     {:ok, store, {_, id, _}} =
       Store.create_record(
-        Store.new(),
+        new_store(),
         {0, 0},
         Store.body_record(body, <<1::128>>, {16.5, 64.0, 0.5})
       )
 
-    opened = %{body | data: %{body.data | attach_face: 5, peek: 100, peek_amount: 1.0}}
-    store = Store.change_body(store, id, opened) |> check()
     area = {14.1, 64.1, 0.1, 15.9, 64.9, 0.9}
+    assert [] = Store.colliders(check(store), area)
+
+    # Its section opens the lid westward.
+    store =
+      Enum.reduce([attach_face: 5, peek: 100, peek_amount: 1.0], store, fn {key, value}, store ->
+        {:ok, {_, events, {position, row}}} =
+          Valimc.Native.mob_section_data(store.native.ref, id, key, value)
+
+        Store.native_change(store, id, position, row, events)
+      end)
+      |> check()
+
     assert [_] = Store.colliders(store, area)
 
     {:ok, proposed, _} =

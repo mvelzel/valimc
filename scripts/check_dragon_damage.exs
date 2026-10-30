@@ -1,16 +1,14 @@
-# `--native` (VMC-081d): each dragon lives in a native section; its timers
+# Each dragon lives in a native section; its timers
 # (`Native.dragon_oracle_actor/4`), hits (`mob_section_hurt`, the part
 # decoded from the hit), arrow ignition and phase metadata (its row's shown
 # values) are the native dragon's, its health and data read back from it.
-alias Valimc.Entity.{Body, Combat, Dragon, Store}
+alias Valimc.Entity.{Body, Store}
 alias Valimc.Living.DamageSource
 alias Valimc.Native
 
-{native, argv} = Enum.split_with(System.argv(), &(&1 == "--native"))
-native? = native != []
-[file] = argv
+[file] = System.argv()
 raw = file |> File.read!() |> JSON.decode!()
-if native?, do: Valimc.Entity.NativeMobs.install!()
+Valimc.Entity.MobFacts.install!()
 
 # A native dragon of `body` at the check's position: its section.
 native_dragon = fn body ->
@@ -68,16 +66,10 @@ for row <- raw["cases"] do
       do: %{type: "minecraft:" <> source, uuid: <<2::128>>, entity_id: 2, player: false},
       else: attacker
 
-  section = if native?, do: elem(native_dragon.(body), 0)
+  {section, _} = native_dragon.(body)
 
-  Enum.reduce(row["hits"], body, fn expected, body ->
-    body =
-      if native? do
-        :ok = Native.dragon_oracle_actor(section, 1, {:timers, expected["delay"]}, %{})
-        body
-      else
-        Enum.reduce(1..expected["delay"]//1, body, fn _, b -> elem(Dragon.timers(b), 0) end)
-      end
+  for expected <- row["hits"] do
+    :ok = Native.dragon_oracle_actor(section, 1, {:timers, expected["delay"]}, %{})
 
     hit = %{
       source: DamageSource.new(String.to_existing_atom(source)),
@@ -88,44 +80,22 @@ for row <- raw["cases"] do
       dragon_part: row["part"]
     }
 
-    {actual, body} =
-      if native? do
-        ignites = Native.dragon_oracle_actor(section, 1, {:ignites, hit}, %{})
-        hit = %{hit | amount: hit.amount * 1.0}
-        {:ok, {{admitted, _, _, _, _}, _, _}} = Native.mob_section_hurt(section, nil, 1, hit)
-        {value, _, hurt, _, cooldown, last} = Native.mob_section_oracle_health(section, 1)
-        {:ok, restored} = Body.restore(hd(Native.mob_section_records(section, [1])))
+    ignites = Native.dragon_oracle_actor(section, 1, {:ignites, hit}, %{})
+    hit = %{hit | amount: hit.amount * 1.0}
+    {:ok, {{admitted, _, _, _, _}, _, _}} = Native.mob_section_hurt(section, 1, hit)
+    {value, _, hurt, _, cooldown, last} = Native.mob_section_oracle_health(section, 1)
+    {:ok, restored} = Body.restore(hd(Native.mob_section_records(section, [1])))
 
-        {%{
-           "admitted" => admitted,
-           "health" => value,
-           "cooldown" => cooldown,
-           "hurt_time" => hurt,
-           "last_hurt" => last,
-           "sitting_damage" => restored.data.sitting_damage,
-           "phase" => restored.data.phase,
-           "projectile_fire" => if(ignites, do: 20, else: 0)
-         }, body}
-      else
-        fire = if Dragon.ignites?(body, hit), do: 20, else: 0
-
-        {body, admitted} =
-          case Combat.hurt_body(body, %{x: 0.0, y: 80.0, z: 0.0}, hit) do
-            :ignored -> {body, false}
-            {body, _, _} -> {body, true}
-          end
-
-        {%{
-           "admitted" => admitted,
-           "health" => body.mob.living.health.value,
-           "cooldown" => body.mob.living.health.cooldown,
-           "hurt_time" => body.mob.living.health.hurt_ticks,
-           "last_hurt" => body.mob.living.health.last_hurt,
-           "sitting_damage" => body.data.sitting_damage,
-           "phase" => body.data.phase,
-           "projectile_fire" => fire
-         }, body}
-      end
+    actual = %{
+      "admitted" => admitted,
+      "health" => value,
+      "cooldown" => cooldown,
+      "hurt_time" => hurt,
+      "last_hurt" => last,
+      "sitting_damage" => restored.data.sitting_damage,
+      "phase" => restored.data.phase,
+      "projectile_fire" => if(ignites, do: 20, else: 0)
+    }
 
     for {key, value} <- actual,
         value != expected[key],
@@ -133,22 +103,14 @@ for row <- raw["cases"] do
           raise(
             "dragon damage differs #{inspect(Map.drop(row, ["hits"]))} #{inspect(expected)} #{key}=#{inspect(value)}"
           )
-
-    body
-  end)
+  end
 end
 
 for row <- raw["packets"] do
   {:ok, body} = Body.new("minecraft:ender_dragon")
   body = put_in(body.data.phase, row["phase"])
 
-  shown =
-    if native? do
-      {_, %{shown: {values, _, _, _}}} = native_dragon.(body)
-      values
-    else
-      Body.values(body)
-    end
+  {_, %{shown: {shown, _, _, _}}} = native_dragon.(body)
 
   values =
     for {:dragon_phase, value, default} <- shown,
@@ -165,6 +127,5 @@ for row <- raw["packets"] do
 end
 
 IO.puts(
-  "PASS: #{length(raw["cases"])} native multipart dragon damage sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["hits"])))} hits" <>
-    if(native?, do: ", every hit on the native dragon", else: "")
+  "PASS: #{length(raw["cases"])} native multipart dragon damage sequences, #{Enum.sum(Enum.map(raw["cases"], &length(&1["hits"])))} hits, every hit on the native dragon"
 )

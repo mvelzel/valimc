@@ -6,10 +6,10 @@
 //! accepts, with the same validation, defaults and normalisations (health
 //! clamped to the type's maximum, absorption to its effect's, a leash
 //! restored to look for its holder, `hurt_by_player` dropped without
-//! memory) and the dolphin/squid `restore_data` migration. A record a native
-//! mob writes is therefore the term an Elixir mob in that state writes, so
-//! logs, checkpoints, handoff digests (`term_to_binary(_, [:deterministic])`)
-//! and exports are unchanged.
+//! memory) and the dolphin/squid `restore_data` migration. A record the
+//! Elixir side builds (a fresh, spawned or generated mob) and one a native
+//! mob writes are the same terms, so logs, checkpoints, handoff digests
+//! (`term_to_binary(_, [:deterministic])`) and exports read alike.
 //!
 //! What it needs to know of types (whether one exists and is living, its
 //! `max_health` default, its family data's key set) and of effects comes in

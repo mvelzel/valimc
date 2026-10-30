@@ -1,7 +1,7 @@
 //! The AI machinery over small scenes: the selector's semantics with
 //! scripted goals, the controls, random walk targets, navigation over a
-//! flat floor and a few goals end to end. The ExUnit parity tests compare
-//! these against `Valimc.AI` draw for draw over generated terrain.
+//! flat floor and a few goals end to end (the vanilla stages check the AI
+//! draw for draw over real terrain).
 
 use super::control::look;
 use super::goal::{Goal, LOOK, MOVE, TARGET};
@@ -251,7 +251,10 @@ impl Scripted {
     }
 
     fn note(&self, what: &str) {
-        self.log.lock().unwrap().push(format!("{}:{what}", self.tag));
+        self.log
+            .lock()
+            .unwrap()
+            .push(format!("{}:{what}", self.tag));
     }
 }
 
@@ -307,12 +310,18 @@ fn selector_starts_by_priority_and_flags() {
         &mut m,
         vec![
             (2, MOVE, Box::new(Scripted::new("walk", true, &log))),
-            (1, MOVE | LOOK, Box::new(Scripted::new("chase", false, &log))),
+            (
+                1,
+                MOVE | LOOK,
+                Box::new(Scripted::new("chase", false, &log)),
+            ),
             (3, LOOK, Box::new(Scripted::new("look", true, &log))),
         ],
     );
     let mut sensing = Sensing::default();
-    run(&s, &mut m, &mut sensing, 0, |t| selector::tick(t, Which::Goals));
+    run(&s, &mut m, &mut sensing, 0, |t| {
+        selector::tick(t, Which::Goals)
+    });
     assert_eq!(
         taken(&log),
         ["walk:start", "look:start", "walk:tick", "look:tick"]
@@ -335,7 +344,9 @@ fn selector_starts_by_priority_and_flags() {
                 g.usable = true;
             }
         });
-    run(&s, &mut m, &mut sensing, 0, |t| selector::tick(t, Which::Goals));
+    run(&s, &mut m, &mut sensing, 0, |t| {
+        selector::tick(t, Which::Goals)
+    });
     assert_eq!(
         taken(&log),
         ["walk:stop", "look:stop", "chase:start", "chase:tick"]
@@ -364,27 +375,53 @@ fn selector_cleans_up_and_respects_interruption() {
         ],
     );
     let mut sensing = Sensing::default();
-    run(&s, &mut m, &mut sensing, 0, |t| selector::tick(t, Which::Goals));
+    run(&s, &mut m, &mut sensing, 0, |t| {
+        selector::tick(t, Which::Goals)
+    });
     taken(&log);
     // The uninterruptable holder keeps its flag from a better goal.
-    m.body.mob.ai.as_mut().unwrap().state.as_mut().unwrap().goals.change::<Scripted>(|g| {
-        if g.tag == "chase" {
-            g.usable = true;
-        }
+    m.body
+        .mob
+        .ai
+        .as_mut()
+        .unwrap()
+        .state
+        .as_mut()
+        .unwrap()
+        .goals
+        .change::<Scripted>(|g| {
+            if g.tag == "chase" {
+                g.usable = true;
+            }
+        });
+    run(&s, &mut m, &mut sensing, 0, |t| {
+        selector::tick_running(t, Which::Goals, false)
     });
-    run(&s, &mut m, &mut sensing, 0, |t| selector::tick_running(t, Which::Goals, false));
     assert_eq!(taken(&log), ["float:tick"]);
-    run(&s, &mut m, &mut sensing, 0, |t| selector::tick(t, Which::Goals));
+    run(&s, &mut m, &mut sensing, 0, |t| {
+        selector::tick(t, Which::Goals)
+    });
     assert_eq!(taken(&log), ["breath:tick", "float:tick"]);
     // One that cannot continue stops and frees its flag; a disabled flag
     // stops what holds it.
-    m.body.mob.ai.as_mut().unwrap().state.as_mut().unwrap().goals.change::<Scripted>(|g| {
-        if g.tag == "breath" {
-            g.keep = false;
-            g.usable = false;
-        }
+    m.body
+        .mob
+        .ai
+        .as_mut()
+        .unwrap()
+        .state
+        .as_mut()
+        .unwrap()
+        .goals
+        .change::<Scripted>(|g| {
+            if g.tag == "breath" {
+                g.keep = false;
+                g.usable = false;
+            }
+        });
+    run(&s, &mut m, &mut sensing, 0, |t| {
+        selector::tick(t, Which::Goals)
     });
-    run(&s, &mut m, &mut sensing, 0, |t| selector::tick(t, Which::Goals));
     assert_eq!(
         taken(&log),
         ["breath:stop", "chase:start", "chase:tick", "float:tick"]
@@ -459,7 +496,9 @@ fn random_targets_stand_on_the_floor() {
     let mut sensing = Sensing::default();
     let mut m = mob(2, [0.5, 64.0, 0.5]);
     for _ in 0..20 {
-        let p = run(&s, &mut m, &mut sensing, 0, |t| random_pos::default(t, 10, 7));
+        let p = run(&s, &mut m, &mut sensing, 0, |t| {
+            random_pos::default(t, 10, 7)
+        });
         if let Some([x, y, z]) = p {
             assert_eq!(y, 64.0, "{x} {z}");
             assert_eq!((x - 0.5).rem_euclid(1.0), 0.0);
@@ -597,3 +636,34 @@ fn navigation_kinds_choose_their_evaluator() {
     assert!(Navigation::default().done());
 }
 
+#[test]
+fn a_piglin_holding_a_spear_holds_a_non_melee_weapon() {
+    use crate::mobs::ai::brain::fight::non_melee;
+    use crate::mobs::term::{Map, Value};
+    let s = scene();
+    let spear = |kinetic: bool| {
+        let mut components = Map::new();
+        if kinetic {
+            components.insert(
+                Value::Binary(b"minecraft:kinetic_weapon".to_vec()),
+                Value::Map(Map::new()),
+            );
+        }
+        Value::Map(Map::from_atoms([
+            ("item_id", Value::Int(7)),
+            ("components", Value::Map(components)),
+        ]))
+    };
+    let held = |kind: &str, stack: Value| {
+        let mut m = mob(1, [0.5, 64.0, 0.5]);
+        m.body.entity_type = kind.into();
+        m.body.mob.equipment.set(Slot::Mainhand, Some(stack));
+        let mut sensing = Sensing::new(vec![], vec![], vec![]);
+        run(&s, &mut m, &mut sensing, 0, |t| non_melee(t))
+    };
+    // `Piglin.canUseNonMeleeWeapon`: a weapon with the kinetic component.
+    assert!(held("minecraft:piglin", spear(true)));
+    assert!(!held("minecraft:piglin", spear(false)));
+    // Other mobs use none (`Mob.canUseNonMeleeWeapon`).
+    assert!(!held("minecraft:hoglin", spear(true)));
+}

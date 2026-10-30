@@ -215,8 +215,8 @@ defmodule Valimc.Player.Host do
 
   @doc """
   What mobs' AI senses of this group's players (VMC-041a): every living,
-  non-spectator player in the group's dimension as `Valimc.AI.World`
-  describes a sensed player.
+  non-spectator player in the group's dimension, as the group's `MobWorld`
+  takes sensed players (`mobs::sensing`).
   """
   def sensed(state) do
     for {uuid, %{session: %{player: player} = session}} <- state.players,

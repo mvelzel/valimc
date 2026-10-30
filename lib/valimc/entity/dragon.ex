@@ -1,37 +1,28 @@
 defmodule Valimc.Entity.Dragon do
   @moduledoc """
-  The dragon's body data and multipart damage rules (VMC-045a4). All eight
-  parts address one living body. Its phase actor ticks inside the owning group.
+  What the owner reads of an ender dragon (VMC-045a4): its eight part boxes,
+  which hits and the tracker address, from its row, whose data holds its
+  actor (`mobs::boss::dragon`, VMC-081d); whether a podium phase ignites an
+  arrow; and a generated dragon's data.
   """
-  alias Valimc.AI.Dragon.{Facts, Flight}
-  alias Valimc.Data.{EntityTypes, Float32}
-  alias Valimc.Entity.{Body, Mob}
-  alias Valimc.Living.DamageSource
+  use Valimc.Data.Facts, "registry/dragon_facts.json"
+  alias Valimc.Data.Float32
 
-  @type_name "minecraft:ender_dragon"
   @arrow_types ~w(minecraft:arrow minecraft:spectral_arrow minecraft:trident minecraft:wind_charge)
-  def types, do: [@type_name]
-  def goals(_type), do: {[], []}
+  @parts @facts["parts"] |> Enum.map(&{&1["width"], &1["height"]})
+  @still List.duplicate({0.0, 0.0, 0.0}, length(@parts)) |> List.to_tuple()
 
-  def data(_type),
-    do: %{phase: 10, sitting_damage: 0.0, death_time: 0, brain: nil, aged_tick: nil}
+  @doc "The network ids a dragon takes: its own and one per part."
+  def id_span, do: 1 + length(@parts)
 
-  def values(%{data: data}), do: [{:dragon_phase, data.phase, 10}]
+  @doc """
+  A generated dragon's data over a fresh one's (`data`): the SNBT
+  `preserved`'s phase, sitting damage and death time.
+  """
+  def from_preserved(nil, data), do: data
 
-  def motion,
-    do: [fixed: true, pushable: false, pushes: false, fluid_pushed: false, emission: :none]
-
-  def volume(_body), do: 5.0
-  # The dragon's 200-tick death actor awards XP in its own bursts.
-  def experience(_body), do: 0
-  def affected?(_effect), do: false
-  def falls?, do: false
-
-  def from_preserved(nil), do: data(@type_name)
-
-  def from_preserved(snbt) do
+  def from_preserved(snbt, defaults) do
     {{:compound, fields}, _} = Valimc.Text.Snbt.parse_compound(Valimc.Text.Reader.new(snbt))
-    defaults = data(@type_name)
     phase = number(fields["DragonPhase"], 10)
 
     %{
@@ -41,7 +32,7 @@ defmodule Valimc.Entity.Dragon do
         death_time: number(fields["DragonDeathTime"], 0)
     }
   rescue
-    _ -> data(@type_name)
+    _ -> defaults
   end
 
   defp number({:float, <<n::float-32>>}, _default), do: n
@@ -54,83 +45,21 @@ defmodule Valimc.Entity.Dragon do
 
   @doc """
   The current eight part boxes, in the client's root+1 through root+8 order,
-  of a body or a native dragon's row (VMC-081d), whose data holds its actor.
+  of a dragon's row, whose data holds its actor and the actor its flight.
   """
-  def boxes(%{data: %{brain: %{phases: %{flight: %Flight{} = flight}}}}),
-    do: Flight.boxes(flight)
+  def boxes(%{data: %{brain: %{phases: %{flight: %{parts: parts}}}}}), do: boxes(parts)
+  def boxes(%{data: %{brain: %{flight: %{parts: parts}}}}), do: boxes(parts)
 
-  def boxes(%{data: %{brain: %{flight: %Flight{} = flight}}}), do: Flight.boxes(flight)
-  def boxes(_body), do: Flight.boxes(%Flight{})
-  def sitting?(%{data: %{phase: phase}}), do: Facts.phase(phase).sitting
-  def knockback?(body), do: not sitting?(body)
+  def boxes(parts) when is_tuple(parts) do
+    for {{width, height}, {x, y, z}} <- Enum.zip(@parts, Tuple.to_list(parts)) do
+      half = Float32.round(width / 2.0)
+      {x - half, y, z - half, x + half, y + height, z + half}
+    end
+  end
+
+  def boxes(_body), do: boxes(@still)
 
   @doc "The three podium phases reject and ignite arrows, tridents and player wind charges."
   def ignites?(%{data: %{phase: phase}}, hit),
     do: phase in [5, 6, 7] and match?(%{type: type} when type in @arrow_types, hit[:direct])
-
-  def taken(body, hit) do
-    damage = if ignites?(body, hit), do: 0.0, else: f(hit.amount)
-    part = Map.get(hit, :dragon_part, 2)
-    damage = if part in [0, 1], do: damage, else: f(f(damage / 4.0) + min(damage, 1.0))
-    %{hit | amount: damage}
-  end
-
-  def ignores?(body, hit) do
-    not admits_ignored?(body, hit) or
-      not (match?(%{player: true}, hit[:attacker]) or
-             DamageSource.is?(hit.source, :always_hurts_ender_dragons))
-  end
-
-  # EnderDragon.hurt admits the hit even when reallyHurt takes no health.
-  def admits_ignored?(%{data: %{phase: phase}}, hit),
-    do: phase != 9 and hit.amount >= f(0.01) and not part_immune?(hit)
-
-  # The non-living part checks Entity.isInvulnerableToBase before forwarding
-  # to the root. A direct root hit instead admits an immune reallyHurt.
-  defp part_immune?(%{dragon_part: _, source: source}),
-    do:
-      (DamageSource.is?(source, :is_fire) and EntityTypes.fetch(@type_name).fire_immune) or
-        (DamageSource.is?(source, :is_fall) and EntityTypes.tag?(@type_name, "fall_damage_immune"))
-
-  defp part_immune?(_hit), do: false
-
-  @doc "Subclass killing-blow and sitting-damage rules before shared hurt events."
-  def damage_result(body, mob, outcome) do
-    if sitting?(body) do
-      received =
-        f(f(body.data.sitting_damage + body.mob.living.health.value) - mob.living.health.value)
-
-      data =
-        if received > f(0.25 * mob.living.health.maximum),
-          do: %{body.data | sitting_damage: 0.0, phase: 4},
-          else: %{body.data | sitting_damage: received}
-
-      {%{body | data: data}, mob, outcome}
-    else
-      if outcome.died do
-        health = %{mob.living.health | value: 1.0, death_ticks: 0}
-        mob = %{mob | living: %{mob.living | health: health}}
-        {%{body | data: %{body.data | phase: 9}}, mob, %{outcome | died: false}}
-      else
-        {body, mob, outcome}
-      end
-    end
-  end
-
-  @doc "Native timers without an ordinary mob's twenty-tick removal or death poof."
-  def timers(body) do
-    {mob, _} = Mob.tick(body.mob)
-    {%{body | mob: mob}, [], false}
-  end
-
-  # Shared hurt sounds reset Mob's ambient clock before its subclass callback.
-  def hurt(
-        %Body{data: %{brain: %{ambient: _} = actor}, mob: %{ai: %Valimc.AI.Mind{} = mind}} = body,
-        _hit
-      ),
-      do: %{body | data: %{body.data | brain: %{actor | ambient: mind.ambient}}}
-
-  def hurt(body, _hit), do: body
-
-  defp f(value), do: Float32.round(value)
 end

@@ -13,7 +13,7 @@ defmodule Valimc.World.CatSpawner do
   players counts down on its own, so players standing in several groups get
   a try in each.
   """
-  alias Valimc.AI.Pois
+  alias Valimc.World.Pois
   alias Valimc.Data.{EntityTypes, Grid, JavaRandom}
   alias Valimc.Entity.{Body, Store}
 
@@ -77,7 +77,7 @@ defmodule Valimc.World.CatSpawner do
               do: [cat(pos, false)],
               else: []
 
-          Valimc.AI.World.in_structure?(world, pos, @huts) ->
+          Pois.in_structure?(world, pos, @huts) ->
             if cats(group, pos, 16, 8) == 0, do: [cat(pos, true)], else: []
 
           true ->
@@ -96,7 +96,7 @@ defmodule Valimc.World.CatSpawner do
     view = Valimc.World.View.new(group.dimension)
     resources = Map.values(group.sections)
 
-    %Valimc.AI.World{
+    %{
       read: &Valimc.World.View.block(view, &1),
       find: &find(view, &1, &2),
       pois: Pois.merge(for r <- resources, do: r.poi_claims),

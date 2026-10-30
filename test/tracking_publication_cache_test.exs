@@ -1,13 +1,13 @@
 defmodule Valimc.TrackingPublicationCacheTest do
   use ExUnit.Case, async: true
-  alias Valimc.Entity.{Body, Store, Tracking}
+  alias Valimc.Entity.{Body, NativeMobs, Store, Tracking}
 
-  defp create(type) do
+  defp create(type, store \\ Store.new()) do
     {:ok, body} = Body.new(type)
 
     {:ok, store, {_, id, _}} =
       Store.create_record(
-        Store.new(),
+        store,
         {0, 0},
         Store.body_record(body, <<1::128>>, {0.5, 64.0, 0.5})
       )
@@ -52,26 +52,26 @@ defmodule Valimc.TrackingPublicationCacheTest do
   end
 
   test "moves, data, colliders, a new tracker and removal rewrite the rows they touch" do
-    {store, id, tracking} = create("minecraft:shulker")
+    # A native shulker, as an owner's is; its section changes it.
+    {store, id, tracking} =
+      create("minecraft:shulker", %{Store.new() | native: NativeMobs.new({0, 0})})
+
+    ref = store.native.ref
     before = Tracking.published(tracking, id)
-    body = store.entries[id].body
-    open = put_in(body.data.peek_amount, 1.0)
-    store = Store.change_body(store, id, open)
+
+    change = fn store, {:ok, {_, events, {position, row}}}, at ->
+      Store.native_change(store, id, at || position, row, events)
+    end
+
+    store = change.(store, Valimc.Native.mob_section_data(ref, id, :peek_amount, 1.0), nil)
     {tracking, publication} = pass(tracking, store.views, 1, MapSet.new())
     assert [{^id, _}] = publication.sources
     assert %{{0, 0} => %{^id => row}} = publication.rows
     refute row.collider == before.collider
     assert row.tick == 1
 
-    {:ok, store, _} =
-      Store.step_body(
-        store,
-        {0, 0},
-        id,
-        store.entries[id].revision,
-        {20.5, 64.0, 0.5},
-        Body.name(open, Valimc.Text.literal("shell"))
-      )
+    named = Valimc.Native.mob_section_name(ref, id, Valimc.Text.literal("shell"))
+    store = change.(store, named, {20.5, 64.0, 0.5})
 
     {tracking, publication} = pass(tracking, store.views, 2, MapSet.new())
     assert publication.rows[{0, 0}] == %{}

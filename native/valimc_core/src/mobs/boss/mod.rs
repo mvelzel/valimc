@@ -1,5 +1,5 @@
 //! Boss families (VMC-081d): the ender dragon, ported from
-//! `Valimc.Entity.Dragon` and `Valimc.AI.Dragon`.
+//! `Valimc.Entity.Dragon`.
 
 pub mod dragon;
 

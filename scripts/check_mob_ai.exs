@@ -11,46 +11,22 @@
 # An optional second argument is the least number of scenes (another
 # family's oracle, VMC-043d's NetherMobOracle, has fewer).
 #
-# `--native` (VMC-081d): the mobs of the native families take their turns in
-# a native section (`MobTicks.native_steps/7`), the others as before.
-alias Valimc.AI
-alias Valimc.Entity.{Body, Combat, MobTicks, NativeMobs, Store}
+# Every mob takes its turns in a native section (`MobTicks.native_steps/4`,
+# VMC-081d), its mind seeded as the oracle seeds it (a brain's gates and
+# sensors' countdowns, `mob_section_oracle_brain`), and the checks read its
+# body, mind and brain from the section.
+alias Valimc.Data.JavaRandom
+alias Valimc.Entity.{Body, MobTicks, NativeMobs, Store}
 alias Valimc.Living.DamageSource
 alias Valimc.Native
 
-{native?, argv} =
-  case Enum.split_with(System.argv(), &(&1 == "--native")) do
-    {[], argv} -> {false, argv}
-    {_, argv} -> {true, argv}
-  end
-
 {path, least} =
-  case argv do
+  case System.argv() do
     [path] -> {path, 9}
     [path, least] -> {path, String.to_integer(least)}
   end
 
-if native?, do: NativeMobs.install!()
-
-# Every type whose family is native (`mobs::kinds`), brain mobs included
-# (their brains seeded natively as the oracle seeds them,
-# `mob_section_oracle_brain`), unless the run names some
-# (`VALIMC_NATIVE_TYPES`, comma-separated, without the namespace).
-native_types =
-  case System.get_env("VALIMC_NATIVE_TYPES") do
-    nil when native? ->
-      {:ok, types} = Native.mob_kinds()
-      MapSet.new(types)
-
-    nil ->
-      MapSet.new()
-
-    names ->
-      names |> String.split(",", trim: true) |> MapSet.new(&("minecraft:" <> &1))
-  end
-
-native_ticks = :counters.new(1, [])
-
+Valimc.Entity.MobFacts.install!()
 Valimc.Data.BlockFacts.install!()
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
@@ -143,47 +119,27 @@ player = fn p ->
   }
 end
 
-goal_names = fn
-  # A native mind's running goals by registration index (VMC-081d), a
-  # skeleton's weapon goal by the vanilla goal it stands for.
-  %{mob: %{ai: %{goals: goals} = mind}} = body, which when is_list(goals) ->
-    {goals, targets} = Valimc.AI.Mobs.registered(body.type)
-    registered = if which == :goals, do: goals, else: targets
+# The goals and target goals each type registers, in order, by their
+# vanilla names (MobAiOracle's facts).
+registered =
+  for {type, m} <- :json.decode(File.read!("priv/registry/ai_facts.json"))["mobs"],
+      into: %{},
+      do:
+        {type,
+         %{
+           goals: Enum.map(m["goals"], &Enum.at(&1, 1)),
+           targets: Enum.map(m["targets"], &Enum.at(&1, 1))
+         }}
 
-    for {i, name} <- Map.fetch!(mind, which) do
-      if String.starts_with?(name, "Valimc."), do: elem(Enum.at(registered, i), 1), else: name
-    end
+# A mind's running goals by registration index: a goal its native module
+# names by the vanilla goal registered there, a skeleton's weapon goal by
+# the vanilla goal it stands for.
+goal_names = fn body, which ->
+  names = registered[body.type][which]
 
-  body, which ->
-    {goals, targets} = Valimc.AI.Mobs.registered(body.type)
-    registered = if which == :goals, do: goals, else: targets
-    entries = Tuple.to_list(if which == :goals, do: body.mob.ai.goals, else: body.mob.ai.targets)
-
-    # A goal that stands for another as the mob's weapon changes names it
-    # (`vanilla_name`, a skeleton's, VMC-043b3).
-    for {%{running: true} = entry, {_, name, _, _, _}} <- Enum.zip(entries, registered),
-        do: (is_map(entry.state) && Map.get(entry.state, :vanilla_name)) || name
-end
-
-# A brain as the oracle seeded it: its RunOnes' randoms and sensors' countdowns.
-brain = fn
-  nil, _, _ ->
-    nil
-
-  brain, gates, times ->
-    {behaviors, _} =
-      brain.behaviors
-      |> Tuple.to_list()
-      |> Enum.map_reduce(gates, fn
-        %{kind: Valimc.AI.Behavior.Gate} = b, [seed | rest] ->
-          {%{b | random: AI.Random.new(seed)}, rest}
-
-        b, gates ->
-          {b, gates}
-      end)
-
-    sensors = Enum.zip_with(brain.sensors, times, fn s, t -> %{s | time: t} end)
-    %{brain | behaviors: List.to_tuple(behaviors), sensors: sensors}
+  for {i, name} <- Map.fetch!(body.mob.ai, which) do
+    if String.starts_with?(name, "Valimc."), do: Enum.at(names, i), else: name
+  end
 end
 
 offhand = fn
@@ -245,6 +201,47 @@ sound_of = fn
   _ -> []
 end
 
+# A cube's `setSize(size, true)`: maximum health its square, movement speed
+# `0.2F + 0.1F * size`, attack damage its size (and a magma cube's armour
+# thrice it), full health.
+set_size = fn body, size ->
+  f = &Valimc.Data.Float32.round/1
+  size = max(1, min(size, 127))
+
+  bases =
+    [
+      {"minecraft:max_health", size * size * 1.0},
+      {"minecraft:movement_speed", f.(f.(0.2) + f.(f.(0.1) * size))},
+      {"minecraft:attack_damage", size * 1.0}
+    ] ++ if(body.type == "minecraft:magma_cube", do: [{"minecraft:armor", size * 3.0}], else: [])
+
+  attributes =
+    Enum.reduce(bases, body.mob.attributes, fn {name, base}, attributes ->
+      entry = Map.get(attributes, name, %{base: nil, modifiers: []})
+      Map.put(attributes, name, %{entry | base: base})
+    end)
+
+  mob = %{body.mob | attributes: attributes}
+  max = Valimc.Entity.Mob.value(body.type, mob, "minecraft:max_health")
+  health = %{mob.living.health | maximum: max, value: min(mob.living.health.value, max)}
+  {:ok, health} = Valimc.Living.Health.set(health, max)
+  %{body | mob: %{mob | living: %{mob.living | health: health}}, data: %{body.data | size: size}}
+end
+
+# A zombie's `setBaby(true)`: the flag and the baby speed modifier.
+set_baby = fn body ->
+  entry = Map.get(body.mob.attributes, "minecraft:movement_speed", %{base: nil, modifiers: []})
+
+  modifiers =
+    Enum.reject(entry.modifiers, &(elem(&1, 0) == "minecraft:baby")) ++
+      [{"minecraft:baby", 0.5, 1}]
+
+  attributes =
+    Map.put(body.mob.attributes, "minecraft:movement_speed", %{entry | modifiers: modifiers})
+
+  %{body | data: Map.put(body.data, :baby, true), mob: %{body.mob | attributes: attributes}}
+end
+
 # A mob as the oracle set it up (VMC-043d): a weapon in hand, a baby (with
 # its speed modifier, as `setBaby` adds it).
 setup = fn body, m ->
@@ -266,13 +263,7 @@ setup = fn body, m ->
         body
 
       size ->
-        cube =
-          if body.type == "minecraft:slime",
-            do: Valimc.AI.Mobs.Slime,
-            else: Valimc.AI.Mobs.MagmaCube
-
-        {mob, data} = cube.set_size(body.mob, body.data, size)
-        %{body | mob: mob, data: data}
+        set_size.(body, size)
     end
 
   # A baby hoglin is an ageable mob's: its age, a baby's attack damage.
@@ -299,6 +290,15 @@ setup = fn body, m ->
   end
 end
 
+# A family's own state its mind keeps (`mob_section_oracle_mind`'s `own`),
+# with a fresh one's fields where it kept none.
+own = fn mind, key, fresh ->
+  case mind.own do
+    %{^key => _} = own -> own
+    _ -> fresh
+  end
+end
+
 # What a family's mob keeps of its own (VMC-043e), as the oracle reports it.
 kind_data = fn
   %{type: "minecraft:shulker", data: data, mob: mob} ->
@@ -322,7 +322,7 @@ kind_data = fn
     %{
       "size" => data.size,
       "was_on_ground" => data.was_on_ground,
-      "jump_delay" => Valimc.AI.Mobs.Cube.own(mob.ai).jump_delay
+      "jump_delay" => own.(mob.ai, :jump_delay, %{jump_delay: 0}).jump_delay
     }
 
   %{type: type, data: data, mob: mob} = body
@@ -334,8 +334,8 @@ kind_data = fn
     }
 
     fish =
-      if type in Valimc.AI.Mobs.Fish.schooling() do
-        school = Valimc.AI.Mobs.Fish.school(mob.ai)
+      if type in ~w(minecraft:cod minecraft:salmon minecraft:tropical_fish) do
+        school = own.(mob.ai, :school, %{leader: nil, school: 1})
 
         Map.merge(fish, %{
           "leader" =>
@@ -357,7 +357,7 @@ kind_data = fn
         Map.put(fish, "variant", data.variant)
 
       "minecraft:pufferfish" ->
-        c = Valimc.AI.Mobs.Pufferfish.counters(mob.ai)
+        c = own.(mob.ai, :inflate, %{inflate: 0, deflate: 0})
         Map.merge(fish, %{"puff" => data.puff, "inflate" => c.inflate, "deflate" => c.deflate})
 
       _ ->
@@ -366,7 +366,8 @@ kind_data = fn
     end
 
   %{type: type, data: data, mob: mob} when type in ~w(minecraft:squid minecraft:glow_squid) ->
-    o = Valimc.AI.Mobs.Squid.own(mob.ai, 0)
+    # A squid's state is made with its mind (`mob_section_oracle_tentacle`).
+    o = Map.fetch!(mob.ai, :own)
 
     squid = %{
       "tentacle" => bits.(o.tentacle),
@@ -415,7 +416,7 @@ kind_data = fn
     }
 
   %{type: "minecraft:turtle", data: data, mob: mob} ->
-    own = Valimc.Entity.Animals.Turtle.own(mob.ai)
+    own = own.(mob.ai, :going_home, %{going_home: false, travel: nil, lay: 0})
     {hx, hy, hz} = data.home
 
     turtle = %{
@@ -482,13 +483,7 @@ prepare = fn
           %{b | data: %{b.data | carried: Valimc.Data.Blocks.default_state(name)}}
       end)
 
-    if p["baby"] do
-      self = %Valimc.AI.Self{type: body.type, mob: body.mob, mind: body.mob.ai, data: body.data}
-      self = Valimc.AI.Mobs.Zombie.set_baby(self, true)
-      %{body | mob: self.mob, data: self.data}
-    else
-      body
-    end
+    if p["baby"], do: set_baby.(body), else: body
 end
 
 # A family's extra fields of a mob's tick: fire, health, equipment (item,
@@ -596,13 +591,66 @@ start_data = fn
     body
 end
 
-# A squid's tentacle speed, drawn as vanilla made it (VMC-043e).
-own_start = fn
-  type, start when type in ~w(minecraft:squid minecraft:glow_squid) ->
-    Map.merge(Valimc.AI.Mobs.Squid.own(nil, 0), %{tentacle_speed: float.(start["tentacle_speed"])})
+# A turtle egg cracked underfoot: one egg fewer, or none left.
+cracked = fn state ->
+  properties = Map.new(Valimc.Data.Blocks.properties(state))
 
-  _, _ ->
-    nil
+  case Integer.parse(Map.get(properties, "eggs", "1")) do
+    {n, ""} when n > 1 ->
+      Valimc.Data.Blocks.state("turtle_egg", %{properties | "eggs" => Integer.to_string(n - 1)})
+
+    _ ->
+      Valimc.Data.BlockFacts.fluid_remains(state)
+  end
+end
+
+# `hostStateByInfested`: the stone an infested state hides, its properties
+# carried (a deepslate's axis).
+host_of = fn state ->
+  "infested_" <> host = Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(state))
+  Valimc.Data.Blocks.state(host, Map.new(Valimc.Data.Blocks.properties(state)))
+end
+
+# The level a scene's turns read: its sky by day (full light above each
+# column's top block), no chunks beyond its blocks, a treasure search
+# answered at once.
+scene_level = fn c ->
+  tops =
+    if c["day"] != nil do
+      for {{x, z}, y} <-
+            Enum.reduce(c["blocks"], %{}, fn [x, y, z, _], acc ->
+              Map.update(acc, {x, z}, y, &max(&1, y))
+            end),
+          do: {x, z, y}
+    end
+
+  level = %{
+    time: 0,
+    day: 0,
+    difficulty: :normal,
+    darken: 0,
+    bright: c["day"] == true,
+    monsters_burn: c["day"] == true,
+    halloween: false,
+    mob_griefing: true,
+    mob_drops: true,
+    entity_drops: true,
+    universal_anger: false,
+    goals: true,
+    min_y: -64,
+    max_y: 319,
+    sea_level: 63,
+    border: nil,
+    knots: [],
+    wet: false,
+    zoom_seed: 0,
+    tops: tops,
+    no_chunks: true
+  }
+
+  if Map.has_key?(c, "treasure_result"),
+    do: Map.put(level, :locate, c["treasure_result"] && List.to_tuple(c["treasure_result"])),
+    else: level
 end
 
 checked =
@@ -615,7 +663,12 @@ checked =
         )
 
       players = Enum.map(c["players"], player)
-      Process.put(:mob_structure_queries, c["structure_queries"] || [])
+
+      # A treasure search is answered at once by the scene's level.
+      Process.put(
+        :mob_structure_queries,
+        if(Map.has_key?(c, "treasure_result"), do: [], else: c["structure_queries"] || [])
+      )
 
       items =
         for {item, n} <- Enum.with_index(c["items"]) do
@@ -642,86 +695,22 @@ checked =
       # changed from then on; the kernel's view stays the scene's.
       for {{:mob_ai_edit, _} = key, _} <- Process.get(), do: Process.delete(key)
 
-      world = %AI.World{
-        read: fn cell -> Process.get({:mob_ai_edit, cell}) || Map.get(scene, cell, air) end,
-        # The oracle's level has no chunks (`hasChunk`).
-        chunks: fn _ -> false end,
-        # Block searches (a piglin's repellents) over the scene's blocks.
-        find: fn {x0, y0, z0, x1, y1, z1}, states ->
-          for {{x, y, z} = position, state} <- scene,
-              x in x0..x1 and y in y0..y1 and z in z0..z1,
-              MapSet.member?(states, state),
-              do: {position, state}
-        end,
-        # Vanilla's search answers at once (VMC-041b), over the same view.
-        search: fn request ->
-          [result] = AI.Paths.find(kernel_view, [request])
-          result
-        end,
-        locate:
-          if(Map.has_key?(c, "treasure_result"),
-            do: fn %{tag: "minecraft:dolphin_located", radius: 50, position: origin} ->
-              [expected | rest] = Process.get(:mob_structure_queries)
-              true = origin == List.to_tuple(expected)
-              Process.put(:mob_structure_queries, rest)
-              {:ok, c["treasure_result"] && List.to_tuple(c["treasure_result"])}
-            end,
-            else: :deferred
-          ),
-        players: players,
-        items: items,
-        random: AI.Random.new(7),
-        difficulty: :normal
-      }
+      level0 = scene_level.(c)
+      world = %{random: JavaRandom.new(7), items: items}
+      native = %NativeMobs{ref: Native.mob_section_oracle_new()}
 
-      # A family's lit scene (VMC-043b, HostileOracle): full sky light above
-      # each column's top block, never darkened; by day monsters burn. Hits
-      # read the probe's local difficulty.
-      world =
-        case c["day"] do
-          nil ->
-            world
-
-          day ->
-            tops =
-              Enum.reduce(c["blocks"], %{}, fn [x, y, z, _], acc ->
-                Map.update(acc, {x, z}, y, &max(&1, y))
-              end)
-
-            %{
-              world
-              | light: fn {x, y, z} ->
-                  {if(y > Map.get(tops, {x, z}, -65), do: 15, else: 0), 0}
-                end,
-                monsters_burn: day,
-                bright: day,
-                local: Valimc.Living.LocalDifficulty.new(:normal, 0, 0, 0.0)
-            }
-        end
-
+      # Each mob in the section from its record, its mind made and seeded
+      # after it was made, as the oracle seeds it: its random, a brain's
+      # gates and sensors' countdowns (they drew on the random before), a
+      # squid's tentacle speed as vanilla drew it.
       entries =
         for {m, i} <- Enum.with_index(c["mobs"]) do
           yaw = float.(m["yaw"])
           {:ok, body} = Body.new(m["type"])
           {x, y, z} = vector.(m["position"])
           uuid = <<m["id"]::64, 0::64>>
-          mind = AI.mind(m["type"], uuid, %{random: AI.Random.new(m["seed"])})
-          # Seeded after it was made, as the oracle seeds it (a brain's sensor
-          # countdowns drew on the random before).
-          mind = %{
-            mind
-            | random: AI.Random.new(m["seed"]),
-              body_yaw: yaw,
-              brain: brain.(mind.brain, Enum.at(c["gates"], i), Enum.at(c["sensors"], i))
-          }
-
-          mind = %{mind | own: own_start.(m["type"], m["start"])}
-
-          # A cube's move control faces its spawn yaw, as the oracle sets it (VMC-043d).
-          mind =
-            if m["type"] in ~w(minecraft:magma_cube minecraft:slime),
-              do: %{mind | own: %{AI.Mobs.Cube.own(mind) | y_rot: yaw}},
-              else: mind
+          id = m["id"]
+          random = JavaRandom.new(m["seed"])
 
           home =
             case m["start"]["home"] do
@@ -729,70 +718,52 @@ checked =
               nil -> nil
             end
 
-          body = %{body | yaw: yaw, head_yaw: yaw, mob: %{body.mob | ai: mind, home: home}}
+          body = %{
+            body
+            | yaw: yaw,
+              head_yaw: yaw,
+              mob: %{body.mob | ai: %{random: random}, home: home}
+          }
+
           body = start_data.(body, m["start"])
           body = prepare.(body, Enum.find(c["prepare"] || [], &(&1["index"] == i)))
           body = setup.(body, m)
+          record = Store.body_record(body, uuid, {x, y, z})
+          {:ok, [{^id, _, row}]} = Native.mob_section_insert(native.ref, [{id, record}], false)
+          # A cube's move control faces its spawn yaw, as the oracle sets it.
+          :ok = Native.mob_section_oracle_prepare(native.ref, id, yaw, nil)
 
-          {m["id"],
-           %{entity: %{uuid: uuid, entity_id: m["id"], x: x, y: y, z: z}, body: body, revision: 1}}
-        end
-
-      # A native mode's section, the native families' mobs there from their records.
-      native =
-        if native? and Enum.any?(entries, fn {_, e} -> e.body.type in native_types end),
-          do: %NativeMobs{ref: Native.mob_section_oracle_new(), types: native_types}
-
-      entries =
-        for {id, e} <- entries do
-          if native != nil and e.body.type in native_types do
-            record =
-              Store.body_record(e.body, e.entity.uuid, {e.entity.x, e.entity.y, e.entity.z})
-
-            {:ok, [{^id, _, row}]} = Native.mob_section_insert(native.ref, [{id, record}], false)
-            :ok = Native.mob_section_oracle_prepare(native.ref, id, e.body.mob.ai.body_yaw, nil)
-
-            # A brain as the oracle seeded it: its mind's random, its gates'
-            # and its sensors' countdowns.
-            case e.body.mob.ai do
-              %{brain: %{behaviors: behaviors, sensors: sensors}, random: random} ->
-                gates =
-                  for %{kind: Valimc.AI.Behavior.Gate} = b <- Tuple.to_list(behaviors),
-                      do: b.random
-
-                :ok =
-                  Native.mob_section_oracle_brain(
-                    native.ref,
-                    id,
-                    random,
-                    gates,
-                    Enum.map(sensors, & &1.time)
-                  )
-
-              _ ->
-                :ok
-            end
-
-            # A squid's tentacle speed as vanilla drew it (`own_start`).
-            case e.body.mob.ai.own do
-              %{tentacle_speed: speed} ->
-                :ok = Native.mob_section_oracle_tentacle(native.ref, id, speed * 1.0)
-
-              _ ->
-                :ok
-            end
-
-            {id, %{e | body: row} |> Map.merge(%{kind: :mob, native: native.ref})}
-          else
-            {id, e}
+          if Native.mob_section_oracle_brain_view(native.ref, id) != nil do
+            :ok =
+              Native.mob_section_oracle_brain(
+                native.ref,
+                id,
+                random,
+                Enum.map(Enum.at(c["gates"], i) || [], &JavaRandom.new/1),
+                Enum.at(c["sensors"], i) || []
+              )
           end
+
+          if m["type"] in ~w(minecraft:squid minecraft:glow_squid) do
+            speed = float.(m["start"]["tentacle_speed"])
+            :ok = Native.mob_section_oracle_tentacle(native.ref, id, speed)
+          end
+
+          {id,
+           %{
+             kind: :mob,
+             native: native.ref,
+             entity: %{uuid: uuid, entity_id: id, x: x, y: y, z: z},
+             body: row,
+             revision: 1
+           }}
         end
 
-      # A native mob as the checks read it: its record's body and its mind.
+      # A mob as the checks read it: its record's body and its mind.
       native_body = fn id ->
         [record] = Native.mob_section_records(native.ref, [id])
         {:ok, body} = Body.restore(record)
-        # A mob without a mind (NoAI) has the Elixir's fresh one's fields.
+        # A mob without a mind (NoAI) has a fresh one's fields.
         m =
           Native.mob_section_oracle_mind(native.ref, id) ||
             %{
@@ -830,7 +801,6 @@ checked =
             case Native.mob_section_oracle_brain_view(native.ref, id) do
               {running, activity, gates, memories} ->
                 %{
-                  native: true,
                   running: running,
                   activity: activity && Atom.to_string(activity),
                   gate_seeds: gates,
@@ -859,8 +829,6 @@ checked =
                 s["loot_seed"] != nil,
                 do: String.to_integer(s["loot_seed"])
 
-          world = %{world | time: 1001 + tick, loot_seeds: seeds}
-
           # Hits between ticks, each as a player's attack (VMC-037n's one path).
           {entries, hurt_events} =
             Enum.reduce(c["hurts"], {entries, %{}}, fn h, {entries, events} ->
@@ -888,20 +856,13 @@ checked =
                   position: {p.x, p.y, p.z}
                 }
 
-                if Store.native_entry?(entry) do
-                  {:ok, {_, made, {_, row}}} = Native.mob_section_hurt(native.ref, nil, id, hit)
+                {:ok, {_, made, {_, row}}} = Native.mob_section_hurt(native.ref, id, hit)
 
-                  {List.replace_at(
-                     entries,
-                     h["mob"],
-                     {id, %{entry | body: NativeMobs.merge(row, entry.body)}}
-                   ), Map.put(events, id, made)}
-                else
-                  {body, made, _} = Combat.hurt_body(entry.body, entry.entity, hit)
-
-                  {List.replace_at(entries, h["mob"], {id, %{entry | body: body}}),
-                   Map.put(events, id, made)}
-                end
+                {List.replace_at(
+                   entries,
+                   h["mob"],
+                   {id, %{entry | body: NativeMobs.merge(row, entry.body)}}
+                 ), Map.put(events, id, made)}
               else
                 {entries, events}
               end
@@ -914,108 +875,53 @@ checked =
               {id, %{gone: true} = entry} ->
                 {id, entry}
 
-              {id, %{native: ref} = entry} ->
-                [{^id, _, row, _, done}] = Native.mob_section_age(ref, [{id, 1}], true)
+              {id, entry} ->
+                [{^id, _, row, _, done}] = Native.mob_section_age(native.ref, [{id, 1}], true)
                 row = if row, do: NativeMobs.merge(row, entry.body), else: entry.body
                 {id, Map.put(%{entry | body: row}, :gone, done)}
-
-              {id, entry} ->
-                {body, _, done} = Body.tick(entry.body)
-                {id, Map.put(%{entry | body: body}, :gone, done)}
             end)
 
           live = Enum.reject(entries, fn {_, e} -> e.gone end)
 
-          {steps, world} =
-            if native do
-              # The blocks mobs took or put down, which the native AI reads
-              # from its view.
-              edits =
-                for {{:mob_ai_edit, cell}, state} <- Process.get(), into: %{}, do: {cell, state}
+          # The blocks mobs took or put down, which the AI reads from its view.
+          edits =
+            for {{:mob_ai_edit, cell}, state} <- Process.get(), into: %{}, do: {cell, state}
 
-              native_view =
-                if edits == %{} do
-                  kernel_view
-                else
-                  blocks =
-                    for {{x, y, z}, state} <- Map.merge(scene, edits), do: [x, y, z, state]
-
-                  elem(view.(blocks, false), 1)
-                end
-
-              tops =
-                if c["day"] != nil do
-                  for {{x, z}, y} <-
-                        Enum.reduce(c["blocks"], %{}, fn [x, y, z, _], acc ->
-                          Map.update(acc, {x, z}, y, &max(&1, y))
-                        end),
-                      do: {x, z, y}
-                end
-
-              level = %{
-                time: world.time,
-                day: 0,
-                difficulty: :normal,
-                darken: 0,
-                bright: c["day"] == true,
-                monsters_burn: c["day"] == true,
-                halloween: false,
-                mob_griefing: true,
-                mob_drops: true,
-                entity_drops: true,
-                universal_anger: false,
-                goals: true,
-                min_y: -64,
-                max_y: 319,
-                sea_level: 63,
-                border: nil,
-                knots: [],
-                wet: false,
-                zoom_seed: 0,
-                tops: tops,
-                no_chunks: true
-              }
-
-              # A treasure search answered at once, as the oracle's level does.
-              level =
-                if Map.has_key?(c, "treasure_result") do
-                  Process.put(:mob_structure_queries, [])
-
-                  Map.put(
-                    level,
-                    :locate,
-                    c["treasure_result"] && List.to_tuple(c["treasure_result"])
-                  )
-                else
-                  level
-                end
-
-              env = %{region: nil, level: level, players: players, items: world.items, reach: 0}
-
-              {steps, world} =
-                MobTicks.native_steps(native_view, live, world, nil, [], native, env)
-
-              # A native piglin's barter: its table rolled with its seed and
-              # thrown, as its owner throws it.
-              steps =
-                for step <- steps do
-                  effects =
-                    Enum.flat_map(step.effects, fn
-                      {:barter, seed, from, velocity} ->
-                        {:ok, items} = Valimc.Blocks.Loot.barter(seed)
-                        for stack <- items, do: {:throw, stack, from, velocity}
-
-                      effect ->
-                        [effect]
-                    end)
-
-                  %{step | effects: effects}
-                end
-
-              # The loot seeds the tick's barters took.
-              {steps, %{world | loot_seeds: []}}
+          native_view =
+            if edits == %{} do
+              kernel_view
             else
-              MobTicks.steps(kernel_view, live, world, nil)
+              blocks = for {{x, y, z}, state} <- Map.merge(scene, edits), do: [x, y, z, state]
+              elem(view.(blocks, false), 1)
+            end
+
+          env = %{
+            region: nil,
+            level: %{level0 | time: 1001 + tick},
+            players: players,
+            items: world.items,
+            random: world.random,
+            loot_seeds: seeds
+          }
+
+          {steps, env} = MobTicks.native_steps(native_view, live, native, env)
+          world = %{world | random: env.random, items: env.items}
+
+          # A piglin's barter: its table rolled with its seed and thrown, as
+          # its owner throws it.
+          steps =
+            for step <- steps do
+              effects =
+                Enum.flat_map(step.effects, fn
+                  {:barter, seed, from, velocity} ->
+                    {:ok, items} = Valimc.Blocks.Loot.barter(seed)
+                    for stack <- items, do: {:throw, stack, from, velocity}
+
+                  effect ->
+                    [effect]
+                end)
+
+              %{step | effects: effects}
             end
 
           unless length(steps) == length(live),
@@ -1027,7 +933,7 @@ checked =
                 Process.put({:mob_ai_edit, cell}, air)
 
               {:crack_egg, cell, state} ->
-                Process.put({:mob_ai_edit, cell}, Valimc.AI.Goals.RemoveBlock.cracked(state))
+                Process.put({:mob_ai_edit, cell}, cracked.(state))
 
               {:take_block, cell, taken} ->
                 Process.put({:mob_ai_edit, cell}, Valimc.Data.BlockFacts.fluid_remains(taken))
@@ -1067,15 +973,8 @@ checked =
               [_, nil, _] ->
                 0
 
-              [{id, entry}, step, expected] ->
-                body =
-                  if Store.native_entry?(entry) do
-                    :counters.add(native_ticks, 1, 1)
-                    native_body.(id)
-                  else
-                    entry.body
-                  end
-
+              [{id, _}, step, expected] ->
+                body = native_body.(id)
                 mind = body.mob.ai
                 {x, y, z} = step.position
 
@@ -1179,7 +1078,7 @@ checked =
 
                            # Turtle eggs cracked underfoot and stamped out (VMC-043b2).
                            {:crack_egg, {bx, by, bz}, state} ->
-                             [[bx, by, bz], Valimc.AI.Goals.RemoveBlock.cracked(state)]
+                             [[bx, by, bz], cracked.(state)]
 
                            {:remove_block, {bx, by, bz}} ->
                              [[bx, by, bz], 0]
@@ -1192,7 +1091,7 @@ checked =
                              [[bx, by, bz], Valimc.Data.BlockFacts.fluid_remains(state)]
 
                            {:wake_infested, {bx, by, bz}, state, false} ->
-                             [[bx, by, bz], Valimc.AI.Mobs.Silverfish.host_of(state)]
+                             [[bx, by, bz], host_of.(state)]
 
                            # A turtle's eggs (VMC-043e).
                            {:lay_eggs, {bx, by, bz}, n} ->
@@ -1322,33 +1221,15 @@ checked =
                   data: kind_data.(body)
                 }
 
-                {behaviors, activity, gate_seeds} =
-                  case mind.brain do
-                    nil ->
-                      {nil, nil, nil}
-
-                    %{native: true} = b ->
-                      {b.running, b.activity, b.gate_seeds}
-
-                    brain ->
-                      {Valimc.AI.Brain.running(%Valimc.AI.Self{mind: mind}),
-                       Valimc.AI.Brain.activity(%Valimc.AI.Self{mind: mind})
-                       |> then(&(&1 && Atom.to_string(&1))),
-                       for(
-                         %{kind: Valimc.AI.Behavior.Gate} = b <- Tuple.to_list(brain.behaviors),
-                         do: b.random
-                       )}
-                  end
-
                 got =
                   if mind.brain,
                     do:
                       Map.merge(got, %{
-                        behaviors: behaviors,
-                        activity: activity,
+                        behaviors: mind.brain.running,
+                        activity: mind.brain.activity,
                         offhand: offhand.(body.mob.equipment[:offhand]),
                         admiring: admiring.(mind),
-                        gate_seeds: gate_seeds
+                        gate_seeds: mind.brain.gate_seeds
                       }),
                     else: got
 
@@ -1430,12 +1311,11 @@ checked =
         end)
 
       unless Process.get(:mob_structure_queries) == [],
-        do: raise("Missing native structure query")
+        do: raise("Missing structure query")
 
       count
   end
 
 IO.puts(
-  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes, level events, added entities)" <>
-    if(native?, do: ", #{:counters.get(native_ticks, 1)} of them native", else: "")
+  "PASS: #{checked} mob AI ticks of #{length(cases)} scenes equal vanilla's (goals, targets, brains, rotations, paths, randoms, hits, sounds, item takes, level events, added entities)"
 )

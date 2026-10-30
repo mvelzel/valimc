@@ -123,12 +123,10 @@ defmodule Valimc.World.RegionData do
     # The level random mobs' brains draw on (VMC-041a2), the section's own.
     {:ai_random, nil},
     # What players did that this section's mobs react to before they next
-    # think (VMC-043d, `AI.World.events`): at most 64.
+    # think (VMC-043d, the tick's `events`): at most 64.
     {:mob_events, []},
     # The POI tickets this section's villagers hold (VMC-044a1), for its siblings.
     {:poi_claims, %{}},
-    # Mobs' deferred path searches and their results (VMC-041b).
-    {:mob_paths, %Valimc.World.MobPaths{}},
     # One completed structure search, consumed at the next accepted mob tick.
     {:mob_located, nil},
     # Explosions whose craters wait for the crater job (VMC-050a):
@@ -195,7 +193,7 @@ defmodule Valimc.World.RegionData do
       end
 
     # The section's native mobs (VMC-081d) live in Rust beside its blocks.
-    native = Valimc.Entity.NativeMobs.new(key, key)
+    native = Valimc.Entity.NativeMobs.new(key)
 
     items =
       case Store.restore(key, loaded.items, loaded.ledger, native) do
@@ -1042,11 +1040,6 @@ defmodule Valimc.World.RegionData do
 
           change =
             case {outcome, change, hit[:ignite]} do
-              {%{hurt: true}, {:body, %Body{mob: %{} = mob} = body, events}, ticks}
-              when is_integer(ticks) ->
-                living = %{mob.living | fire_ticks: max(mob.living.fire_ticks, ticks)}
-                {:body, %{body | mob: %{mob | living: living}}, events}
-
               # A native mob burns in its section (VMC-081d).
               {%{hurt: true}, {:native, _, _, events}, ticks} when is_integer(ticks) ->
                 case Native.mob_section_effect(entry.native, sid, {:ignite, ticks}) do
@@ -1177,34 +1170,16 @@ defmodule Valimc.World.RegionData do
   end
 
   defp mob_effect(state, sid, _target, {:heal, amount}, _template) do
-    native_effect(state, sid, {:heal, amount}) ||
-      update_mob(state, sid, fn mob ->
-        {:ok, health} = Valimc.Living.Health.heal(mob.living.health, amount)
-        %{mob | living: %{mob.living | health: health}}
-      end)
+    native_effect(state, sid, {:heal, amount}) || state
   end
 
-  defp mob_effect(state, sid, _target, {:add, id, rung}, _template) do
-    # `canBeAffected` (VMC-043d: a wither skeleton is never withered).
-    type =
-      case group_entry(state, sid) do
-        {_, _, %{kind: :mob, body: %{type: type}}} -> type
-        _ -> nil
-      end
-
-    if Valimc.AI.Mobs.hook(type, :affected?, [id], true),
-      do: add_mob_effect(state, sid, id, rung),
-      else: state
-  end
+  # `canBeAffected` is its section's (VMC-043d: a wither skeleton is never
+  # withered).
+  defp mob_effect(state, sid, _target, {:add, id, rung}, _template),
+    do: add_mob_effect(state, sid, id, rung)
 
   defp add_mob_effect(state, sid, id, rung) do
-    native_effect(state, sid, {:add, id, rung}) ||
-      update_mob(state, sid, fn mob ->
-        case Valimc.Living.Effects.add(mob.living.effects, id, rung) do
-          {:ok, effects, _} -> %{mob | living: %{mob.living | effects: effects}}
-          _ -> mob
-        end
-      end)
+    native_effect(state, sid, {:add, id, rung}) || state
   end
 
   # An effect on a native mob of the group (VMC-081d): its section applies
@@ -1222,16 +1197,6 @@ defmodule Valimc.World.RegionData do
 
       _ ->
         nil
-    end
-  end
-
-  defp update_mob(state, sid, fun) do
-    case group_entry(state, sid) do
-      {key, store, %{body: %Body{mob: mob} = body}} when mob != nil ->
-        change_group_entry(state, key, store, sid, {:body, %{body | mob: fun.(mob)}, []})
-
-      _ ->
-        state
     end
   end
 
@@ -1472,110 +1437,45 @@ defmodule Valimc.World.RegionData do
   end
 
   # Mobs travel in the entity phase (VMC-015i): the section's simulated mobs
-  # tick one at a time in one kernel ticker (VMC-043e2), with their living
-  # rules; each step lands here, in a sibling section in the same commit, or
-  # in another group by the handoff. Native mobs (VMC-081d) take their turns
-  # in their section over what it keeps resident; only what changed of them
-  # comes back (`Store.native_tick/3`), and the Elixir mobs among them yield
-  # their turns to `MobTicks` in id order.
+  # take their turns in their section over what it keeps resident (VMC-081d),
+  # one at a time in id order; only what changed of them comes back
+  # (`Store.native_tick/3`): the steps of those with effects or leaving the
+  # section, which land here, in a sibling section in the same commit, or in
+  # another group by the handoff.
   defp move_mobs(state) do
     store = state.entities.store
     native = store.native
 
-    {natives, elixir} =
+    mobs =
       store
       |> Store.in_chunks(state.tickets.simulated, :mob)
       |> Enum.reject(fn {_, entry} -> Store.simulated?(entry, state.game_tick) end)
-      |> Enum.split_with(fn {_, entry} -> Store.native_entry?(entry) end)
 
     dragon_waits =
-      Enum.any?(natives ++ elixir, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
+      Enum.any?(mobs, fn {_, e} -> e.body.type == "minecraft:ender_dragon" end) and
         Enum.any?(state.siblings, fn {key, peer} -> key != state.key and peer.busy end)
 
-    natives? = native != nil and natives != [] and state.mob_world != nil
-
-    if (natives == [] and elixir == []) or write_busy(state) != nil or dragon_waits do
+    if mobs == [] or native == nil or state.mob_world == nil or write_busy(state) != nil or
+         dragon_waits do
       state
     else
-      {ready, mob_paths} = Valimc.World.MobPaths.take(state.mob_paths)
-      border = Valimc.World.Clock.border_snapshot()
-      # A lazy view: what effects read (eaten and placed blocks), and the
-      # Elixir mobs' blocks.
+      # A lazy view: what effects read (eaten and placed blocks).
       view = Valimc.World.View.new(state.dimension)
-      random = state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656))
+      random = state.ai_random || Valimc.Data.JavaRandom.create()
 
-      # An Elixir AI world only for Elixir mobs.
-      world =
-        if elixir != [] do
-          mobs = Enum.sort(natives ++ elixir)
-          own = Valimc.AI.Pois.store_claims(mobs, state.dimension)
-
-          located =
-            case state.mob_located do
-              nil -> %{}
-              {key, result} -> %{key => result}
-            end
-
-          %{
-            mob_world(state, view, border)
-            | paths: ready,
-              pois: poi_claims(state, own),
-              located: located,
-              random: random
-          }
-        else
-          %Valimc.AI.World{players: state.player_sensed, random: random}
-        end
-
-      {steps, world, native_out} =
-        if natives? do
-          section = if elixir != [], do: Enum.sort(natives ++ elixir), else: []
-
-          Valimc.Entity.MobTicks.native_tick(
-            {:world, state.mob_world},
-            section,
-            world,
-            border,
-            elixir_solids(state, elixir),
-            native,
-            state.game_tick,
-            Valimc.Entity.NativeMobs.simulated_mask(state.key, state.tickets.simulated),
-            world.random,
-            native_extra(state, elixir, length(natives) + length(elixir))
-          )
-        else
-          external = fn area ->
-            for {_, store} <- group_stores(state), row <- Store.colliders(store, area), do: row
-          end
-
-          {steps, world} =
-            Valimc.Entity.MobTicks.steps(view, Enum.sort(elixir), world, border, external)
-
-          {steps, world, nil}
-        end
-
-      state =
-        put_in(
-          state.entities.store,
-          Store.mark_simulated(state.entities.store, Enum.map(steps, & &1.id), state.game_tick)
+      {random, %{moved: moved, changes: changes}} =
+        Valimc.Entity.MobTicks.native_tick(
+          native,
+          {:world, state.mob_world},
+          state.game_tick,
+          Valimc.Entity.NativeMobs.simulated_mask(state.key, state.tickets.simulated),
+          random,
+          native_extra(state, length(mobs))
         )
 
-      # What changed of the native mobs: their moves and rows in the store,
-      # and the steps of those with effects or leaving the section.
-      {state, native_steps} =
-        case native_out do
-          nil ->
-            {state, []}
-
-          %{moved: moved, changes: changes} ->
-            {store, native_steps} = Store.native_tick(state.entities.store, moved, changes)
-            {put_in(state.entities.store, store), native_steps}
-        end
-
-      # Paths the Elixir mobs asked for run as a job (VMC-041b).
-      mob_paths = Valimc.World.MobPaths.queue(mob_paths, steps)
-      elixir_steps = steps
-      steps = Enum.sort_by(steps ++ native_steps, & &1.id)
+      {ticked, steps} = Store.native_tick(store, moved, changes)
+      state = put_in(state.entities.store, ticked)
+      steps = Enum.sort_by(steps, & &1.id)
 
       dragon_effects =
         for step <- steps,
@@ -1584,14 +1484,10 @@ defmodule Valimc.World.RegionData do
             do: {store.entries[step.id].entity, step.position, effect}
 
       state =
-        start_paths(%{
-          state
-          | ai_random: world.random,
-            mob_paths: mob_paths,
-            mob_events: [],
-            mob_located: Enum.at(Map.to_list(world.located), 0)
-        })
-        |> start_mob_locate(steps)
+        start_mob_locate(
+          %{state | ai_random: random, mob_events: [], mob_located: nil},
+          steps
+        )
 
       # A hit's extras (VMC-043b: a burning zombie's fire, a husk's hunger).
       attacks =
@@ -1639,11 +1535,13 @@ defmodule Valimc.World.RegionData do
               drop <-
                 (case effect do
                    {:lay, velocity} ->
-                     for stack <- laid(step.body), do: {step.position, stack, velocity}
+                     for stack <- laid(native.ref, step.id),
+                         do: {step.position, stack, velocity}
 
                    # A gift loot table's items (a grown turtle's scute, VMC-043e).
                    {:gift, table, velocity} ->
-                     for stack <- gift(table, step.body), do: {step.position, stack, velocity}
+                     for stack <- gift(native.ref, step.id, table),
+                         do: {step.position, stack, velocity}
 
                    {:lead, at} ->
                      [{at, Valimc.Protocol.ItemStack.new("minecraft:lead")}]
@@ -1784,19 +1682,10 @@ defmodule Valimc.World.RegionData do
             {:shulker_push, area, delta, local} <- step.effects,
             do: {area, delta, local}
 
-      # What moves on: the Elixir mobs' changed steps and the native mobs
-      # leaving the section (the others' moves are in the store already).
-      routed =
-        Enum.filter(steps, fn
-          %{native: true} = step ->
-            step.outside
+      # What moves on: the mobs leaving the section (the others' moves are
+      # in the store already).
+      routed = Enum.filter(steps, & &1.outside)
 
-          step ->
-            %{entity: e, body: body} = store.entries[step.id]
-            not (step.events == [] and step.body == body and step.position == {e.x, e.y, e.z})
-        end)
-
-      _ = elixir_steps
       state = route_bodies(state, routed)
       state = settle_native(state, routed)
       state = Enum.reduce(lid_pushes, state, &push_lid(&2, &1))
@@ -1809,7 +1698,7 @@ defmodule Valimc.World.RegionData do
       state = Enum.reduce(gifts, state, &mob_gift/2)
       state = if crushes == [], do: state, else: crush_eggs(state, crushes)
       state = Enum.reduce(mob_attacks, state, &mob_attack_mob/2)
-      Enum.each(curses, &mob_curse(&1, world.players))
+      Enum.each(curses, &mob_curse(&1, state.player_sensed))
       state = Enum.reduce(pickups, state, &mob_pickup/2)
       state = if drops == [], do: state, else: mob_drops(state, drops)
       state = if throws == [], do: state, else: mob_throws(state, throws)
@@ -1823,13 +1712,7 @@ defmodule Valimc.World.RegionData do
           else:
             adopt_drops(
               state,
-              for {{x, y, z} = position, body, uuid} <- made do
-                # A native mob's companion comes as its record (VMC-081d).
-                case body do
-                  %Body{} -> Store.body_record(body, uuid, position)
-                  record -> %{record | uuid: uuid, x: x, y: y, z: z}
-                end
-              end
+              for({{x, y, z}, record, uuid} <- made, do: %{record | uuid: uuid, x: x, y: y, z: z})
             )
 
       state = Enum.reduce(blasts, state, &mob_blast/2)
@@ -1857,18 +1740,8 @@ defmodule Valimc.World.RegionData do
       # Beds villagers lie in or leave and doors they open and close (VMC-044a1).
       state = mob_blocks(state, steps)
 
-      # The tickets its villagers hold: its Elixir ones' and, as its last
-      # tick left them, its native ones' (VMC-081d).
-      native_claims =
-        case store.native do
-          nil -> %{}
-          %{ref: ref} -> Map.new(Native.mob_section_claims(ref))
-        end
-
-      elixir_claims =
-        Valimc.AI.Pois.store_claims(state.entities.store.entries, state.dimension)
-
-      state = %{state | poi_claims: Valimc.AI.Pois.merge([elixir_claims, native_claims])}
+      # The tickets its villagers hold, as this tick left them.
+      state = %{state | poi_claims: Map.new(Native.mob_section_claims(native.ref))}
 
       # A mob's melee hit (VMC-041a) goes to the player's session here.
       for {id, target, extras} <- attacks,
@@ -2092,11 +1965,11 @@ defmodule Valimc.World.RegionData do
     publish_item_views(%{state | entities: %{state.entities | store: store}})
   end
 
-  # A native mob's interaction (VMC-081d): its section's (`kinds::interact`)
-  # with the shearing tables rolled here; `{:ok, {:native, position, row,
-  # events}, outcome}` in `Interaction.outcome/1`'s shape, `:pass` or
+  # A mob's interaction (VMC-081d): its section's (`kinds::interact`) with
+  # the shearing tables rolled here; `{:ok, {:native, position, row,
+  # events}, outcome}` in `Leashes.outcome/1`'s shape, `:pass` or
   # `:consume`.
-  defp native_bucket(%{body: %{type: type}} = entry, request) do
+  defp bucket(%{body: %{type: type}} = entry, request) do
     if Valimc.Entity.Bucketable.bucketable?(type) do
       {:ok, body} = Body.restore(Store.record(entry))
       Valimc.Entity.Bucketable.interact(body, request)
@@ -2112,7 +1985,7 @@ defmodule Valimc.World.RegionData do
       holder &&
         {request.player, {holder.x, holder.y, holder.z}, holder.id, holder.width, holder.height}
 
-    loot = shearing_loot(row, request.item)
+    loot = shearing_loot(ref, id, row, request.item)
 
     case Native.mob_section_interact(ref, id, request.item, player, request.infinite, loot) do
       {:ok,
@@ -2149,17 +2022,15 @@ defmodule Valimc.World.RegionData do
 
   @shears Valimc.Protocol.ItemTypes.id("minecraft:shears")
 
-  # The shearing table a native sheep or mooshroom rolls, rolled here.
-  defp shearing_loot(%NativeBody{type: type, data: data}, %{item_id: @shears})
+  # The shearing table a sheep or mooshroom rolls, rolled here.
+  defp shearing_loot(ref, id, %NativeBody{type: type}, %{item_id: @shears})
        when type in ["minecraft:sheep", "minecraft:mooshroom"] do
-    {table, properties} =
-      case type do
-        "minecraft:sheep" ->
-          {"minecraft:shearing/sheep", Valimc.Entity.Animals.Sheep.properties(data)}
+    table =
+      if type == "minecraft:sheep",
+        do: "minecraft:shearing/sheep",
+        else: "minecraft:shearing/mooshroom"
 
-        _ ->
-          {"minecraft:shearing/mooshroom", Valimc.Entity.Animals.Mooshroom.properties(data)}
-      end
+    properties = Native.mob_section_properties(ref, id)
 
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
 
@@ -2169,7 +2040,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  defp shearing_loot(_row, _item), do: []
+  defp shearing_loot(_ref, _id, _row, _item), do: []
 
   # What an interaction did: the body (a native mob's
   # `{:native, position, row, events}`) changed in place, or (a conversion)
@@ -2555,7 +2426,7 @@ defmodule Valimc.World.RegionData do
   # (its break event), the last breaking the block.
   defp mob_edit(view, {:crack_egg, cell, state}) do
     if Valimc.World.View.block(view, cell) == state do
-      to = Valimc.AI.Goals.RemoveBlock.cracked(state)
+      to = cracked(state)
 
       options =
         if Valimc.Data.Blocks.block_id(to) == Valimc.Data.Blocks.block_id(state),
@@ -2588,7 +2459,7 @@ defmodule Valimc.World.RegionData do
   defp mob_edit(view, {:infest, cell, infested}) do
     from = Valimc.World.View.block(view, cell)
 
-    if Valimc.AI.Mobs.Silverfish.host?(from),
+    if from != nil and infested_of(from) != nil,
       do: {:edit, cell, from, infested, nil, [:updates]}
   end
 
@@ -2598,11 +2469,48 @@ defmodule Valimc.World.RegionData do
     if Valimc.World.View.block(view, cell) == state do
       if griefing,
         do: {:edit, cell, state, Valimc.Data.BlockFacts.fluid_remains(state), state, [:updates]},
-        else: {:edit, cell, state, Valimc.AI.Mobs.Silverfish.host_of(state), nil, [:updates]}
+        else: {:edit, cell, state, host_of(state), nil, [:updates]}
     end
   end
 
   defp mob_edit(_view, _effect), do: nil
+
+  # A turtle egg block after one egg cracks (`TurtleEggBlock.decreaseEggs`):
+  # one egg fewer, or the block's fluid for the last.
+  defp cracked(state) do
+    properties = Map.new(Valimc.Data.Blocks.properties(state))
+
+    case Integer.parse(Map.get(properties, "eggs", "1")) do
+      {n, ""} when n > 1 ->
+        Valimc.Data.Blocks.state("turtle_egg", %{properties | "eggs" => Integer.to_string(n - 1)})
+
+      _ ->
+        Valimc.Data.BlockFacts.fluid_remains(state)
+    end
+  end
+
+  # `infestedStateByHost`: the infested form of a host state (nil for none),
+  # and back (`hostStateByInfested`), with the same properties.
+  defp infested_of(state) do
+    case Valimc.Data.Blocks.id(
+           "infested_" <> Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(state))
+         ) do
+      nil -> nil
+      block -> carry(state, block)
+    end
+  end
+
+  defp host_of(state) do
+    "infested_" <> host = Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(state))
+    carry(state, Valimc.Data.Blocks.id(host))
+  end
+
+  defp carry(state, block),
+    do:
+      Valimc.Data.Blocks.state(
+        Valimc.Data.Blocks.name(block),
+        Map.new(Valimc.Data.Blocks.properties(state))
+      )
 
   # Endermen's blocks put down in one run; each that was not set returns to
   # its enderman, still in this section and carrying nothing.
@@ -2679,10 +2587,10 @@ defmodule Valimc.World.RegionData do
     adopt_drops(state, records)
   end
 
-  # `dropFromGiftLootTable(table)` of a mob.
-  defp gift(table, body) do
+  # `dropFromGiftLootTable(table)` of mob `id` of section `ref`.
+  defp gift(ref, id, table) do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
-    properties = Valimc.Entity.Animal.properties(body)
+    properties = Native.mob_section_properties(ref, id)
 
     case Valimc.Blocks.Loot.entity_drops(table, seed, {0.0, 0.0, 0.0}, %{properties: properties}) do
       {:ok, stacks} -> stacks
@@ -2691,9 +2599,9 @@ defmodule Valimc.World.RegionData do
   end
 
   # `dropFromGiftLootTable(CHICKEN_LAY)`: the egg of the hen's variant.
-  defp laid(body) do
+  defp laid(ref, id) do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
-    properties = Valimc.Entity.Animal.properties(body)
+    properties = Native.mob_section_properties(ref, id)
 
     case Valimc.Blocks.Loot.entity_drops(
            "minecraft:gameplay/chicken_lay",
@@ -2708,7 +2616,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # Mobs another mob's spawn made (`Valimc.AI.Spawn`): a chicken jockey's
+  # Mobs another mob's spawn made (`mobs::ai::spawn`): a chicken jockey's
   # chicken, already finalized from the spawning mob's draws, or a mob that
   # finishes its own spawn on its first tick (a husk's camel husk).
   defp mob_companions(state, companions) do
@@ -2800,7 +2708,7 @@ defmodule Valimc.World.RegionData do
     case state.entities.store.entries[id] do
       %{kind: :mob, entity: %{uuid: uuid}, body: %{type: type}} ->
         effect =
-          case Valimc.AI.Mobs.Skeleton.arrow_effect(type) do
+          case arrow_effect(type) do
             nil -> nil
             {name, ticks} -> {Valimc.Data.EffectTypes.id(name), {ticks, 0, false, true, true}}
           end
@@ -2817,6 +2725,11 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  # The effect a stray's or a bogged's arrow carries (`getArrow`).
+  defp arrow_effect("minecraft:stray"), do: {"slowness", 600}
+  defp arrow_effect("minecraft:bogged"), do: {"poison", 100}
+  defp arrow_effect(_type), do: nil
+
   # `Mob.convertTo`: the converted mob takes the old one's place (a new
   # entity, as vanilla's), the old one is discarded.
   defp mob_conversions(state, conversions) do
@@ -2832,9 +2745,8 @@ defmodule Valimc.World.RegionData do
       Enum.reduce(conversions, {state.entities.store, []}, fn {id, to}, {store, records} ->
         uuid = :crypto.strong_rand_bytes(16)
 
-        with %{kind: :mob, body: body, entity: e, revision: revision} = entry <-
-               store.entries[id],
-             {:ok, record} <- converted(entry, id, body, uuid, to, special, {e.x, e.y, e.z}),
+        with %{kind: :mob, entity: e, revision: revision} = entry <- store.entries[id],
+             {:ok, record} <- converted(entry, id, uuid, to, special, {e.x, e.y, e.z}),
              {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
           {next, [record | records]}
         else
@@ -2859,26 +2771,16 @@ defmodule Valimc.World.RegionData do
   defp cube_split(id, %{native: ref, body: %NativeBody{alive: false}}) when ref != nil,
     do: Native.mob_section_split(ref, id)
 
-  defp cube_split(_id, %{body: %Body{mob: %Valimc.Entity.Mob{}} = body, entity: e}) do
-    if Body.alive?(body),
-      do: [],
-      else: Valimc.AI.Mobs.hook(body.type, :split, [body, {e.x, e.y, e.z}], [])
-  end
-
   defp cube_split(_id, _entry), do: []
 
-  # The record of the mob a mob becomes (a native one's from its section,
-  # VMC-081d), at its entity's place.
-  defp converted(%{native: ref, body: %NativeBody{}}, id, _row, uuid, to, special, {x, y, z})
-       when ref != nil do
+  # The record of the mob a mob becomes, from its section (VMC-081d), at
+  # its entity's place.
+  defp converted(%{native: ref}, id, uuid, to, special, {x, y, z}) when ref != nil do
     with {:ok, record} <- Native.mob_section_convert(ref, id, uuid, to, special),
          do: {:ok, %{record | x: x, y: y, z: z}}
   end
 
-  defp converted(_entry, _id, body, uuid, to, special, position),
-    do:
-      {:ok,
-       Store.body_record(Valimc.AI.Conversion.convert(body, uuid, to, special), uuid, position)}
+  defp converted(_entry, _id, _uuid, _to, _special, _position), do: :error
 
   # `Creeper.explodeCreeper` (VMC-043b4): `level.explode(this, ...,
   # ExplosionInteraction.MOB)`: it breaks blocks only while mobs may grief,
@@ -2964,20 +2866,6 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # The next batch of mobs' path searches, when none runs (VMC-041b).
-  defp start_paths(state) do
-    case Valimc.World.MobPaths.next(state.mob_paths, state.jobs, state.dimension) do
-      {:ok, paths, _batch, work} ->
-        case start_job(state, :paths, work, slots: :paths) do
-          {:ok, state} -> %{state | mob_paths: paths}
-          {:error, _} -> state
-        end
-
-      :idle ->
-        state
-    end
-  end
-
   @doc """
   What native mobs' turns read of the level (VMC-081d), for the group's
   `MobWorld` once a tick at game tick `tick` in `dimension`: the clock,
@@ -3011,7 +2899,7 @@ defmodule Valimc.World.RegionData do
       bright: not fixed_time and darken < 4,
       fixed_time: fixed_time,
       monsters_burn: overworld and Valimc.Data.HostileFacts.monsters_burn?(day),
-      halloween: Valimc.AI.Spawn.halloween?(local_date()),
+      halloween: halloween?(),
       mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
       mob_drops: Valimc.World.GameRules.get(:mob_drops),
       entity_drops: Valimc.World.GameRules.get(:entity_drops),
@@ -3031,8 +2919,8 @@ defmodule Valimc.World.RegionData do
   # What a section's native tick reads beside its group's world (VMC-081d):
   # the items its mobs sense, the knots where the group holds any, whether
   # goals run (tests turn them off per scope), the players' anger events,
-  # the Elixir mobs' POI claims and an answered structure query.
-  defp native_extra(state, elixir, units) do
+  # the dragon's arena and an answered structure query.
+  defp native_extra(state, units) do
     # Its mobs (the turns the call takes) choose its scheduler.
     extra = %{units: units}
 
@@ -3059,9 +2947,6 @@ defmodule Valimc.World.RegionData do
         do: Map.put(extra, :dragon, native_dragon(state)),
         else: extra
 
-    pois = poi_claims(state, Valimc.AI.Pois.store_claims(elixir, state.dimension))
-    extra = if map_size(pois) > 0, do: Map.put(extra, :pois, Enum.to_list(pois)), else: extra
-
     case state.mob_located do
       {{uuid, token}, {:ok, {x, y, z}}} -> Map.put(extra, :located, [{uuid, token, {x, y, z}}])
       {{uuid, token}, _} -> Map.put(extra, :located, [{uuid, token, nil}])
@@ -3069,21 +2954,7 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # The group's Elixir solids (a shulker of a type not native) within reach
-  # of this section, the fixed colliders of its native tick.
-  defp elixir_solids(state, _elixir) do
-    {sx, sz} = state.key
-    {x0, z0} = {sx * 128 - 66.0, sz * 128 - 66.0}
-    area = {x0, -4096.0, z0, x0 + 260.0, 4096.0, z0 + 260.0}
-
-    for {_, store} <- group_stores(state),
-        map_size(store.spatial.solids) > 0,
-        {id, entry} <- Store.colliders(store, area),
-        not Store.native_entry?(entry),
-        do: {id, entry}
-  end
-
-  # What mobs' AI senses of the section's items (`AI.World`'s items).
+  # What mobs' AI senses of the section's items.
   defp sensed_items(state) do
     store = state.entities.store
 
@@ -3108,9 +2979,9 @@ defmodule Valimc.World.RegionData do
         }
   end
 
-  # Native mobs whose steps left the section and did not go (a handoff that
-  # could not start yet) take back their state from before the tick, as an
-  # Elixir mob's entry stays; those an outgoing handoff carries wait for it.
+  # Mobs whose steps left the section and did not go (a handoff that could
+  # not start yet) take back their state from before the tick; those an
+  # outgoing handoff carries wait for it.
   defp settle_native(%{entities: %{store: %{native: nil}}} = state, _steps), do: state
 
   defp settle_native(state, steps) do
@@ -3121,70 +2992,23 @@ defmodule Valimc.World.RegionData do
     state
   end
 
-  defp mob_world(state, view, border) do
-    {min_y, height} = Valimc.World.Dimension.bounds(state.dimension)
-    {difficulty, _} = Valimc.World.Clock.difficulty()
-
-    items = sensed_items(state)
-
-    day = Clock.day_ticks()
-    name = Valimc.World.Dimension.name(state.dimension)
-    overworld = state.dimension == :overworld
-
-    %{rain_level: rain, thunder_level: thunder} =
-      if overworld, do: Clock.weather(), else: %{rain_level: 0.0, thunder_level: 0.0}
-
-    {zoom_seed, _} = Valimc.World.Spec.client_info(Valimc.World.Spec.current(), state.dimension)
-    blocks = state.blocks
-
-    %Valimc.AI.World{
-      read: &Valimc.World.View.block(view, &1),
-      find: &find_blocks(view, &1, &2),
-      time: state.game_tick || 0,
-      # What hostiles read (VMC-043b): the day, light, rain and biomes.
-      day: day,
-      light: &Valimc.World.Blocks.light(blocks, &1),
-      darken:
-        Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain)),
-      monsters_burn: overworld and Valimc.Data.HostileFacts.monsters_burn?(day),
-      bright:
-        not Valimc.Data.SleepFacts.dimension(state.dimension).fixed_time and
-          Valimc.World.Spawning.darken(name, day, rain, Valimc.Data.Float32.round(thunder * rain)) <
-            4,
-      rain: fn position, top ->
-        match?({:ok, true}, Valimc.World.RainQuery.sample(position, top, view))
-      end,
-      biome: &Valimc.World.Blocks.biome(blocks, zoom_seed, &1),
-      halloween: Valimc.AI.Spawn.halloween?(local_date()),
-      players: state.player_sensed,
-      items: items,
-      random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656)),
-      difficulty: elem({:peaceful, :easy, :normal, :hard}, difficulty.level),
-      min_y: min_y,
-      max_y: min_y + height - 1,
-      sea_level: Valimc.World.Dimension.sea_level(state.dimension),
-      border: border && elem(Valimc.Physics.BorderSnapshot.bounds(border), 1),
-      mob_griefing: Valimc.World.GameRules.get(:mob_griefing),
-      mob_drops: Valimc.World.GameRules.get(:mob_drops),
-      # Leads (VMC-043c3): a dropped lead's item, the knots mobs are tied to.
-      entity_drops: Valimc.World.GameRules.get(:entity_drops),
-      knots: knots(state),
-      # Tests that move mobs alone turn their goals off per scope.
-      goals:
-        Application.get_env(:valimc, :mob_goals) == nil or Valimc.config(:mob_goals, state.key),
-      events: state.mob_events,
-      dimension: state.dimension,
-      structures: state.structures,
-      dragon: dragon_world(state, view),
-      stand_up: fn _type, head, facing, yaw ->
-        Valimc.World.StandUp.bed(view, head, facing, yaw)
-      end
-    }
-  end
-
   defp dragon_effect({entity, {x, y, z}, {:dragon_contact, target, push, amount, wing}}, state) do
-    entity = %{entity | x: x, y: y, z: z}
-    hit = Valimc.AI.Dragon.Actor.hit(entity, amount)
+    # Its wing or head's `mob_attack` from where it is now.
+    me = %{
+      uuid: entity.uuid,
+      entity_id: entity.entity_id,
+      player: false,
+      type: "minecraft:ender_dragon",
+      mainhand: nil
+    }
+
+    hit = %{
+      source: Valimc.Living.DamageSource.new(:mob_attack),
+      amount: amount,
+      attacker: me,
+      direct: me,
+      position: {x * 1.0, y * 1.0, z * 1.0}
+    }
 
     case target do
       {:player, uuid} ->
@@ -3200,25 +3024,13 @@ defmodule Valimc.World.RegionData do
                 recent = wing and entry.body.recent
                 hit = if amount > 0.0 and not recent, do: hit, else: %{hit | amount: 0.0}
 
-                case Native.mob_section_hit(ref, nil, id, hit, push) do
+                case Native.mob_section_hit(ref, id, hit, push) do
                   {:ok, {_, events, {position, row}}} ->
                     change_group_entry(state, key, store, id, {:native, position, row, events})
 
                   _ ->
                     state
                 end
-
-              {key, store, entry} ->
-                recent = wing and Valimc.AI.Dragon.Actor.recent?(entry.body)
-                body = Body.push(entry.body, push)
-
-                {change, _} =
-                  if amount > 0.0 and not recent,
-                    do: Valimc.Entity.Combat.resolve(%{entry | body: body}, hit),
-                    else: {:keep, %{}}
-
-                change = if change == :keep, do: {:body, body, []}, else: change
-                change_group_entry(state, key, store, id, change)
 
               _ ->
                 state
@@ -3519,14 +3331,6 @@ defmodule Valimc.World.RegionData do
           }
         end
 
-      direct = %{
-        uuid: crystal.uuid,
-        entity_id: crystal.entity_id,
-        player: false,
-        type: "minecraft:end_crystal",
-        position: {crystal.x, crystal.y, crystal.z}
-      }
-
       arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
 
       dragons =
@@ -3561,23 +3365,6 @@ defmodule Valimc.World.RegionData do
               _ ->
                 state
             end
-
-          {key, store, entry} ->
-            view = Valimc.World.View.new(state.dimension)
-            world = mob_world(state, view, Valimc.World.Clock.border_snapshot())
-            env = Valimc.AI.Dragon.Actor.environment(entry.body, entry.entity, world)
-
-            {body, events} =
-              Valimc.AI.Dragon.Actor.crystal_destroyed(
-                entry.body,
-                entry.entity,
-                crystal.uuid,
-                direct,
-                player,
-                env
-              )
-
-            change_group_entry(state, key, store, id, {:body, body, events})
 
           _ ->
             state
@@ -3635,10 +3422,9 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A native dragon's arena (VMC-081d, `mob_tick`'s `dragon`): the fight's
-  # crystal count and whether it was won before, the group's end crystals,
-  # and its Elixir mobs, which its wings and head may touch (its section
-  # reads the native ones).
+  # A dragon's arena (VMC-081d, `mob_tick`'s `dragon`): the fight's crystal
+  # count and whether it was won before and the group's end crystals (its
+  # section reads the mobs its wings and head may touch).
   defp native_dragon(state) do
     arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
     entries = group_entries(state)
@@ -3650,70 +3436,27 @@ defmodule Valimc.World.RegionData do
         {e.uuid, {x, y, z}, {x - w / 2, y, z - w / 2, x + w / 2, y + h, z + w / 2}}
       end
 
-    others =
-      for {id, %{kind: :mob, body: %Body{}} = entry} <- entries do
-        s = Valimc.AI.sensed({id, entry})
-        box = s.box && s.box |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()
-        {s.uuid, {s.x, s.y, s.z}, s.width * 1.0, s.height * 1.0, box, s.recent_mob_hurt}
-      end
-
     %{
       crystals: arena && arena.alive_crystals,
       previous_kill: arena == nil or arena.previous_kill,
-      crystal_bodies: crystals,
-      others: others
+      crystal_bodies: crystals
     }
   end
 
-  # Built only for a ticking dragon; every entity row comes from this owner.
-  defp dragon_world(state, view) do
-    if group_has_type?(state, "minecraft:ender_dragon") do
-      {min_y, _} = Valimc.World.Dimension.bounds(state.dimension)
-      height = fn x, z -> Valimc.World.Dragon.Arena.height(view, x, z, min_y) end
-      arena = state.arena || get_in(state.siblings, [{0, 0}, :arena])
-
-      crystals =
-        for {_, %{body: %Body{type: "minecraft:end_crystal"} = body, entity: e}} <-
-              group_entries(state) do
-          {w, h, _} = Body.dimensions(body)
-
-          %{
-            uuid: e.uuid,
-            position: {e.x, e.y, e.z},
-            box: {e.x - w / 2, e.y, e.z - w / 2, e.x + w / 2, e.y + h, e.z + w / 2}
-          }
-        end
-
-      targets =
-        for {id, %{kind: :mob} = entry} <- group_entries(state),
-            do: Valimc.AI.sensed({id, entry})
-
-      %{
-        height: height,
-        podium: {0, height.(0, 0), 0},
-        crystals: arena && arena.alive_crystals,
-        crystal_bodies: crystals,
-        targets: targets,
-        previous_kill: arena == nil or arena.previous_kill,
-        blocks: &Valimc.World.View.blocks(view, &1)
-      }
+  # `SpawnUtil.isHalloween` of vanilla's `LocalDate.now()`, the host's own
+  # date: October 20 to November 3.
+  defp halloween? do
+    case :calendar.local_time() do
+      {{_, 10, day}, _} -> day >= 20
+      {{_, 11, day}, _} -> day <= 3
+      _ -> false
     end
   end
 
-  # Vanilla's `LocalDate.now()`: the host's own date.
-  defp local_date do
-    {{year, month, day}, _} = :calendar.local_time()
-    Date.new!(year, month, day)
-  end
-
-  # The tickets the group's villagers hold: this section's now, its
-  # siblings' as their last mob tick left them.
-  defp poi_claims(state, own) do
-    siblings =
-      for {key, %{pois: pois}} <- state.siblings, key != state.key, map_size(pois) > 0, do: pois
-
-    Valimc.AI.Pois.merge([own | siblings])
-  end
+  # `MOB_INTERACTABLE_DOORS`.
+  @mob_doors MapSet.new(
+               Valimc.Protocol.Data.tags()["minecraft:block"]["minecraft:mob_interactable_doors"]
+             )
 
   # `startSleeping` and `stopSleeping` set a bed's `occupied` (its foot
   # follows its head), `DoorBlock.setOpen` a wooden door's `open` through the
@@ -3726,8 +3469,9 @@ defmodule Valimc.World.RegionData do
     uses =
       for {cell, open} <- Enum.uniq(doors),
           block = local_or_sibling_block(state, cell),
-          block != nil and Valimc.AI.Behaviors.mob_door?(block) and
-            Valimc.AI.Behaviors.door_open?(block) != open,
+          block != nil and MapSet.member?(@mob_doors, Valimc.Data.Blocks.block_id(block)) and
+            List.keyfind(Valimc.Data.Blocks.properties(block), "open", 0) !=
+              {"open", to_string(open)},
           do: {:use, cell, 2, true}
 
     if uses == [], do: state, else: elem(rule_run(state, %{actions: uses}), 0)
@@ -3771,16 +3515,6 @@ defmodule Valimc.World.RegionData do
       sibling = state.siblings[key] -> Blocks.get(sibling.blocks, cell)
       true -> nil
     end
-  end
-
-  defp find_blocks(view, {x0, y0, z0, x1, y1, z1}, states) do
-    list = MapSet.to_list(states)
-
-    for cx <- Integer.floor_div(x0, 16)..Integer.floor_div(x1, 16),
-        cz <- Integer.floor_div(z0, 16)..Integer.floor_div(z1, 16),
-        {{x, y, z}, state} <- Valimc.World.View.find(view, {cx, cz}, list),
-        x in x0..x1 and y in y0..y1 and z in z0..z1,
-        do: {{x, y, z}, state}
   end
 
   # Body steps by destination: this section, a sibling, or another group.
@@ -4115,33 +3849,24 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A player's use of an item on an animal (VMC-043c,
-  # `Valimc.Entity.Animals.Interaction`) or another mob (`Mobs.interact/2`): its change (or the body it becomes,
-  # a new entity), its events and drops apply here; the reply tells the
-  # session how its hand changes.
+  # A player's use of an item on a mob (VMC-043c): a bucket's catch, else
+  # its section's (`kinds::interact`: the lead part, then its family's). Its
+  # change (or the mob it becomes, a new entity), its events and drops
+  # apply here; the reply tells the session how its hand changes.
   def handle_call({:interact_entity, epoch, uuid, request}, _from, state) do
     store = state.entities.store
 
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          nil <- write_busy(state),
          {:ok, {_, id, revision}} <- Store.find(store, uuid),
-         %{kind: :mob, body: body, entity: e} = entry <-
+         %{kind: :mob, native: ref, entity: e} = entry when ref != nil <-
            store.entries[id] || {:error, :missing_item} do
       at = {e.x, e.y, e.z}
 
-      # A lead's use comes before the animal's own (`Entity.interact`, VMC-043c3).
+      # A bucket takes a mob over its body as its record holds it.
       result =
-        if Store.native_entry?(entry) do
-          # A bucket takes a native mob as it takes an Elixir one (VMC-081d):
-          # over its body as its record holds it.
-          with :pass <- native_bucket(entry, request),
-               do: native_interaction(entry, id, request)
-        else
-          with :pass <- Valimc.Entity.Leashes.interact(body, at, request),
-               :pass <- Valimc.Entity.Bucketable.interact(body, request),
-               :pass <- Valimc.Entity.Animals.Interaction.interact(body, request),
-               do: Valimc.AI.Mobs.interact(body, request)
-        end
+        with :pass <- bucket(entry, request),
+             do: native_interaction(entry, id, request)
 
       case result do
         {:ok, next, outcome} ->
@@ -4181,7 +3906,7 @@ defmodule Valimc.World.RegionData do
          %{body: %Body{type: @knot}, entity: e} <- store.entries[id] || {:error, :missing_item} do
       pos = {floor(e.x), floor(e.y), floor(e.z)}
       mobs = leash_mobs(state)
-      knot = Valimc.AI.Leash.knot_holder(pos, id)
+      knot = Valimc.Entity.Leashes.knot_holder(pos, id)
 
       snipped =
         if Valimc.Entity.Leashes.tool(request.item) == :shears,
@@ -4833,17 +4558,14 @@ defmodule Valimc.World.RegionData do
               &local_or_sibling_block(next, &1)
             )
 
-          world =
-            mob_world(
-              next,
-              Valimc.World.View.new(next.dimension),
-              Clock.border_snapshot(next.dimension)
-            )
+          random = next.ai_random || Valimc.Data.JavaRandom.create()
 
-          {:ok, body, world} = Valimc.Entity.Bucketable.spawn(stack, record.uuid, point, world)
+          {:ok, body, random} =
+            Valimc.Entity.Bucketable.spawn(stack, record.uuid, point, random)
+
           record = Store.body_record(body, record.uuid, point) |> Map.put(:entity_id, id)
           {:ok, store, _} = Store.create_record(next.entities.store, next.key, record)
-          next = put_entities(%{next | ai_random: world.random}, store)
+          next = put_entities(%{next | ai_random: random}, store)
           {:reply, {:ok, result}, next}
 
         {next, %{results: [result]}} ->
@@ -6184,9 +5906,7 @@ defmodule Valimc.World.RegionData do
     stack = elem(entry.slots, slot)
     cell = {x + dx, y + dy, z + dz}
 
-    name =
-      Valimc.Protocol.ItemTypes.item(stack.item_id)["name"]
-      |> String.replace_prefix("minecraft:", "")
+    name = Valimc.Protocol.ItemTypes.item(stack.item_id)["name"]
 
     case dressed(state.entities.store, cell, stack, name) do
       {:ok, store} ->
@@ -6203,27 +5923,29 @@ defmodule Valimc.World.RegionData do
   defp dispense_item(state, :unsupported, position, _entry, _slot, step),
     do: dispensed_events(state, position, step, 1001)
 
+  # The first mob (by id) whose box holds the cell and whose type may wear
+  # the item, that wears it (its section's `mob_section_equip/4`: a living
+  # mob that picks up loot, the slot empty).
   defp dressed(store, {cx, cy, cz}, stack, name) do
-    with {slot, types} <- Valimc.Data.HostileFacts.equippable(name),
-         {id, %{body: body}} <-
-           store.entries
-           |> Enum.sort()
-           |> Enum.find(fn {_, entry} ->
-             case {entry, Redstone.entity_box(entry)} do
-               {%{kind: :mob, body: %Body{mob: %{can_pick_up_loot: true} = mob} = body},
-                {{x0, y0, z0}, {x1, y1, z1}, _}} ->
-                 Body.alive?(body) and mob.equipment[slot] == nil and
-                   (types == nil or body.type in types) and x1 > cx and x0 < cx + 1 and
-                   y1 > cy and y0 < cy + 1 and z1 > cz and z0 < cz + 1
+    with {slot, types} <- Valimc.Data.HostileFacts.equippable(name) do
+      store.entries
+      |> Enum.sort()
+      |> Enum.find_value(:none, fn
+        {id, %{kind: :mob, native: ref, body: %NativeBody{type: type}} = entry} when ref != nil ->
+          with {{x0, y0, z0}, {x1, y1, z1}, _} <- Redstone.entity_box(entry),
+               true <- types == nil or type in types,
+               true <-
+                 x1 > cx and x0 < cx + 1 and y1 > cy and y0 < cy + 1 and z1 > cz and z0 < cz + 1,
+               {:ok, {true, events, {position, row}}} <-
+                 Native.mob_section_equip(ref, id, Atom.to_string(slot), %{stack | count: 1}) do
+            {:ok, Store.native_change(store, id, position, row, events)}
+          else
+            _ -> nil
+          end
 
-               _ ->
-                 false
-             end
-           end) do
-      mob = body.mob
-      mob = %{mob | equipment: Map.put(mob.equipment, slot, %{stack | count: 1})}
-      mob = %{Valimc.Entity.Mob.put_drop_chance(mob, slot, 2.0) | persistent: true}
-      {:ok, Store.change_body(store, id, %{body | mob: mob})}
+        _ ->
+          nil
+      end)
     else
       _ -> :none
     end
@@ -6700,7 +6422,7 @@ defmodule Valimc.World.RegionData do
      {motion.on_ground, 0.0, true, false}, {0.0, false, false, gravity, 0.98}}
   end
 
-  # A native mob (VMC-081d) from its row.
+  # A mob (VMC-081d) from its row.
   defp push_body(%{
          kind: :mob,
          entity: %{x: x, y: y, z: z},
@@ -6713,29 +6435,18 @@ defmodule Valimc.World.RegionData do
      {row.on_ground, row.step_height * 1.0, true, false}, {0.0, false, true, gravity * 1.0, 0.98}}
   end
 
-  defp push_body(%{kind: kind, entity: %{x: x, y: y, z: z}, body: %Body{} = body})
-       when kind in [:mob, :object] do
+  defp push_body(%{kind: :object, entity: %{x: x, y: y, z: z}, body: %Body{} = body}) do
     case Valimc.Data.EntityTypes.fetch(body.type) do
       nil ->
         nil
 
       facts ->
-        living = kind == :mob and body.mob != nil
-
-        {step, gravity} =
-          if living,
-            do:
-              {Valimc.Entity.Mob.value(body.type, body.mob, "minecraft:step_height"),
-               Valimc.Entity.Mob.value(body.type, body.mob, "minecraft:gravity")},
-            else: {0.0, 0.04}
-
-        gravity = if body.no_gravity, do: 0.0, else: gravity
+        gravity = if body.no_gravity, do: 0.0, else: 0.04
 
         {{x * 1.0, y * 1.0, z * 1.0},
          {Valimc.Data.Float32.round(facts.width) / 2, Valimc.Data.Float32.round(facts.height)},
-         body.velocity,
-         {body.on_ground, step * 1.0, true, body.type == "minecraft:area_effect_cloud"},
-         {0.0, false, living, gravity * 1.0, 0.98}}
+         body.velocity, {body.on_ground, 0.0, true, body.type == "minecraft:area_effect_cloud"},
+         {0.0, false, false, gravity, 0.98}}
     end
   end
 
@@ -7767,54 +7478,65 @@ defmodule Valimc.World.RegionData do
   def publish_level_events(state, events),
     do: Valimc.World.publish(route_key(state), {:level_events, events})
 
-  @doc "Finalize aquatic packs across the group's sections before any member is published."
+  @doc """
+  Finish aquatic packs across the group's sections before any member is
+  published (`Native.mob_finalize/2`): each member's `finalizeSpawn`
+  with its pack's shared data, in spawn order, on its section's level
+  random; a schooling fish keeps the school its pack made (`school`).
+  """
   def spawn_packs(sections, plan) do
     entries =
       for {key, {records, _, _, _}} <- plan,
           Map.has_key?(sections, key),
           record <- records,
           Map.has_key?(record, :spawn_pack),
-          do: {key, record.spawn_pack, record.spawn_school, record}
+          do: {key, record}
 
-    entries = Enum.sort_by(entries, fn {_, _, _, record} -> record.spawn_order end)
+    if entries == [] do
+      {sections, plan}
+    else
+      entries = Enum.sort_by(entries, fn {_, record} -> record.spawn_order end)
+      keys = entries |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+      slots = Map.new(Enum.with_index(keys))
+      packs = entries |> Enum.map(&elem(&1, 1).spawn_pack) |> Enum.uniq()
+      packs = Map.new(Enum.with_index(packs))
 
-    worlds =
-      for key <- entries |> Enum.map(&elem(&1, 0)) |> Enum.uniq(), into: %{} do
-        state = Map.fetch!(sections, key)
+      randoms =
+        for key <- keys,
+            do: Map.fetch!(sections, key).ai_random || Valimc.Data.JavaRandom.create()
 
-        {key,
-         %Valimc.AI.World{
-           random: state.ai_random || Valimc.AI.Random.new(:rand.uniform(281_474_976_710_656))
-         }}
-      end
+      private = [:spawn_pack, :spawn_order, :spawn_school]
 
-    {bodies, worlds} = Valimc.AI.spawn_groups(entries, worlds)
+      {:ok, {finished, randoms}} =
+        Native.mob_finalize(
+          for {key, record} <- entries do
+            {slots[key], packs[record.spawn_pack], record.spawn_school, Map.drop(record, private)}
+          end,
+          randoms
+        )
 
-    sections =
-      Enum.reduce(worlds, sections, fn {key, world}, acc ->
-        Map.update!(acc, key, &%{&1 | ai_random: world.random})
-      end)
+      sections =
+        Enum.reduce(Enum.zip(keys, randoms), sections, fn {key, random}, acc ->
+          Map.update!(acc, key, &%{&1 | ai_random: random})
+        end)
 
-    plan =
-      Map.new(plan, fn {key, {records, discards, resets, events}} ->
-        records =
-          Enum.map(records, fn record ->
-            case bodies[record.uuid] do
-              nil ->
-                record
+      finished =
+        Map.new(finished, fn {record, school} ->
+          {record.uuid, if(school, do: Map.put(record, :school, school), else: record)}
+        end)
 
-              body ->
-                record
-                |> Map.merge(Valimc.Entity.Body.record(body))
-                |> Map.drop([:spawn_pack, :spawn_order, :spawn_school])
-                |> Map.put(:spawn_body, body)
-            end
-          end)
+      plan =
+        Map.new(plan, fn {key, {records, discards, resets, events}} ->
+          records =
+            Enum.map(records, fn record ->
+              Map.get(finished, record[:uuid], record)
+            end)
 
-        {key, {records, discards, resets, events}}
-      end)
+          {key, {records, discards, resets, events}}
+        end)
 
-    {sections, plan}
+      {sections, plan}
+    end
   end
 
   @doc """
@@ -9308,11 +9030,6 @@ defmodule Valimc.World.RegionData do
   # A crater job ended (VMC-050a): the next waiting craters start.
   defp job_done(:explosion, _job, _result, state), do: {:noreply, start_craters(state)}
 
-  defp job_done(:paths, _job, results, state) do
-    paths = Valimc.World.MobPaths.done(state.mob_paths, results, state.dimension)
-    {:noreply, start_paths(%{state | mob_paths: paths})}
-  end
-
   defp job_done(:mob_locate, job, result, state),
     do: {:noreply, %{state | mob_located: {{job.uuid, job.request}, result}}}
 
@@ -9450,7 +9167,6 @@ defmodule Valimc.World.RegionData do
   end
 
   # Its mobs' pending paths give up on their own (`Navigation.receive/1`).
-  defp job_failed(:paths, _job, _reason, state), do: {:noreply, start_paths(state)}
 
   defp job_failed(:mob_locate, job, reason, state),
     do: job_done(:mob_locate, job, {:error, reason}, state)

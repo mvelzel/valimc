@@ -31,7 +31,7 @@ defmodule Valimc.Application do
     Valimc.World.Chunk.load!()
     Valimc.Data.BlockFacts.install!()
     Valimc.World.Spawning.install!()
-    Valimc.AI.NativeFacts.install!()
+    Valimc.Entity.MobFacts.install!()
     # Generation threads first: a new world's spawn search generates.
     Valimc.Worldgen.Pool.init!()
     Valimc.Worldgen.Generator.init!()
@@ -50,8 +50,6 @@ defmodule Valimc.Application do
     schedulers = max(System.schedulers_online(), 1)
     # Chunk packet encodes start without a call (VMC-077w).
     Valimc.World.Jobs.init_slots!(:chunk_encode, schedulers)
-    # Mobs' path searches, a batch per section (VMC-041b).
-    Valimc.World.Jobs.init_slots!(:paths, schedulers)
 
     infrastructure = [
       Valimc.World.Settings,

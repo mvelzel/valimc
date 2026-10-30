@@ -1,14 +1,36 @@
-# Vanilla path searches (MobAiOracle paths) against `Valimc.AI.Paths`
-# (VMC-041b): each scene's blocks as a supplied view, the mob as vanilla's
-# node evaluator read it (position, size, footing, step, fall limit, malus,
-# door and fence abilities, random), the same targets, limits and region.
-# Every search's nodes with their path types, target, whether it reaches it
-# and the mob's random after it must equal vanilla's, for the walk, swim,
-# fly and amphibious evaluators.
-alias Valimc.AI.Paths
-
+# Vanilla path searches (MobAiOracle paths) against the native path search
+# (VMC-041b, `valimc_core::path` through `Native.path_find`): each scene's
+# blocks as a supplied view, the mob as vanilla's node evaluator read it
+# (position, size, footing, step, fall limit, malus, door and fence
+# abilities, random), the same targets, limits and region. Every search's
+# nodes with their path types, target, whether it reaches it and the mob's
+# random after it must equal vanilla's, for the walk, swim, fly and
+# amphibious evaluators.
 [path] = System.argv()
-Valimc.Data.BlockFacts.install!()
+Valimc.Entity.MobFacts.install!()
+
+# One search over `view`: `{nodes and types | nil, random}`, the nodes as
+# `[[x, y, z, type]]` with the target and whether it reaches it.
+find = fn view, request ->
+  {:ok, [{found, random, _chunks}]} =
+    Valimc.Native.dispatch(:path_find, request.max_visited, [view, [request]])
+
+  found =
+    with {nodes, target, reached} <- found do
+      %{
+        "nodes" =>
+          for(
+            <<x::signed-32, y::signed-32, z::signed-32, type <- nodes>>,
+            do: [x, y, z, type]
+          ),
+        "target" => Tuple.to_list(target),
+        "reached" => reached
+      }
+    end
+
+  {found, random}
+end
+
 {fixtures, :ok, ""} = :json.decode(File.read!(path), :ok, %{null: nil})
 cases = fixtures["cases"]
 unless length(cases) >= 20, do: raise("Incomplete path fixtures")
@@ -77,20 +99,7 @@ covered =
         border: nil
       }
 
-      [{found, random, _chunks}] = Paths.find(view, [request])
-
-      got =
-        found &&
-          %{
-            "nodes" =>
-              Enum.zip_with(Tuple.to_list(found.nodes), Tuple.to_list(found.types), fn {nx, ny,
-                                                                                        nz},
-                                                                                       t ->
-                [nx, ny, nz, t]
-              end),
-            "target" => Tuple.to_list(found.target),
-            "reached" => found.reached
-          }
+      {got, random} = find.(view, request)
 
       unless got == c["path"] and random == c["random_after"] do
         raise "#{c["name"]}: vanilla #{inspect(c["path"])} random #{c["random_after"]}, " <>

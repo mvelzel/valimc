@@ -171,17 +171,6 @@ defmodule Valimc.CombatConnectionTest do
     {_entity, client} = Client.await(client, :play, "add_entity")
     Client.send_packet(client, :play, "attack", Wire.varint(id))
 
-    sound = Valimc.AI.Facts.sound_id("minecraft:entity.shulker_bullet.hurt") + 1
-
-    {payload, client} =
-      Enum.reduce_while(1..8, {nil, client}, fn _, {_, client} ->
-        {payload, client} = Client.await(client, :play, "sound")
-        {event, _} = Wire.take_varint(payload)
-        if event == sound, do: {:halt, {payload, client}}, else: {:cont, {nil, client}}
-      end)
-
-    assert payload != nil
-
     {_, expected} =
       Valimc.Protocol.CombatPackets.sound(
         "minecraft:entity.shulker_bullet.hurt",
@@ -191,6 +180,17 @@ defmodule Valimc.CombatConnectionTest do
         1.0,
         0
       )
+
+    {sound, _} = Wire.take_varint(IO.iodata_to_binary(expected))
+
+    {payload, client} =
+      Enum.reduce_while(1..8, {nil, client}, fn _, {_, client} ->
+        {payload, client} = Client.await(client, :play, "sound")
+        {event, _} = Wire.take_varint(payload)
+        if event == sound, do: {:halt, {payload, client}}, else: {:cont, {nil, client}}
+      end)
+
+    assert payload != nil
 
     assert binary_part(payload, 0, byte_size(payload) - 8) ==
              binary_part(IO.iodata_to_binary(expected), 0, byte_size(payload) - 8)
@@ -204,6 +204,17 @@ defmodule Valimc.CombatConnectionTest do
     assert Process.alive?(pid)
     assert {:error, _} = Store.find(store(owner), uuid)
     assert {:error, :missing_item} = Region.hurt_entity(owner, uuid, %{amount: 1.0})
+  end
+
+  # A shulker's peek set in its section.
+  defp peek(owner, uuid, peek) do
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
+      %{native: ref} = section.entities.store.entries[id]
+      {:ok, {_, events, {position, row}}} = Valimc.Native.mob_section_data(ref, id, :peek, peek)
+      store = Store.native_change(section.entities.store, id, position, row, events)
+      put_in(section.entities.store, store)
+    end)
   end
 
   test "the hosted session follows an opening lid and closing does not pull it back", ctx do
@@ -224,7 +235,7 @@ defmodule Valimc.CombatConnectionTest do
       Region.drop_items(owner, [Store.body_record(shell, uuid, {ctx.pose.x, 64.0, ctx.pose.z})])
 
     {_, {_, dy, _}} =
-      Valimc.AI.Mobs.Shulker.opening(
+      Valimc.Native.mob_oracle_body_opening(
         0,
         0.0,
         Valimc.Data.Float32.round(0.05),
@@ -234,21 +245,8 @@ defmodule Valimc.CombatConnectionTest do
     assert {:ok, _} = Region.step(owner, 1)
     assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
 
-    # Its lid closes: a native shulker's (VMC-081d) in its section.
-    Valimc.TestRegion.replace_section(owner, fn section ->
-      {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
-
-      case section.entities.store.entries[id] do
-        %{native: ref} when ref != nil ->
-          {:ok, {_, events, {position, row}}} = Valimc.Native.mob_section_data(ref, id, :peek, 0)
-          store = Store.native_change(section.entities.store, id, position, row, events)
-          put_in(section.entities.store, store)
-
-        entry ->
-          shell = put_in(entry.body.data.peek, 0)
-          put_in(section.entities.store, Store.change_body(section.entities.store, id, shell))
-      end
-    end)
+    # Its lid closes, in its section.
+    peek(owner, uuid, 0)
 
     assert {:ok, _} = Region.step(owner, 1)
     assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
@@ -264,12 +262,7 @@ defmodule Valimc.CombatConnectionTest do
       }
     end)
 
-    Valimc.TestRegion.replace_section(owner, fn section ->
-      {:ok, {_, id, _}} = Store.find(section.entities.store, uuid)
-      shell = section.entities.store.entries[id].body
-      shell = put_in(shell.data.peek, 100)
-      put_in(section.entities.store, Store.change_body(section.entities.store, id, shell))
-    end)
+    peek(owner, uuid, 100)
 
     assert {:ok, _} = Region.step(owner, 1)
     assert_in_delta TestPlayer.state(pid).player.y, 65.0 + dy, 1.0e-9
@@ -330,17 +323,12 @@ defmodule Valimc.CombatConnectionTest do
     record = Store.body_record(body, uuid, {ctx.pose.x + 2.0, 64.0, ctx.pose.z})
     :ok = Region.drop_items(owner, [record])
 
-    # Its mind made (a native one in its section, VMC-081d).
+    # Its mind made in its section.
     Valimc.TestWait.until(fn ->
       case Store.find(store(owner), uuid) do
         {:ok, {_, id, _}} ->
-          case store(owner).entries[id] do
-            %{native: ref} when ref != nil ->
-              Valimc.Native.mob_section_oracle_mind(ref, id) != nil
-
-            entry ->
-              match?(%Valimc.AI.Mind{}, entry.body.mob.ai)
-          end
+          %{native: ref} = store(owner).entries[id]
+          Valimc.Native.mob_section_oracle_mind(ref, id) != nil
 
         _ ->
           false

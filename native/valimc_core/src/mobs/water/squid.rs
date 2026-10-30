@@ -130,7 +130,9 @@ impl Squid {
     }
 
     fn data_of(&self, type_id: u16) -> Vec<(Atom, Value)> {
+        // `AgeableWaterCreature`'s fields: an animal's without love.
         let mut data = ageable();
+        data.truncate(3);
         if type_id == self.glow {
             data.extend(fields(&[("dark", Value::Int(0))]));
         }

@@ -1,10 +1,14 @@
-alias Valimc.AI.{Mind, Self, World}
-alias Valimc.Entity.{Animal, Body}
+alias Valimc.Entity.{Body, MobFacts, Store}
+alias Valimc.Native
 alias Valimc.Protocol.ItemStack
 
 [path] = System.argv()
 cases = JSON.decode!(File.read!(path))
 unless length(cases) == 48, do: raise("Incomplete water-age fixtures")
+MobFacts.install!()
+
+# The player a dolphin's family is asked whether it bites.
+player = %{uuid: <<2::128>>, mode: :survival, position: {4.0, 64.0, 0.0}}
 
 for row <- cases do
   {:ok, body} = Body.new(row["type"])
@@ -12,47 +16,50 @@ for row <- cases do
   body = %{
     body
     | data: %{body.data | age: row["age"], age_locked: row["locked"]},
-      mob: %{body.mob | no_ai: true, ai: %Mind{random: Valimc.AI.Random.new(7)}}
+      mob: %{body.mob | no_ai: true}
   }
 
-  {pitch, _} =
-    Valimc.AI.Random.voice_pitch(
-      Valimc.AI.Random.new(7),
-      Valimc.AI.Mobs.voice(body.type, body.data)
+  section = Native.mob_section_oracle_new()
+
+  {:ok, _} =
+    Native.mob_section_insert(
+      section,
+      [{1, Store.body_record(body, <<1::128>>, {0.0, 64.0, 0.0})}],
+      false
     )
 
+  # Its mind's random seeded with 7; the voice draws from a copy of it.
+  {_, _, _, _, _, pitch} = Native.mob_oracle_body_turn(section, 1, :voice, %{random: 7})
   <<pitch_bits::signed-32>> = <<pitch::float-32>>
   true = pitch_bits == row["voice_pitch"]
 
-  body =
-    if row["feed"] do
-      {:ok, body, %{hand: {:use, 1}}} =
-        Valimc.AI.Mobs.Dolphin.mob_interact(body, %{item: ItemStack.new("cod", 3)})
+  if row["feed"] do
+    {:ok, {outcome, _, _}} =
+      Native.mob_section_interact(section, 1, ItemStack.new("cod", 3), nil, false, [])
 
-      2 = row["remaining"]
-      body
-    else
-      body
-    end
+    {:use, 1} = elem(outcome, 1)
+    2 = row["remaining"]
+  end
 
-  Enum.reduce(Enum.with_index(row["trace"]), body, fn {expected, tick}, body ->
-    {width, height, eye} = Body.dimensions(body)
+  bits = fn v ->
+    <<n::signed-32>> = <<v::float-32>>
+    n
+  end
 
-    bits = fn v ->
-      <<n::signed-32>> = <<v::float-32>>
-      n
-    end
+  for {expected, tick} <- Enum.with_index(row["trace"]) do
+    {_, native, _, _, timer, bites} =
+      Native.mob_oracle_body_turn(section, 1, :can_attack, %{players: [player]})
+
+    {width, height, eye} = native.dimensions
 
     actual = %{
-      age: body.data.age,
-      forced_age: body.data.forced_age,
-      age_locked: body.data.age_locked,
-      timer: body.mob.ai.forced_age_timer,
+      age: native.data.age,
+      forced_age: native.data.forced_age,
+      age_locked: native.data.age_locked,
+      timer: timer,
       dimensions: Enum.map([width, height, eye], bits),
-      got_fish: body.data[:got_fish],
-      can_attack:
-        body.type == "minecraft:dolphin" and
-          Valimc.AI.Mobs.Dolphin.can_attack?(%Self{data: body.data}, %{})
+      got_fish: native.data[:got_fish],
+      can_attack: native.type == "minecraft:dolphin" and bites
     }
 
     for name <- ~w(age forced_age age_locked timer dimensions got_fish can_attack),
@@ -64,17 +71,9 @@ for row <- cases do
           )
     end
 
-    self =
-      Animal.settle_ageable(%Self{
-        type: body.type,
-        data: body.data,
-        mob: body.mob,
-        mind: body.mob.ai,
-        world: %World{}
-      })
-
-    %{body | data: self.data, mob: %{self.mob | ai: self.mind}}
-  end)
+    # `AgeableMob.aiStep`.
+    Native.mob_oracle_body_turn(section, 1, :settle_ageable, %{})
+  end
 end
 
 IO.puts(

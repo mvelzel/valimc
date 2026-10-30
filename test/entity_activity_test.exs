@@ -1,18 +1,26 @@
 defmodule Valimc.EntityActivityTest do
   use ExUnit.Case, async: true
-  alias Valimc.Entity.{Body, ItemMotionState, Store}
+  alias Valimc.Entity.{Body, ItemMotionState, NativeMobs, Store}
   alias Valimc.Protocol.ItemStack
 
+  # A store whose mobs are native, as an owner's are.
+  defp native_store, do: %{Store.new() | native: NativeMobs.new({0, 0})}
+
+  # A cow ten ticks into its hurt cooldown.
   defp cow(store, uuid, position) do
     {:ok, body} = Body.new("minecraft:cow")
 
     {:ok, store, {_, id, _}} =
       Store.create_record(store, {0, 0}, Store.body_record(body, uuid, position))
 
-    body = store.entries[id].body
-    body = put_in(body.mob.living.health.cooldown, 10)
-    {Store.change_body(store, id, body), id}
+    {Valimc.TestBodies.set(store, id, {:cooldown, 10}), id}
   end
+
+  # Its hurt cooldown and lived ticks, which its section keeps.
+  defp cooldown(store, id),
+    do: elem(Valimc.Native.mob_section_oracle_health(store.native.ref, id), 4)
+
+  defp lived(store, id), do: Valimc.TestBodies.entry(store.entries[id]).lived
 
   defp item(store, uuid, x, age) do
     record = %{
@@ -29,13 +37,13 @@ defmodule Valimc.EntityActivityTest do
   end
 
   test "counter work follows chunks while inactive entries and views stay untouched" do
-    {store, active} = cow(Store.new(), <<1::128>>, {0.5, 64.0, 0.5})
+    {store, active} = cow(native_store(), <<1::128>>, {0.5, 64.0, 0.5})
     {store, frozen} = cow(store, <<2::128>>, {112.5, -200.0, 0.5})
     {store, expiring} = item(store, <<3::128>>, 2.5, 5999)
     {store, frozen_item} = item(store, <<4::128>>, 114.5, 5999)
     {next, expired} = Store.age_chunks(store, %{{0, 0} => 1}, -64, 101)
-    assert next.entries[active].body.mob.living.health.cooldown == 9
-    assert next.entries[active].lived == 1
+    assert cooldown(next, active) == 9 and lived(next, active) == 1
+    assert cooldown(next, frozen) == 10
     assert next.entries[frozen] == store.entries[frozen]
     assert next.views[frozen] == store.views[frozen]
     assert next.entries[frozen_item] == store.entries[frozen_item]
@@ -44,8 +52,7 @@ defmodule Valimc.EntityActivityTest do
     {same, []} = Store.age_chunks(next, %{{0, 0} => 1}, -64, 101)
     assert same == next
     {thawed, expired} = Store.age_chunks(next, %{{7, 0} => 1}, -64, 9000)
-    assert thawed.entries[frozen].body.mob.living.health.cooldown == 9
-    assert thawed.entries[frozen].lived == 1
+    assert cooldown(thawed, frozen) == 9 and lived(thawed, frozen) == 1
     assert Enum.any?(expired, &(elem(&1, 1) == frozen))
     assert Enum.any?(expired, &(elem(&1, 1) == frozen_item))
   end
@@ -89,18 +96,14 @@ defmodule Valimc.EntityActivityTest do
     assert merged.entries[passive] == store.entries[passive]
   end
 
-  test "same-tick movement and adoption fences prevent a second living-counter turn" do
-    {store, id} = cow(Store.new(), <<5::128>>, {0.5, 64.0, 0.5})
-    store = Store.mark_simulated(store, [id], 10)
-    {same, []} = Store.age_chunks(store, %{{0, 0} => 8}, -64, 10)
-    assert same.entries[id].body.mob.living.health.cooldown == 10
-    body = same.entries[id].body
-    counters = Map.take(same.entries[id], [:aged_tick, :simulated_tick, :lived])
-    adopted = Store.restore_live(store, id, body, counters)
-    {same, []} = Store.age_chunks(adopted, %{{0, 0} => 1}, -64, 10)
-    assert same.entries[id].body.mob.living.health.cooldown == 10
-    {next, []} = Store.age_chunks(same, %{{0, 0} => 1}, -64, 11)
-    assert next.entries[id].body.mob.living.health.cooldown == 9
+  test "a mob's living counters turn once a game tick" do
+    {store, id} = cow(native_store(), <<5::128>>, {0.5, 64.0, 0.5})
+    {store, []} = Store.age_chunks(store, %{{0, 0} => 1}, -64, 10)
+    assert cooldown(store, id) == 9
+    {store, []} = Store.age_chunks(store, %{{0, 0} => 8}, -64, 10)
+    assert cooldown(store, id) == 9
+    {store, []} = Store.age_chunks(store, %{{0, 0} => 1}, -64, 11)
+    assert cooldown(store, id) == 8
   end
 end
 

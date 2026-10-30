@@ -79,8 +79,37 @@ defmodule Valimc.MobAiConnectionTest do
     :math.sqrt((e.x - ctx.pose.x) ** 2 + (e.z - ctx.pose.z) ** 2)
   end
 
-  defp running?(owner, uuid, module),
-    do: Valimc.TestBodies.running?(raw_entry(owner, uuid), module)
+  defp running?(owner, uuid, goal),
+    do: Valimc.TestBodies.running?(raw_entry(owner, uuid), goal)
+
+  # Its section has made its mind (it took a turn).
+  defp thought?(owner, uuid) do
+    %{native: ref, entity: %{entity_id: id}} = raw_entry(owner, uuid)
+    Valimc.Native.mob_section_oracle_mind(ref, id) != nil
+  end
+
+  # `Cube.setSize(size, true)` on a fresh cube: maximum health its square,
+  # speed `0.2F + 0.1F * size`, a magma cube's attack and armour, full health.
+  defp sized_cube(type, size) do
+    {:ok, body} = Body.new(type)
+    f = &Valimc.Data.Float32.round/1
+
+    bases =
+      [
+        {"minecraft:max_health", size * size * 1.0},
+        {"minecraft:movement_speed", f.(f.(0.2) + f.(f.(0.1) * size))},
+        {"minecraft:attack_damage", size * 1.0}
+      ] ++ if(type == "minecraft:magma_cube", do: [{"minecraft:armor", size * 3.0}], else: [])
+
+    attributes =
+      Enum.reduce(bases, body.mob.attributes, fn {name, base}, attributes ->
+        Map.update(attributes, name, %{base: base, modifiers: []}, &%{&1 | base: base})
+      end)
+
+    health = %{body.mob.living.health | value: size * size * 1.0, maximum: size * size * 1.0}
+    mob = %{body.mob | attributes: attributes, living: %{body.mob.living | health: health}}
+    %{body | mob: mob, data: %{body.data | size: size}}
+  end
 
   test "a zombie targets the player, walks to it and hits it", ctx do
     save(ctx, %Inventory{})
@@ -102,7 +131,7 @@ defmodule Valimc.MobAiConnectionTest do
 
     # Tempted, it stops within its 2.5 blocks.
     Valimc.TestWait.until(fn -> distance(owner, uuid, ctx) < 3.0 end, 30_000)
-    assert running?(owner, uuid, Valimc.AI.Goals.Tempt)
+    assert running?(owner, uuid, "Tempt")
 
     hit = %{
       source: Valimc.Living.DamageSource.new(:player_attack),
@@ -118,7 +147,7 @@ defmodule Valimc.MobAiConnectionTest do
     }
 
     {:ok, _} = Region.hurt_entity(owner, uuid, hit)
-    Valimc.TestWait.until(fn -> running?(owner, uuid, Valimc.AI.Goals.Panic) end, 10_000)
+    Valimc.TestWait.until(fn -> running?(owner, uuid, "Panic") end, 10_000)
   end
 
   test "a blaze's fireballs set the player on fire", ctx do
@@ -139,7 +168,7 @@ defmodule Valimc.MobAiConnectionTest do
     [a, b] = [<<14::128>>, <<15::128>>]
     owner = summon(ctx, "minecraft:zombified_piglin", a, 5.0)
     summon(ctx, "minecraft:zombified_piglin", b, -5.0)
-    Valimc.TestWait.until(fn -> entry(owner, b).body.mob.ai != nil end, 10_000)
+    Valimc.TestWait.until(fn -> thought?(owner, b) end, 10_000)
     assert Valimc.TestBodies.target(raw_entry(owner, a)) == nil
 
     hit = %{
@@ -174,7 +203,7 @@ defmodule Valimc.MobAiConnectionTest do
     owner = summon(ctx, "minecraft:piglin", uuid, 4.0, sword)
 
     # Gold on its head: twenty ticks of sensing, and no target.
-    Valimc.TestWait.until(fn -> entry(owner, uuid).body.mob.ai != nil end, 10_000)
+    Valimc.TestWait.until(fn -> thought?(owner, uuid) end, 10_000)
     Process.sleep(1_500)
     assert Valimc.TestBodies.target(raw_entry(owner, uuid)) == nil
     assert TestPlayer.living(pid).health.value == 20.0
@@ -229,9 +258,7 @@ defmodule Valimc.MobAiConnectionTest do
     save(ctx, %Inventory{})
     {_client, pid} = TestPlayer.login(ctx)
     uuid = <<18::128>>
-    {:ok, body} = Body.new("minecraft:magma_cube")
-    {mob, data} = Valimc.AI.Mobs.MagmaCube.set_size(body.mob, body.data, 2)
-    owner = summon_body(ctx, %{body | mob: mob, data: data}, uuid, 3.0)
+    owner = summon_body(ctx, sized_cube("minecraft:magma_cube", 2), uuid, 3.0)
 
     # Its size and two: 4 at normal difficulty.
     Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value <= 16.0 end, 30_000)

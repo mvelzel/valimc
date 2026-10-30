@@ -40,7 +40,7 @@ defmodule Valimc.Physics.ItemStepTest do
     assert {kept.motion.health, kept.motion.fire_ticks, kept.dead} == {5, 0, false}
   end
 
-  test "dolphins use an item's fluid observation at the water edge and above its surface" do
+  test "an item observes water at the water's edge, not above its surface" do
     water = Valimc.Data.Blocks.default_state("water")
 
     states =
@@ -58,36 +58,5 @@ defmodule Valimc.Physics.ItemStepTest do
     refute dry.motion.in_water
     assert states[{4, 64, 0}] == 0
     assert states[{0, 64, 0}] == water
-
-    sensed =
-      for {step, n} <- [{wet, 1}, {dry, 2}] do
-        {x, y, z} = step.position
-
-        %{
-          kind: :item,
-          uuid: <<n::128>>,
-          x: x,
-          y: y,
-          z: z,
-          width: 0.25,
-          height: 0.25,
-          count: 1,
-          pickup_delay: 0,
-          in_water: step.motion.in_water
-        }
-      end
-
-    self = %Valimc.AI.Self{
-      x: 0.5,
-      y: 64.0,
-      z: 0.5,
-      width: 0.9,
-      height: 0.6,
-      world: %Valimc.AI.World{items: sensed, read: fn p -> states[p] end}
-    }
-
-    assert [hd(sensed)] == Valimc.AI.Mobs.Dolphin.items(self)
-    self = put_in(self.world.items, [%{hd(sensed) | pickup_delay: 1}])
-    assert Valimc.AI.Mobs.Dolphin.items(self) == []
   end
 end
