@@ -129,6 +129,31 @@ defmodule Valimc.NativeMobNeutralTest do
            )
   end
 
+  test "iron golems offer a villager a flower by day", ctx do
+    [{vx, _, vz} = villager] = land(ctx.blocks, 1, :rand.seed_s(:exsss, 412))
+    {x, z} = {vx + 2, vz + 2}
+    spot = {x, surface(ctx.blocks, x, z), z}
+
+    scene =
+      scene([],
+        ticks: 520,
+        bright: true,
+        statues: [mob(90_000, "minecraft:villager", villager, no_ai: true)],
+        post: true,
+        level: 133
+      )
+
+    # Golems whose own random offers early (one roll in 8000 an update),
+    # holding the flower out for 400 ticks.
+    for n <- [983, 1257] do
+      observed = compare(ctx, scene, [mob(n, "minecraft:iron_golem", spot)])
+      effects = effects(observed)
+      assert Enum.any?(effects, &match?({:event, 11}, &1))
+      assert Enum.any?(effects, &match?({:event, 34}, &1))
+      assert running?(observed, "Valimc.AI.Mobs.IronGolem.OfferFlower")
+    end
+  end
+
   ## Wandering traders
 
   test "wandering traders drink by dark and by day, flee, panic, wander and go", ctx do
@@ -173,6 +198,7 @@ defmodule Valimc.NativeMobNeutralTest do
     assert Enum.any?(records, &(&1.data[:invisible] == true))
     assert Enum.any?(records, &(&1.mob.equipment[:mainhand] != nil))
     assert running?(ticks, "Valimc.AI.Goals.UseItem")
+    assert running?(ticks, "Valimc.AI.Goals.AvoidEntity")
     assert running?(ticks, "Valimc.AI.Goals.Panic")
     assert running?(ticks, "Valimc.AI.Mobs.WanderingTrader.WanderToPosition")
   end
