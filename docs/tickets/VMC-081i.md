@@ -90,6 +90,54 @@ interval.
 
 ## Measurements
 
-Pending.
+The `mobs` scenario (`bench/tick_budget.exs`, two pinned cores of the
+development Mac's Linux VM, 60 s, about 162 active mobs and 762 loaded
+entities in 79 sections, 16 of them simulating). Before: 4e4426d3 (the
+image of 081d's measurements); after: b1fb29ca. The host was shared with
+other sessions, and the sampled entity phase moved by more than a
+millisecond between runs of one image, so runs were interleaved.
 
-Checks: pending.
+| | before | after |
+|---|---|---|
+| Entity phase, first pairs (ms) | 7.09, 6.97 | 5.26, 5.11 |
+| Entity phase, interleaved pairs (ms) | 5.83, 6.13, 6.18, 10.46 | 4.81, 5.97, 6.04, 6.41 |
+| Entity phase, other runs (ms) | 8.49 | 7.03, 6.74 |
+| Median of all runs (ms) | 6.97 | 5.99 |
+| TPS (mean / lowest second) | 20.0 / 18.8–19.0 | 20.0 / 18.8–19.0 |
+| Tick mean / p95, first pairs (ms) | 12.4 / 14.9, 12.6 / 24.3 | 10.1 / 13.5, 10.0 / 13.0 |
+
+Probe (`.local/tick-budget/probe-081d-instrumentation.patch`'s harness with
+tracking spans, ms per tick; before: `docker-resident3probe-1`, after:
+`docker-trackprobe3-1`):
+
+| | before | after |
+|---|---:|---:|
+| Tracking (`track_entities`, all 79 sections) | 2.41 | 1.36 with probe overhead |
+| of it: the pass in the 16 sections that do anything | – | 0.36 |
+| of it: diff of views / tracker ticks / native call | – | 0.02 / 0.13 / 0.05 |
+| of it: projections of changed entities | – | 0.11 |
+| of it: ETS writes (21 rows, 55 sources) | – | 0.26 |
+| Sections idle (one comparison) | 0 of 79 | 63 of 79 |
+| Frame bytes per tick | – | 387 |
+
+The rest of the after figure is the probe's own counters in 79 calls a
+tick (two ETS counter updates each); without them tracking is the pass and
+the writes, about 0.62 ms.
+
+The `explore` scenario (one run each, `docker-{pretrack,track2}-1-explore`):
+entity phase 5.78 → 4.42 ms, tick mean 15.8 → 11.1 ms, p95 31.0 → 27.8 ms,
+TPS 19.97 / 18.74 → 20.00 / 18.98. The moving player's connection filters
+every row each tick, as before, and nothing regresses. Raw results in
+`.local/tick-budget/results/docker-{pretrack,track1,track2,pair-before,pair-after,trackprobe3}-*.json`.
+
+Checks: `cargo test -p valimc_core tracker`; clippy without new warnings;
+`mix compile --warnings-as-errors`; the tracking, replication, session,
+connection, entity, item, region, dragon and native test files with the
+tcp and slow suites (133 files, 558 tests); the vanilla stages `entity`,
+`entity_position`, `combat_packets`, `experience_orb`, `combat`,
+`mob_travel` and `tcp`.
+
+Left: metadata, attributes and equipment of native mobs are encoded in
+Elixir from their rows; items keep Elixir trackers; a moving player's
+connection still filters every row each tick (vanilla's `updatePlayer`
+does the same on a player's move).
