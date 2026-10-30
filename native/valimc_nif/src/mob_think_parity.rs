@@ -41,7 +41,8 @@ mod atoms {
         jumping, strafe, pickup, drop, swing, attack, alert, attack_extra, convert,
         level_event, spawn, spawn_body, jockey, shoot, explode, discard, throw_potion,
         throw_trident, touch, take_block, place_carried, remove_block, anger_end, anger_target,
-        away, maybe, shot, poked, y_rot, aggressive, wanted, effect
+        away, maybe, shot, poked, y_rot, aggressive, wanted, effect, infest, wake_infested,
+        magic
     }
 }
 
@@ -311,6 +312,8 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
             (atoms::place_carried(), cell(*c), *state).encode(env)
         }
         Effect::RemoveBlock(c) => (atoms::remove_block(), cell(*c)).encode(env),
+        Effect::Infest { cell: c, state } => (atoms::infest(), cell(*c), *state).encode(env),
+        Effect::WakeInfested(v) => tagged(env, atoms::wake_infested(), v)?,
         Effect::Discard => (atoms::discard(),).encode(env),
         Effect::Hurt {
             target,
@@ -333,6 +336,15 @@ fn effect<'a>(env: Env<'a>, e: &Effect) -> NifResult<Term<'a>> {
             .encode(env),
         _ => (atoms::other(),).encode(env),
     })
+}
+
+/// `{tag, ...}` of a tuple payload's items (the Elixir's flat tuple).
+fn tagged<'a>(env: Env<'a>, tag: Atom, v: &Value) -> NifResult<Term<'a>> {
+    let v = mob_term::encode(env, v)?;
+    let items = rustler::types::tuple::get_tuple(v)?;
+    let mut all = vec![tag.encode(env)];
+    all.extend(items);
+    Ok(rustler::types::tuple::make_tuple(env, &all))
 }
 
 fn control<'a>(env: Env<'a>, c: &Control) -> Term<'a> {
@@ -394,6 +406,7 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
 /// The own fields of the families that keep them as optional keys, as
 /// `(key, value)` (an absent key is one the Elixir map lacks).
 fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Value)> {
+    use valimc_core::mobs::monsters::silverfish::SilverfishOwn;
     use valimc_core::mobs::monsters::zombified_piglin::PiglinOwn;
     let mut out = Vec::new();
     let mut opt = |k: &'static str, v: Option<i64>| {
@@ -404,6 +417,9 @@ fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Valu
     if let Some(o) = own.family::<PiglinOwn>() {
         opt("first_sound", o.first_sound);
         opt("next_alert", o.next_alert);
+    }
+    if let Some(o) = own.family::<SilverfishOwn>() {
+        opt("friends", o.friends);
     }
     water_own(own, &mut out);
     out
@@ -615,7 +631,10 @@ fn mob_parity_think<'a>(
                         valimc_core::mobs::animals::feed_baby(mob);
                     } else if what == atoms::fire() {
                         mob.body.mob.living.fire_ticks = 160;
-                    } else if what == atoms::shot() || what == atoms::poked() {
+                    } else if what == atoms::shot()
+                        || what == atoms::poked()
+                        || what == atoms::magic()
+                    {
                         // A family's part of a hurt it turned away (an
                         // arrow) or took without a living attacker (a
                         // cactus).
@@ -626,8 +645,13 @@ fn mob_parity_think<'a>(
                             let arrow = facts.damage_types.id("minecraft:arrow").ok_or(bad())?;
                             kind.repelled(&mut mob.body, &Hit::new(arrow, 4.0));
                         } else {
-                            let cactus = facts.damage_types.id("minecraft:cactus").ok_or(bad())?;
-                            kind.hurt(&mut mob.body, &Hit::new(cactus, 1.0), &mut Vec::new());
+                            let name = if what == atoms::magic() {
+                                "minecraft:magic"
+                            } else {
+                                "minecraft:cactus"
+                            };
+                            let source = facts.damage_types.id(name).ok_or(bad())?;
+                            kind.hurt(&mut mob.body, &Hit::new(source, 1.0), &mut Vec::new());
                         }
                     } else if what == atoms::hurt() {
                         let facts = crate::mob_facts::facts()?;

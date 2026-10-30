@@ -32,12 +32,7 @@ defmodule Valimc.NativeMobScene do
     size = Valimc.Data.Grid.region_size()
     absent = for cx <- 0..(size - 1), cz <- 0..(size - 1), {cx, cz} not in @chunks, do: {cx, cz}
     {:ok, blocks} = Valimc.World.Blocks.new({0, 0}, %{}, images, MapSet.new(absent))
-    # The path searches read the region's every chunk, as the native side
-    # reads its store (the chunks beyond the generated ones are the store's
-    # own fill).
-    region = for cx <- 0..(size - 1), cz <- 0..(size - 1), do: {{cx, cz}, nil}
-    handles = Valimc.World.Blocks.snapshots(blocks, region, 1)
-    view = {:rows, Enum.reject(handles, &is_nil/1), Valimc.Protocol.Data.block("air")}
+    view = view(blocks, 1)
 
     types =
       for name <- EntityTypes.names(), EntityTypes.living?(name) do
@@ -54,6 +49,20 @@ defmodule Valimc.NativeMobScene do
       })
 
     %{blocks: blocks, view: view, facts: facts}
+  end
+
+  @doc """
+  The Elixir side's path view of the terrain at `revision`: the path
+  searches read the region's every chunk, as the native side reads its
+  store (the chunks beyond the generated ones are the store's own fill). A
+  scene that edits the terrain (from the region's owner, `setup_all`)
+  takes a new one.
+  """
+  def view(blocks, revision) do
+    size = Valimc.Data.Grid.region_size()
+    region = for cx <- 0..(size - 1), cz <- 0..(size - 1), do: {{cx, cz}, nil}
+    handles = Valimc.World.Blocks.snapshots(blocks, region, revision)
+    {:rows, Enum.reject(handles, &is_nil/1), Valimc.Protocol.Data.block("air")}
   end
 
   ## The Elixir side
@@ -237,6 +246,10 @@ defmodule Valimc.NativeMobScene do
             :poked ->
               hit = %{source: :cactus, amount: 1.0}
               AI.Mobs.hook(e.body.type, :hurt, [e.body, hit], e.body)
+
+            :magic ->
+              hit = %{source: :magic, amount: 1.0}
+              AI.Mobs.hook(e.body.type, :hurt, [e.body, hit], e.body)
           end
 
         List.replace_at(entries, i, {id, %{e | body: body}})
@@ -352,6 +365,8 @@ defmodule Valimc.NativeMobScene do
   def effect({:take_block, _, _} = e), do: e
   def effect({:place_carried, _, _} = e), do: e
   def effect({:level_event, _, _, _} = e), do: e
+  def effect({:infest, _, _} = e), do: e
+  def effect({:wake_infested, _, _, _} = e), do: e
 
   def effect({:touch, ref, amount, {id, volume, pitch}}),
     do: {:touch, ref, amount, {id, volume, pitch}}

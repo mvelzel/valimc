@@ -13,6 +13,8 @@ pub mod creeper;
 pub mod cube;
 pub mod drowned;
 pub mod enderman;
+pub mod endermite;
+pub mod silverfish;
 pub mod skeleton;
 pub mod spider;
 pub mod witch;
@@ -43,6 +45,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(cube::Cube::new(facts, cube::CubeKind::MagmaCube)?),
         Box::new(zombified_piglin::ZombifiedPiglin::new(facts)?),
         Box::new(wither_skeleton::WitherSkeleton::new(facts)?),
+        Box::new(endermite::Endermite::new(facts)?),
+        Box::new(silverfish::Silverfish::new(facts)?),
     ])
 }
 
