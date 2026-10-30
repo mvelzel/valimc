@@ -99,9 +99,15 @@ pub struct Slot {
     pub ticked: Option<i64>,
     pub aged: Option<i64>,
     /// Its idle time (`noActionTime`: its mind's, or counted while it has
-    /// none) and the ticks it lived, which despawning reads.
+    /// none) and the ticks it lived, which despawning reads. With `aged`
+    /// they hold what they were when its chunk's ageing clock stood at
+    /// `clock` (VMC-081j): a mob whose timers rest is not visited as its
+    /// chunk ages, and its counts are the clock's advance since
+    /// (`MobSection::counters`). Every mutable access brings them up to
+    /// date first.
     pub idle: i64,
     pub lived: i64,
+    clock: u64,
     /// The row its owner's store holds (beside the physical fields), None
     /// before the store was first given one.
     pub row: Option<Box<super::publish::RowKey>>,
@@ -133,6 +139,7 @@ impl Slot {
             aged: None,
             idle: 0,
             lived: 0,
+            clock: 0,
             row: None,
             tracker: None,
             noted: false,
@@ -199,6 +206,20 @@ pub struct MobSection {
     solids: usize,
     /// What its mobs count as toward natural spawning's caps (VMC-081g2).
     census: Census,
+    /// Each chunk's ageing clock (VMC-081j): the ticks its mobs aged in all,
+    /// and the game tick it last aged.
+    clocks: HashMap<(i32, i32), Clock>,
+    /// The mobs whose timers may be due (`tick::age` visits them as their
+    /// chunk ages): any changed outside a turn, or left by one with a timer
+    /// running (`tick::finish`). The others only count their chunk's clock.
+    timed: BTreeSet<i32>,
+}
+
+/// A chunk's ageing clock (`MobSection::clocks`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Clock {
+    pub total: u64,
+    pub tick: Option<i64>,
 }
 
 /// The types whose family gives them a collider other bodies meet
@@ -221,7 +242,88 @@ impl MobSection {
             anywhere: false,
             solids: 0,
             census: Census::default(),
+            clocks: HashMap::new(),
+            timed: BTreeSet::new(),
         }
+    }
+
+    /// Slot `slot`'s idle and lived counts as they stand now (`Slot::clock`).
+    pub fn counters(&self, slot: &Slot) -> (i64, i64) {
+        let advance = self.advance(slot) as i64;
+        (slot.idle + advance, slot.lived + advance)
+    }
+
+    fn advance(&self, slot: &Slot) -> u64 {
+        self.clocks
+            .get(&slot.chunk)
+            .map_or(0, |c| c.total - slot.clock.min(c.total))
+    }
+
+    /// Brings `slot`'s counts up to its chunk's clock.
+    fn settle_counters(clocks: &HashMap<(i32, i32), Clock>, slot: &mut Slot) {
+        let clock = clocks.get(&slot.chunk).copied().unwrap_or_default();
+        let advance = clock.total.saturating_sub(slot.clock);
+        if advance > 0 {
+            slot.idle += advance as i64;
+            slot.lived += advance as i64;
+            slot.aged = clock.tick;
+        }
+        slot.clock = clock.total;
+    }
+
+    /// Mob `id`'s timers may be due (`timed`).
+    pub fn time(&mut self, id: i32) {
+        if self.slots.contains_key(&id) {
+            self.timed.insert(id);
+        }
+    }
+
+    /// Mob `id`'s timers rest: it only counts its chunk's clock.
+    pub fn rest(&mut self, id: i32) {
+        self.timed.remove(&id);
+    }
+
+    /// Mob `id` does not count its chunk's clock's advance so far (it aged
+    /// in this tick elsewhere).
+    pub fn skip_clock(&mut self, id: i32) {
+        if let Some(slot) = self.slots.get_mut(&id) {
+            slot.clock = self.clocks.get(&slot.chunk).map_or(0, |c| c.total);
+        }
+    }
+
+    /// The mobs whose timers may be due, in id order.
+    pub fn timed(&self) -> impl Iterator<Item = i32> + '_ {
+        self.timed.iter().copied()
+    }
+
+    /// Ages the chunks of `budget` (ticks owed by chunk, at game tick
+    /// `tick`) on their clocks; whether any holds a mob.
+    pub fn age_clocks(
+        &mut self,
+        budget: &std::collections::HashMap<(i32, i32), u32>,
+        tick: Option<i64>,
+    ) -> bool {
+        let mut held = false;
+        for (&chunk, &ticks) in budget {
+            if ticks == 0 {
+                continue;
+            }
+            let clock = self.clocks.entry(chunk).or_default();
+            clock.total += ticks as u64;
+            clock.tick = tick;
+            held |= self.chunks.contains_key(&chunk);
+        }
+        held
+    }
+
+    /// Slot `id` for bookkeeping that starts no timer (a turn's start and
+    /// end, ageing, tracking): its counts brought up to date, not timed.
+    pub fn peek_kept(&mut self, id: i32) -> Option<&mut Slot> {
+        let limit = self.note_limit();
+        let slot = self.slots.get_mut(&id)?;
+        note(&mut self.census, id, slot, limit);
+        Self::settle_counters(&self.clocks, slot);
+        Some(slot)
     }
 
     /// How many of its mobs are of a solid type (a tick leaves a section
@@ -275,21 +377,26 @@ impl MobSection {
         self.slots.get(&id)
     }
 
-    /// Slot `id` for a change: it is touched.
+    /// Slot `id` for a change: it is touched, and its timers may be due.
     pub fn get_mut(&mut self, id: i32) -> Option<&mut Slot> {
         let limit = self.note_limit();
         let slot = self.slots.get_mut(&id)?;
         slot.touched = true;
         note(&mut self.census, id, slot, limit);
+        Self::settle_counters(&self.clocks, slot);
+        self.timed.insert(id);
         self.revision += 1;
         Some(slot)
     }
 
-    /// Slot `id` without marking a change (bookkeeping only).
+    /// Slot `id` without marking a change (bookkeeping only); its timers
+    /// may be due.
     pub fn peek_mut(&mut self, id: i32) -> Option<&mut Slot> {
         let limit = self.note_limit();
         let slot = self.slots.get_mut(&id)?;
         note(&mut self.census, id, slot, limit);
+        Self::settle_counters(&self.clocks, slot);
+        self.timed.insert(id);
         Some(slot)
     }
 
@@ -315,8 +422,10 @@ impl MobSection {
         self.removed.remove(&mob.uuid);
         let mut slot = Slot::new(mob, written);
         slot.touched = true;
+        slot.clock = self.clocks.get(&slot.chunk).map_or(0, |c| c.total);
         let limit = self.note_limit();
         note(&mut self.census, id, &mut slot, limit);
+        self.timed.insert(id);
         self.solids += usize::from(solid(&slot.mob));
         self.uuids.insert(slot.mob.uuid, id);
         self.chunks.entry(slot.chunk).or_default().insert(id);
@@ -328,7 +437,9 @@ impl MobSection {
     /// Takes mob `id` out: its record is deleted at the next cut if a frame
     /// wrote it.
     pub fn remove(&mut self, id: i32) -> Option<Slot> {
-        let slot = self.slots.remove(&id)?;
+        let mut slot = self.slots.remove(&id)?;
+        Self::settle_counters(&self.clocks, &mut slot);
+        self.timed.remove(&id);
         self.solids -= usize::from(solid(&slot.mob));
         self.uuids.remove(&slot.mob.uuid);
         if let Some(ids) = self.chunks.get_mut(&slot.chunk) {
@@ -370,6 +481,9 @@ impl MobSection {
             return;
         }
         note(&mut self.census, id, slot, limit);
+        // Its counts so far are the old chunk's clock's; it counts the new
+        // one's from here.
+        Self::settle_counters(&self.clocks, slot);
         if let Some(ids) = self.chunks.get_mut(&slot.chunk) {
             ids.remove(&id);
             if ids.is_empty() {
@@ -377,6 +491,7 @@ impl MobSection {
             }
         }
         slot.chunk = chunk;
+        slot.clock = self.clocks.get(&chunk).map_or(0, |c| c.total);
         self.chunks.entry(chunk).or_default().insert(id);
     }
 
@@ -945,5 +1060,82 @@ mod tests {
         assert!(s.census_read().stale);
         assert_eq!(census(&mut s), [((3, 0), one)]);
         assert!(!s.census_read().stale);
+    }
+
+    /// Ages `s` as every mob would be aged each call, the way ageing ran
+    /// before it was deadline-based: the expected counts and timers.
+    fn eager(
+        s: &MobSection,
+        expected: &mut std::collections::BTreeMap<i32, (i64, i64, Option<i64>, i32)>,
+        budget: &HashMap<(i32, i32), u32>,
+        tick: Option<i64>,
+    ) {
+        for (id, slot) in s.slots() {
+            let e = expected.get_mut(&id).unwrap();
+            let Some(&ticks) = budget.get(&slot.chunk).filter(|&&t| t > 0) else {
+                continue;
+            };
+            if slot.ticked == tick {
+                continue;
+            }
+            e.0 += ticks as i64;
+            e.1 += ticks as i64;
+            e.2 = tick;
+            e.3 = (e.3 - ticks.clamp(1, 40) as i32).max(0);
+        }
+    }
+
+    #[test]
+    fn deadline_ageing_counts_and_times_as_every_tick_would() {
+        use crate::mobs::tick::age;
+        let mut s = MobSection::new((0, 0));
+        s.insert(1, mob(1, [8.5, 64.0, 8.5]), None).unwrap();
+        s.insert(2, mob(2, [9.5, 64.0, 8.5]), None).unwrap();
+        s.insert(3, mob(3, [24.5, 64.0, 8.5]), None).unwrap();
+        // Mob 2 was hurt: its hurt time runs.
+        s.get_mut(2).unwrap().mob.body.mob.living.health.hurt_ticks = 3;
+        let mut expected: std::collections::BTreeMap<i32, (i64, i64, Option<i64>, i32)> = [
+            (1, (0, 0, None, 0)),
+            (2, (0, 0, None, 3)),
+            (3, (0, 0, None, 0)),
+        ]
+        .into();
+        let budget: HashMap<(i32, i32), u32> = [((0, 0), 1), ((1, 0), 2)].into();
+        let void = -128.0;
+        for t in 1..=8 {
+            if t == 5 {
+                // Mob 1 walks into the other chunk between ticks.
+                s.get_mut(1).unwrap().mob.position[0] = 20.5;
+                s.relocate(1);
+            }
+            if t == 6 {
+                // Mob 3 comes back from a sibling section where it took its
+                // turn in this tick already (a parcel: its slot's counts).
+                let slot = s.remove(3).unwrap();
+                s.insert(3, slot.mob.clone(), None).unwrap();
+                let back = s.peek_mut(3).unwrap();
+                back.ticked = Some(6);
+                back.aged = slot.aged;
+                back.idle = slot.idle;
+                back.lived = slot.lived;
+            }
+            eager(&s, &mut expected, &budget, Some(t));
+            age(&mut s, &budget, Some(t), void);
+            // Resting mobs leave the visited set once their timers rest.
+            if t >= 4 {
+                assert!(!s.timed().any(|id| id == 2), "tick {t}");
+            }
+            for (id, slot) in s.slots() {
+                let (idle, lived) = s.counters(slot);
+                let e = expected[&id];
+                assert_eq!((idle, lived), (e.0, e.1), "mob {id} at tick {t}");
+                assert_eq!(slot.mob.body.mob.living.health.hurt_ticks, e.3, "mob {id}");
+            }
+        }
+        // Brought up to date, a removed mob carries its counts and the
+        // tick it last aged.
+        let gone = s.remove(3).unwrap();
+        assert_eq!((gone.idle, gone.lived, gone.aged), (14, 14, Some(8)));
+        assert_eq!(s.timed().count(), 0);
     }
 }

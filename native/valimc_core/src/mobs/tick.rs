@@ -895,7 +895,7 @@ impl Tick {
         let mut starts = std::collections::HashMap::new();
         for (index, e) in order.iter().enumerate() {
             if let Entrant::Native(id) = *e {
-                if let Some(slot) = section.peek_mut(id) {
+                if let Some(slot) = section.peek_kept(id) {
                     slot.stepped = false;
                     // The mob alone: its family data, equipment and
                     // attribute overrides are shared, not copied, and what
@@ -1411,11 +1411,16 @@ pub struct Step {
 /// from before the tick where it kept one (and otherwise keeps its turn's
 /// state where it stood). Mobs whose move out of the section is pending wait
 /// for `settle`.
-pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> Vec<Step> {
+pub fn finish(
+    section: &mut MobSection,
+    tick: Tick,
+    velocities: &[[f64; 3]],
+    void: f64,
+) -> Vec<Step> {
     let mut steps = Vec::new();
     let mut changed = false;
     for (id, state) in tick.turns {
-        let Some(slot) = section.peek_mut(id) else {
+        let Some(slot) = section.peek_kept(id) else {
             continue;
         };
         slot.stepped = false;
@@ -1424,7 +1429,9 @@ pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> 
             if let Some(before) = before {
                 // What observers were shown is as the tick began.
                 slot.mob = before.0;
+                let resting = resting(&slot.mob, void);
                 section.relocate(id);
+                set_timed(section, id, resting);
                 continue;
             }
         }
@@ -1443,8 +1450,10 @@ pub fn finish(section: &mut MobSection, tick: Tick, velocities: &[[f64; 3]]) -> 
         slot.touched = true;
         changed = true;
         let position = slot.mob.position;
+        let resting = resting(&slot.mob, void);
         let outside = !section.holds(position);
-        let slot = section.peek_mut(id).expect("slot");
+        set_timed(section, id, resting);
+        let slot = section.peek_kept(id).expect("slot");
         if outside {
             slot.pending = true;
             match before {
@@ -1514,25 +1523,78 @@ pub struct Aged {
     pub changed: bool,
 }
 
+/// Whether a mob's timers rest (VMC-081j): `Body.tick/1` would change
+/// nothing of it (no portal cooldown, hurt time, hurt cooldown or player
+/// memory running, alive, no death animation) and it is above `void` (the
+/// world's floor less 64, where it is gone). The dragon's timers run on
+/// its own clock and never rest.
+pub fn resting(mob: &NativeMob, void: f64) -> bool {
+    let body = &mob.body;
+    let h = &body.mob.living.health;
+    body.entity_type != super::boss::dragon::DRAGON
+        && body.portal_cooldown <= 0
+        && h.hurt_ticks == 0
+        && h.cooldown == 0
+        && h.value > 0.0
+        && body.mob.player_memory == 0
+        && body.mob.hurt_by_player.is_none()
+        && mob.position[1] >= void
+}
+
+fn set_timed(section: &mut MobSection, id: i32, resting: bool) {
+    if resting {
+        section.rest(id);
+    } else {
+        section.time(id);
+    }
+}
+
 /// The timers of the section's mobs in chunks with a tick budget
 /// (`budget`: chunk => ticks owed), once per game tick `tick` and not for
 /// one that already took its turn in it (it came from a sibling section):
 /// `Body.tick/1` up to 40 times, stopping when its death animation ends,
 /// and its idle and lived counts. In id order.
+///
+/// Deadline-based (VMC-081j): only the mobs whose timers may be due
+/// (`MobSection::timed`) are visited; a mob whose timers rest would change
+/// nothing but its counts, which its chunk's clock keeps (`Slot::clock`).
+/// One whose timers come to rest here leaves the visited set. `void` is
+/// the world's floor less 64.
 pub fn age(
     section: &mut MobSection,
     budget: &std::collections::HashMap<(i32, i32), u32>,
     tick: Option<i64>,
+    void: f64,
 ) -> Vec<Aged> {
-    let ids: Vec<i32> = section
-        .slots()
-        .filter(|(_, s)| budget.get(&s.chunk).is_some_and(|&t| t > 0))
-        .filter(|(_, s)| tick.is_none() || (s.aged != tick && s.ticked != tick))
-        .map(|(id, _)| id)
+    let due: Vec<i32> = section
+        .timed()
+        .filter(|id| {
+            section
+                .get(*id)
+                .is_some_and(|s| budget.get(&s.chunk).is_some_and(|&t| t > 0))
+        })
         .collect();
+    // Their counts as the clocks stood before this tick's.
+    for &id in &due {
+        section.peek_kept(id);
+    }
+    if section.age_clocks(budget, tick) {
+        section.revision += 1;
+    }
+    let mut ids = Vec::with_capacity(due.len());
+    for id in due {
+        let slot = section.get(id).expect("slot");
+        if tick.is_none() || (slot.aged != tick && slot.ticked != tick) {
+            ids.push(id);
+        } else {
+            // It aged in this tick already: this one's clock passes it by.
+            section.skip_clock(id);
+        }
+    }
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
-        let slot = section.peek_mut(id).expect("slot");
+        // Its counts take the clock's advance: `ticks` more, aged now.
+        let slot = section.peek_kept(id).expect("slot");
         let ticks = budget[&slot.chunk];
         let body = &mut slot.mob.body;
         let before = (
@@ -1571,18 +1633,15 @@ pub fn age(
         if changed || !events.is_empty() {
             slot.touched = true;
         }
-        slot.idle += ticks as i64;
-        slot.lived += ticks as i64;
-        slot.aged = tick;
+        if resting(&slot.mob, void) {
+            section.rest(id);
+        }
         out.push(Aged {
             id,
             events,
             done,
             changed,
         });
-    }
-    if !out.is_empty() {
-        section.revision += 1;
     }
     out
 }

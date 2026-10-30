@@ -134,13 +134,41 @@ Each change is justified by the work it removes; none is timed.
   mob's row is built again because its own turn changes it, but a row no
   longer copies the family data (a reference, above).
 
-Not done: deadline-based native ageing; native turns' 10 to 15% gap to
-a75a314c stays unexplained.
+## Deadline-based ageing
+
+A mob's timers (portal cooldown, hurt time, hurt cooldown, player memory,
+death animation) are due only while one runs; at rest, `Body.tick/1`
+changes nothing and ageing only counts its idle and lived ticks. Each
+chunk of a section keeps an ageing clock (the ticks its mobs aged in all
+and the game tick it last aged); a slot holds its counts as of its chunk's
+clock (`Slot::clock`), brought up to date by every mutable access, by a
+change of chunk, and when it leaves (`MobSection::counters` reads them in
+place). `tick::age` advances the clocks of the chunks it is given and
+visits only the mobs whose timers may be due (`MobSection::timed`): every
+mob changed outside a turn (`get_mut`, `peek_mut`, an arrival) and every
+mob a turn left with a timer running or below the world (`tick::finish`
+decides for each stepped mob); a visited mob whose timers come to rest
+leaves the set. Bookkeeping that starts no timer (a turn's start and end,
+tracking, ageing's report) uses `peek_kept`. Per tick a resting mob in an
+ageing chunk had: a slot visit, a copy and compare of its health, its body
+tick, three counter writes and an `Aged` entry for the report; now none,
+its chunk's clock counts for it. A mob that arrives in a tick in which it
+already aged or turned (a sibling's handoff) is visited, so its exclusion
+holds as before; `deadline_ageing_counts_and_times_as_every_tick_would`
+checks the counts and timers against every-tick ageing over moves between
+chunks and such an arrival.
+
+Not done: native turns' 10 to 15% gap to a75a314c stays unexplained.
 
 The harness's view load stalled intermittently (the group kept ticking,
 the client's view never completed), on images before and after 081h.
 
 ## Checks
+
+Deadline-based ageing: `cargo test -p valimc_core` (211) and clippy (no
+new warnings); the region, entity, tracking, storage, spawning and mob
+suites (301); `check_vanilla.py --changed` through `heavy.py` (43 of 43,
+the mob stages among them) and `natural_spawning` and `entity`.
 
 Per-mob work: `cargo test -p valimc_core` (210) and clippy of both crates
 (no new warnings); the region, entity, tracking, storage and mob suites

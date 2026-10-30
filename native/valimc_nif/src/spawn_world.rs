@@ -729,14 +729,15 @@ fn natural(env: Env, world: &MobWorldRes, request: Request) -> Result<Natural, S
             if !valimc_core::mobs::living::mob::alive(&slot.mob.body.mob) {
                 continue;
             }
+            let (idle, lived) = section.counters(slot);
             check(
                 *key,
                 id as u32,
                 c.kind,
                 slot.mob.position,
                 c.persistent,
-                clamp(slot.idle),
-                clamp(slot.lived),
+                clamp(idle),
+                clamp(lived),
             );
         }
     }

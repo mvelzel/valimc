@@ -898,6 +898,7 @@ fn tick_section<'a>(
         &velocities,
         region.as_deref(),
         &parts.env.dimension,
+        parts.env.min_y as f64 - 64.0,
     )?;
     Ok((random, moved, changes).encode(env))
 }
@@ -918,9 +919,10 @@ fn finish_out<'a>(
     velocities: &[[f64; 3]],
     region: Option<&Region>,
     dimension: &valimc_core::mobs::term::Atom,
+    void: f64,
 ) -> NifResult<(Term<'a>, Vec<Term<'a>>)> {
     use valimc_core::mobs::term::Value;
-    let steps = tick::finish(&mut inner.section, state, velocities);
+    let steps = tick::finish(&mut inner.section, state, velocities, void);
     let section = &mut inner.section;
     // Portal sweeps read the section's own blocks: none where it holds no
     // portal (VMC-081j).
@@ -932,7 +934,7 @@ fn finish_out<'a>(
     let mut moved: Vec<u8> = Vec::with_capacity(steps.len() * 77);
     let mut changes = Vec::new();
     for step in steps {
-        let slot = section.peek_mut(step.id).ok_or_else(bad)?;
+        let slot = section.peek_kept(step.id).ok_or_else(bad)?;
         let Some(ty) = rules.of(&slot.mob.body.entity_type) else {
             continue;
         };
@@ -1043,10 +1045,10 @@ fn mob_section_age_tick<'a>(
     let rules = ms::rules()?;
     let mut inner = ms::owned(env, &res)?;
     let budget: HashMap<(i32, i32), u32> = budget.into_iter().collect();
-    let aged = tick::age(&mut inner.section, &budget, tick);
+    let aged = tick::age(&mut inner.section, &budget, tick, min_y - 64.0);
     let mut out = Vec::new();
     for a in aged {
-        let slot = inner.section.peek_mut(a.id).ok_or_else(bad)?;
+        let slot = inner.section.peek_kept(a.id).ok_or_else(bad)?;
         let Some(ty) = rules.of(&slot.mob.body.entity_type) else {
             continue;
         };
@@ -1149,7 +1151,7 @@ fn mob_section_reset_idle(
 ) -> NifResult<Atom> {
     let mut inner = ms::owned(env, &res)?;
     for id in ids {
-        if let Some(slot) = inner.section.peek_mut(id) {
+        if let Some(slot) = inner.section.peek_kept(id) {
             slot.idle = 0;
         }
     }
@@ -1169,14 +1171,15 @@ fn mob_section_body<'a>(
         .section
         .get(id)
         .ok_or_else(|| rustler::Error::Term(Box::new(atoms::missing())))?;
+    let (idle, lived) = inner.section.counters(slot);
     let mut copy = slot.clone();
     let p = copy.mob.position;
     let row = ms::row(&rules, &mut copy, true);
     Ok((
         (p[0], p[1], p[2]),
         mob_term::encode(env, &row)?,
-        copy.idle,
-        copy.lived,
+        idle,
+        lived,
     )
         .encode(env))
 }

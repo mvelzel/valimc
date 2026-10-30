@@ -75,7 +75,7 @@ fn mob_section_track<'a>(
     }
     for e in entries {
         let id = i32::from_be_bytes(e[0..4].try_into().unwrap());
-        let Some(slot) = section.peek_mut(id) else {
+        let Some(slot) = section.peek_kept(id) else {
             continue;
         };
         let Some(ty) = rules.of(&slot.mob.body.entity_type) else {
@@ -108,7 +108,7 @@ fn mob_section_track<'a>(
     let mut spawns = Vec::new();
     let all: Vec<i32> = section.ids().collect();
     for id in all {
-        let slot = section.peek_mut(id).ok_or_else(bad)?;
+        let slot = section.peek_kept(id).ok_or_else(bad)?;
         let named = named.get(&id).copied();
         if slot.pending || !(named.is_some() || simulated(slot.chunk)) {
             continue;
