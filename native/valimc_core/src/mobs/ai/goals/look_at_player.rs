@@ -4,9 +4,10 @@
 //! height. With `types` it looks at the nearest section mob of those types
 //! instead, within its distance and three blocks up or down of its box.
 
+use super::MobTypes;
 use crate::mobs::ai::fmath::f;
 use crate::mobs::ai::goal::Goal;
-use crate::mobs::ai::turn::{Kinds, Targeting, Turn};
+use crate::mobs::ai::turn::{Targeting, Turn};
 use crate::mobs::sensing::{inflate, Ref};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,7 +15,7 @@ pub struct LookAtPlayer {
     pub distance: f64,
     pub probability: f64,
     pub only_horizontal: bool,
-    pub types: Option<Vec<u16>>,
+    pub types: Option<MobTypes>,
     pub look_at: Option<Ref>,
     pub time: i64,
 }
@@ -25,7 +26,7 @@ impl LookAtPlayer {
         distance: f64,
         probability: f64,
         only_horizontal: bool,
-        types: Option<Vec<u16>>,
+        types: Option<MobTypes>,
     ) -> LookAtPlayer {
         LookAtPlayer {
             distance: f(distance),
@@ -50,7 +51,7 @@ impl Goal for LookAtPlayer {
             Some(types) => {
                 let d = self.distance;
                 let b = inflate(&t.bbox(), d, 3.0, d);
-                t.nearest_mob(Kinds::Types(types), &b, &targeting, point)
+                t.nearest_mob(types.kinds(), &b, &targeting, point)
             }
         };
         self.look_at = found.map(|e| e.reference);

@@ -120,9 +120,12 @@ impl EntityTest {
     }
 }
 
-/// Which mob types a target goal searches (`select`).
+/// Which mob types a goal searches (a target goal's `select`, a look
+/// goal's `types`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum MobTypes {
+    /// Every type (`fn _ -> true end`).
+    Any,
     Types(Vec<u16>),
     Family(Tag),
 }
@@ -130,6 +133,7 @@ pub enum MobTypes {
 impl MobTypes {
     pub fn kinds(&self) -> Kinds<'_> {
         match self {
+            MobTypes::Any => Kinds::Any,
             MobTypes::Types(types) => Kinds::Types(types),
             MobTypes::Family(tag) => Kinds::Family(*tag),
         }

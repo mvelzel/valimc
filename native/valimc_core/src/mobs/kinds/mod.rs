@@ -277,9 +277,17 @@ pub trait Kind: Hooks + Family {
         self.animal()
     }
 
-    /// Its use of the item in `slot` for another tick after `used` ticks
-    /// (`Valimc.AI.Consume.tick/4`: a drink).
-    fn use_tick(&self, _t: &mut Turn, _slot: crate::mobs::model::Slot, _used: i32) {}
+    /// `consume_sound/2` (`OverrideConsumeSound`): its own sound drinking
+    /// item `item` (`ai::consume`); None: the item's.
+    fn consume_sound(&self, _item: i32) -> Option<i32> {
+        None
+    }
+
+    /// `affected?/1` (`canBeAffected`): whether status effect `effect` may
+    /// be given to it (a wither skeleton is never withered).
+    fn affected(&self, _effect: i32) -> bool {
+        true
+    }
 
     /// `young?/1`: a baby by its own data (sensed `baby`); None: its `baby`
     /// flag.

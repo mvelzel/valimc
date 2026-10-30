@@ -50,6 +50,65 @@ pub struct MobFacts {
     pub outlines: outlines::Outlines,
     /// Potions by registry id (`Valimc.Data.PotionTypes`), where given.
     pub potions: Vec<Potion>,
+    /// Consumable items' defaults by item id (`Valimc.Living.FoodItems`),
+    /// where given.
+    pub food: HashMap<i32, FoodItem>,
+}
+
+/// An item's consumable defaults (`FoodItems.defaults/1`): its
+/// `minecraft:consumable` component (None: not consumable), its use
+/// remainder `(item id, count)` and the consume listeners beside it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FoodItem {
+    pub consumable: Option<Consumable>,
+    pub remainder: Option<(i32, i32)>,
+    pub other_listeners: Vec<String>,
+}
+
+/// `minecraft:consumable` as `FoodItems` keeps it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Consumable {
+    pub ticks: i32,
+    pub animation: String,
+    pub sound: String,
+    /// The number of its consume effects.
+    pub effects: i32,
+}
+
+fn food(json: &Json) -> Result<HashMap<i32, FoodItem>, String> {
+    json.entries()?
+        .iter()
+        .map(|(_, row)| {
+            let id = row.field("item_id")?.as_i32()?;
+            let consumable = match row.get("consumable") {
+                None | Some(Json::Null) => None,
+                Some(c) => Some(Consumable {
+                    ticks: c.field("ticks")?.as_i32()?,
+                    animation: c.field("animation")?.as_str()?.to_owned(),
+                    sound: c.field("sound")?.as_str()?.to_owned(),
+                    effects: c.field("effects")?.as_i32()?,
+                }),
+            };
+            let remainder = match row.get("remainder") {
+                None | Some(Json::Null) => None,
+                Some(r) => Some((r.field("item_id")?.as_i32()?, r.field("count")?.as_i32()?)),
+            };
+            let other_listeners = row
+                .field("other_listeners")?
+                .as_array()?
+                .iter()
+                .map(|l| l.as_str().map(str::to_owned))
+                .collect::<Result<_, _>>()?;
+            Ok((
+                id,
+                FoodItem {
+                    consumable,
+                    remainder,
+                    other_listeners,
+                },
+            ))
+        })
+        .collect()
 }
 
 /// A potion (`Valimc.Data.PotionTypes`): its name and each effect's rungs.
@@ -116,7 +175,7 @@ impl MobFacts {
     /// The facts from the installer's map (`Valimc.AI.NativeFacts.facts/0`):
     /// `ai`, `entities`, `effects`, `hostile`, `animal`, `village`, `combat`,
     /// `attributes`, `items`, `blocks`, `tags`, `registries`, `climates`,
-    /// `structure_tags`, `outlines` and `potions` (optional), each the decoded JSON of its file (or the part of it
+    /// `structure_tags`, `outlines`, `potions` and `food_items` (optional), each the decoded JSON of its file (or the part of it
     /// the AI reads).
     pub fn parse(json: &Json) -> Result<MobFacts, String> {
         let at = |key: &str| json.field(key).map_err(|e| format!("mob facts: {e}"));
@@ -169,7 +228,12 @@ impl MobFacts {
             Ok(p) => potions(p)?,
             Err(_) => Vec::new(),
         };
+        let food = match json.field("food_items") {
+            Ok(f) => food(f)?,
+            Err(_) => HashMap::new(),
+        };
         Ok(MobFacts {
+            food,
             potions,
             outlines,
             entities,

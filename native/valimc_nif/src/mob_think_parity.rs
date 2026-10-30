@@ -72,6 +72,7 @@ struct RulesT {
     mob_griefing: bool,
     mob_drops: bool,
     entity_drops: bool,
+    universal_anger: bool,
 }
 
 #[derive(NifMap)]
@@ -353,6 +354,12 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
         let wanted = o.wanted.map_or(atoms::nil().encode(env), |w| w.encode(env));
         map = map.map_put(atoms::wanted(), wanted)?;
     }
+    let put = |map: Term<'a>, k: &str, v: &Value| -> NifResult<Term<'a>> {
+        map.map_put(rustler::Atom::from_str(env, k)?, mob_term::encode(env, v)?)
+    };
+    for (k, v) in family_own(own) {
+        map = put(map, k, &v)?;
+    }
     if let Some(o) = own.family::<EndermanOwn>() {
         if let Some(reaction) = o.hurt {
             let reaction = match reaction {
@@ -363,6 +370,23 @@ fn own<'a>(env: Env<'a>, own: &valimc_core::mobs::ai::mind::Own) -> NifResult<Te
         }
     }
     Ok(map)
+}
+
+/// The own fields of the families that keep them as optional keys, as
+/// `(key, value)` (an absent key is one the Elixir map lacks).
+fn family_own(own: &valimc_core::mobs::ai::mind::Own) -> Vec<(&'static str, Value)> {
+    use valimc_core::mobs::monsters::zombified_piglin::PiglinOwn;
+    let mut out = Vec::new();
+    let mut opt = |k: &'static str, v: Option<i64>| {
+        if let Some(v) = v {
+            out.push((k, Value::Int(v)));
+        }
+    };
+    if let Some(o) = own.family::<PiglinOwn>() {
+        opt("first_sound", o.first_sound);
+        opt("next_alert", o.next_alert);
+    }
+    out
 }
 
 /// What the record leaves out of a mind: `{tick, no_action, ambient,
@@ -530,6 +554,7 @@ fn mob_parity_think<'a>(
         level.rules.mob_griefing = scene.rules.mob_griefing;
         level.rules.mob_drops = scene.rules.mob_drops;
         level.rules.entity_drops = scene.rules.entity_drops;
+        level.rules.universal_anger = scene.rules.universal_anger;
         level.loot = loot;
         level.knots = scene
             .knots

@@ -202,7 +202,12 @@ fn goal(f: &MobFacts, spec: Term) -> NifResult<Box<dyn Goal>> {
                 ..Default::default()
             },
         )),
-        "look_at_mobs" => Box::new(LookAtPlayer::new(n(1)?, n(2)?, false, Some(types(3)?))),
+        "look_at_mobs" => Box::new(LookAtPlayer::new(
+            n(1)?,
+            n(2)?,
+            false,
+            Some(MobTypes::Types(types(3)?)),
+        )),
         _ => return Err(bad()),
     })
 }

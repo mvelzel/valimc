@@ -16,7 +16,9 @@ pub mod enderman;
 pub mod skeleton;
 pub mod spider;
 pub mod witch;
+pub mod wither_skeleton;
 pub mod zombie;
+pub mod zombified_piglin;
 
 use crate::mobs::ai::fmath::f;
 use crate::mobs::ai::spawn;
@@ -39,6 +41,8 @@ pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
         Box::new(witch::Witch::new(facts)?),
         Box::new(cube::Cube::new(facts, cube::CubeKind::Slime)?),
         Box::new(cube::Cube::new(facts, cube::CubeKind::MagmaCube)?),
+        Box::new(zombified_piglin::ZombifiedPiglin::new(facts)?),
+        Box::new(wither_skeleton::WitherSkeleton::new(facts)?),
     ])
 }
 

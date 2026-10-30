@@ -78,6 +78,7 @@ defmodule Valimc.NativeMobScene do
       mob_griefing: scene.rules.mob_griefing,
       mob_drops: scene.rules.mob_drops,
       entity_drops: scene.rules.entity_drops,
+      universal_anger: scene.rules.universal_anger,
       knots: Map.new(scene.knots, fn {x, y, z, id} -> {{x, y, z}, id} end)
     }
   end
@@ -524,7 +525,8 @@ defmodule Valimc.NativeMobScene do
   A scene of `players`: options `:time`, `:day`, `:ticks`, `:step`,
   `:difficulty`, `:bright`, `:monsters_burn`, `:halloween`, `:darken`, `:knots`,
   `:acts`, `:moves`, `:level` (the level random's seed), `:statues`,
-  `:post`, `:collide`, `:loot`.
+  `:post`, `:collide`, `:loot`, `:griefing` (`mobGriefing`),
+  `:universal_anger`.
   """
   def scene(players, opts) do
     %{
@@ -539,7 +541,12 @@ defmodule Valimc.NativeMobScene do
       monsters_burn: Keyword.get(opts, :monsters_burn, false),
       halloween: Keyword.get(opts, :halloween, false),
       darken: Keyword.get(opts, :darken, 0),
-      rules: %{mob_griefing: true, mob_drops: true, entity_drops: true},
+      rules: %{
+        mob_griefing: Keyword.get(opts, :griefing, true),
+        mob_drops: true,
+        entity_drops: true,
+        universal_anger: Keyword.get(opts, :universal_anger, false)
+      },
       knots: Keyword.get(opts, :knots, []),
       acts: Keyword.get(opts, :acts, []),
       moves: Keyword.get(opts, :moves, []),

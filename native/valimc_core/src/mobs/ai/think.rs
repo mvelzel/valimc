@@ -591,7 +591,8 @@ fn own_air(ctx: &Ctx, kind: &dyn Kind, t: &mut Turn) {
 }
 
 /// `updatingUsingItem`: an item still in its hand counts another tick of
-/// use, one that left it stops; its family's use of it (a drink) runs.
+/// use, one that left it stops; a drink plays its sound now and then and is
+/// drunk when its use is up (`super::consume`).
 fn using_item(kind: &dyn Kind, t: &mut Turn) {
     let Some(using) = t.mob.body.mob.using.clone() else {
         return;
@@ -600,14 +601,14 @@ fn using_item(kind: &dyn Kind, t: &mut Turn) {
         crate::mobs::model::Hand::OffHand => Slot::Offhand,
         crate::mobs::model::Hand::MainHand => Slot::Mainhand,
     };
-    if t.mob.body.mob.equipment.get(slot).is_none() {
+    let Some(stack) = t.mob.body.mob.equipment.get(slot).cloned() else {
         t.stop_using();
         return;
-    }
+    };
     if let Some(u) = &mut t.mob.body.mob.using {
         u.ticks = using.ticks + 1;
     }
-    kind.use_tick(t, slot, using.ticks);
+    super::consume::tick(kind, t, slot, &stack, using.ticks);
 }
 
 /// `LivingEntity.aiStep` up to the move: a `Monster`'s idle time in light,

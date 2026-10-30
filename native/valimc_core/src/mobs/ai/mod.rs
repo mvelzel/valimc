@@ -14,6 +14,7 @@
 //! bits the Elixir gives. Erlang's `min` and `max` answer their first
 //! argument on a tie (`fmath::emin`, `emax`), which decides signed zeros.
 
+pub mod consume;
 pub mod control;
 pub mod effect;
 pub mod fmath;
