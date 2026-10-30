@@ -166,6 +166,23 @@ defmodule Valimc.DragonLiveTest do
     refute dragon_id in discarded
   end
 
+  # `EnderDragon.kill` calls `setDragonKilled`: `/kill` completes the fight
+  # (portal and egg) without the death animation; the M3 gate's `/kill` left
+  # neither.
+  test "/kill of the dragon completes its fight", c do
+    admit(c)
+    {:ok, _} = Region.step(c.origin, 1)
+    [{key, _id, dragon}] = dragons(c)
+
+    assert {:ok, 1} = Region.kill_entities(c.owners[key], [dragon.entity.uuid])
+    {:ok, _} = Region.step(c.origin, 3)
+    assert dragons(c) == []
+    assert section(c).arena.killed
+    view = View.new(:the_end)
+    assert View.block(view, {1, 63, 0}) == Blocks.default_state("end_portal")
+    assert View.block(view, {0, 67, 0}) == Blocks.default_state("dragon_egg")
+  end
+
   test "a sibling dragon completes once with first XP, portal, dropped blocks, egg and gateway",
        c do
     admit(c)

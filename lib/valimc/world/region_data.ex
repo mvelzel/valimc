@@ -3938,21 +3938,32 @@ defmodule Valimc.World.RegionData do
   end
 
   # `/kill` over this section's entities (VMC-043a): a mob starts dying, any
-  # other entity is removed. The reply counts the entities killed.
+  # other entity is removed. A killed dragon completes its fight at once, as
+  # `EnderDragon.kill` calls `setDragonKilled`: the exit portal and the egg,
+  # without the death animation. The reply counts the entities killed.
   def handle_call({:kill_entities, epoch, uuids}, _from, state) do
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          nil <- write_busy(state) do
-      {store, killed} =
-        Enum.reduce(uuids, {state.entities.store, 0}, fn uuid, {store, killed} ->
+      {store, killed, dragons} =
+        Enum.reduce(uuids, {state.entities.store, 0, []}, fn uuid, {store, killed, dragons} ->
           with {:ok, {_, id, _}} <- Store.find(store, uuid),
+               type = store.entries[id].body.type,
                {:ok, next} <- Store.kill(store, id) do
-            {next, killed + 1}
+            dragons = if type == "minecraft:ender_dragon", do: [uuid | dragons], else: dragons
+            {next, killed + 1, dragons}
           else
-            _ -> {store, killed}
+            _ -> {store, killed, dragons}
           end
         end)
 
-      {:reply, {:ok, killed}, put_entities(state, store)}
+      state =
+        Enum.reduce(
+          dragons,
+          put_entities(state, store),
+          &dragon_effect({%{uuid: &1}, nil, :dragon_killed}, &2)
+        )
+
+      {:reply, {:ok, killed}, state}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
