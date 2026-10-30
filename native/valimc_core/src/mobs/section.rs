@@ -93,6 +93,9 @@ pub struct Slot {
     /// The row its owner's store holds (beside the physical fields), None
     /// before the store was first given one.
     pub row: Option<Box<super::publish::RowKey>>,
+    /// What its owner's observers were last sent of it (`crate::tracker`),
+    /// None until its owner starts tracking it here.
+    pub tracker: Option<crate::tracker::Tracker>,
 }
 
 impl Slot {
@@ -113,6 +116,7 @@ impl Slot {
             idle: 0,
             lived: 0,
             row: None,
+            tracker: None,
         }
     }
 }

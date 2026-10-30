@@ -9,9 +9,10 @@ defmodule Valimc.Entity.Publication do
   tracker last ran (`tick`). Observers read the small stamp first and copy a
   chunk's views only when it changed.
 
-  Each tick's frame, `%{entity_id => packets}` encoded once by the owner's
-  trackers, goes into a ring of the last #{64} ticks
-  (`{{:frame, slot}, tick, frame}`), and `{:frame_tick, tick}` names the newest.
+  Each tick's frame, the packets the owner's trackers encoded once as frame
+  entries (`Valimc.Entity.Tracking`), goes into a ring of the last #{64}
+  ticks (`{{:frame, slot}, tick, frame}`), and `{:frame_tick, tick}` names
+  the newest.
   An observer forwards, for each entity it tracks, the packets of the frames
   after the view it spawned from; one that fell behind the ring resyncs.
 
@@ -19,8 +20,9 @@ defmodule Valimc.Entity.Publication do
   handoff generations. Their stamps change with the boxes, so stationary
   player physics can invalidate a cached fit when a shulker's lid animates.
 
-  The table also keeps the owner's full views (`{:entity_source, :items}`, what
-  cross-region merge discovery reads) and a chunk index of row hashes
+  The table also keeps the owner's full views, one row per entity rewritten
+  when it changes (`{{:entity_source, id}, view}`: what cross-region merge
+  discovery and selectors read), and an index of the chunks with rows
   (`:entity_index`).
   """
 
@@ -28,85 +30,52 @@ defmodule Valimc.Entity.Publication do
 
   def ring, do: @ring
 
+  @doc "An empty publication of incarnation `epoch`: no rows, revision 0."
+  def init(table, epoch) do
+    :ets.insert(table, [{:entity_index, %{}, 0}, {:entity_revision, {epoch, 0}}])
+    :ok
+  end
+
   @doc """
-  Publish the observed `views` as of tracking tick `tick`, rewriting only
-  changed chunk rows, then `frame`; `source` is the owner's full views.
+  Publish a tracking pass (`Valimc.Entity.Tracking.pass/6`) as of tick
+  `tick`: its changed chunk rows (an empty one retires), the changed
+  sources (one row per entity, `{{:entity_source, id}, view}`) and its frame
+  (a binary of frame entries; an empty one is not written).
   """
-  def publish(table, epoch, tick, views, frame \\ %{}, source \\ nil, previous \\ nil) do
-    source = source || views
+  def publish(table, epoch, tick, %{rows: rows, sources: sources, frame: frame}) do
+    Enum.each(sources, fn
+      {id, nil} -> :ets.delete(table, {:entity_source, id})
+      {id, view} -> :ets.insert(table, {{:entity_source, id}, view})
+    end)
 
-    if previous == nil or previous.source != source,
-      do: :ets.insert(table, {{:entity_source, :items}, source})
+    if rows != %{} do
+      [{:entity_index, index, revision}] = :ets.lookup(table, :entity_index)
 
-    {index, revision} =
-      case :ets.lookup(table, :entity_index) do
-        [{:entity_index, index, revision}] -> {index, revision}
-        [] -> {%{}, 0}
-      end
-
-    changed = changed_chunks(views, previous, index)
-
-    by_chunk =
-      if MapSet.size(changed) == 0 do
-        %{}
-      else
-        for {id, view} <- views, MapSet.member?(changed, view.chunk), reduce: %{} do
-          acc -> Map.update(acc, view.chunk, %{id => view}, &Map.put(&1, id, view))
-        end
-      end
-
-    {index, revision} =
-      Enum.reduce(changed, {index, revision}, fn chunk, {index, revision} ->
-        case Map.fetch(by_chunk, chunk) do
-          :error ->
+      {index, revision} =
+        Enum.reduce(rows, {index, revision}, fn
+          {chunk, row}, {index, revision} when row == %{} ->
             :ets.delete(table, {:entities, chunk})
             :ets.delete(table, {:colliders, chunk})
             {Map.delete(index, chunk), revision + 1}
 
-          {:ok, chunk_views} ->
-            # Compare actual views when a caller supplies its previous publication;
-            # generic callers retain the bounded per-chunk hash fast path.
-            hash = :erlang.phash2(chunk_views)
+          {chunk, row}, {index, revision} ->
+            stamp = {epoch, revision + 1}
+            publish_colliders(table, chunk, stamp, row)
+            :ets.insert(table, {{:entities, chunk}, stamp, row})
+            {Map.put(index, chunk, revision + 1), revision + 1}
+        end)
 
-            if previous == nil and index[chunk] == hash do
-              {index, revision}
-            else
-              stamped =
-                Map.new(chunk_views, fn {id, view} -> {id, Map.put(view, :tick, tick)} end)
+      :ets.insert(table, {:entity_index, index, revision})
+      # Published after the rows: an unchanged section needs no chunk lookups.
+      :ets.insert(table, {:entity_revision, {epoch, revision}})
+    end
 
-              publish_colliders(table, chunk, {epoch, revision + 1}, chunk_views)
-              :ets.insert(table, {{:entities, chunk}, {epoch, revision + 1}, stamped})
-              {Map.put(index, chunk, hash), revision + 1}
-            end
-        end
-      end)
-
-    if MapSet.size(changed) > 0 or previous == nil,
-      do: :ets.insert(table, {:entity_index, index, revision})
-
-    # Published after the rows: an unchanged section needs no chunk lookups.
-    :ets.insert(table, {:entity_revision, {epoch, revision}})
-
-    if frame != %{} do
+    if frame != <<>> do
       :ets.insert(table, {{:frame, rem(tick, @ring)}, tick, frame})
       :ets.insert(table, {:frame_tick, tick})
     end
 
     :ok
-  end
-
-  defp changed_chunks(views, nil, index),
-    do: MapSet.new(Map.keys(index) ++ Enum.map(views, fn {_, view} -> view.chunk end))
-
-  defp changed_chunks(views, %{views: views}, _index), do: MapSet.new()
-
-  defp changed_chunks(views, %{views: old}, _index) do
-    changed =
-      for {id, view} <- old, views[id] != view, into: MapSet.new(), do: view.chunk
-
-    for {id, view} <- views, old[id] != view, reduce: changed do
-      acc -> MapSet.put(acc, view.chunk)
-    end
   end
 
   @doc "Section incarnation and publication revision; empty chunks need no rows."
@@ -177,11 +146,12 @@ defmodule Valimc.Entity.Publication do
     end
   end
 
-  @doc "The last published views."
-  def source(table, :items) do
-    case :ets.lookup(table, {:entity_source, :items}) do
-      [{_, views}] -> views
-      [] -> %{}
-    end
+  @doc "The owner's views (its store's), by id."
+  def source(table) do
+    table
+    |> :ets.match({{:entity_source, :"$1"}, :"$2"})
+    |> Map.new(fn [id, view] -> {id, view} end)
   end
+
+  def source(table, :items), do: source(table)
 end

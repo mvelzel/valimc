@@ -1,8 +1,8 @@
 defmodule Valimc.Entity.Observer do
   @moduledoc """
-  One observer's tracked entities (VMC-077h): it forwards the frames its
-  regions' owners encoded once, for the entities it tracks, and encodes
-  nothing on the hot path.
+  One observer's tracked entities (VMC-077h, VMC-081i): it forwards the
+  frames its regions' owners encoded once, for the entities it tracks, and
+  encodes nothing on the hot path.
 
   - A newly visible entity spawns from its row: the spawn packet at its
     tracker's base and its metadata (a player's is all of its data and
@@ -14,12 +14,17 @@ defmodule Valimc.Entity.Observer do
     frames the observer fell behind on resyncs: an absolute position, its
     motion and metadata, never a respawn.
   - An entity no longer visible is removed.
+
+  Membership changes arrive as the ids they touch
+  (`Valimc.Session.EntityMembership`): only those are examined, and the
+  entities waiting for a spawn's budget (`waiting`); `:all` examines every
+  desired and tracked one.
   """
   alias Valimc.Data.Grid
   alias Valimc.Protocol.EntityPackets
   alias Valimc.Entity.View
 
-  defstruct tracked: %{}, regions: %{}
+  defstruct tracked: %{}, regions: %{}, counts: %{}, waiting: MapSet.new()
   @max_visible 1024
   @max_spawns 64
   @max_bytes 262_144
@@ -28,80 +33,176 @@ defmodule Valimc.Entity.Observer do
   def max_visible, do: @max_visible
 
   @doc """
-  Bring the observer toward `desired` views of any kind. `frames` reads a
-  region's frames after a tick (`Valimc.Entity.Publication.frames/2`):
-  `fn region, last -> {:ok, newest, frames} | {:gap, newest} end`.
-  Returns `{state, packets}`.
+  Bring the observer toward `desired` views of any kind, examining the ids
+  `touched` (or `:all`). `frames` reads a region's frames after a tick
+  (`Valimc.Entity.Publication.frames/2`): `fn region, last -> {:ok, newest,
+  frames} | {:gap, newest} end`. Returns `{state, packets}`.
   """
-  def reconcile(state, desired, frames) when map_size(desired) <= @max_visible do
-    {tracked, removed} =
-      Enum.reduce(state.tracked, {state.tracked, []}, fn {id, _}, {tracked, removed} ->
-        if is_map_key(desired, id),
-          do: {tracked, removed},
-          else: {Map.delete(tracked, id), [id | removed]}
-      end)
+  def reconcile(state, desired, touched \\ :all, frames)
+
+  def reconcile(state, desired, touched, frames) when map_size(desired) <= @max_visible do
+    {state, removed, resyncs} = membership(state, desired, touched)
 
     removal =
       if removed == [], do: [], else: [binary_packet(EntityPackets.remove(Enum.sort(removed)))]
 
-    # An entity seen under another owner (its id survived a handoff) or with
-    # a new tracker (handed back to its section).
-    {tracked, resyncs} =
-      Enum.reduce(tracked, {tracked, []}, fn {id, entry}, {tracked, packets} ->
-        view = desired[id]
-
-        if view.epoch == entry.epoch and view.tracker == entry.tracker,
-          do: {tracked, packets},
-          else: resync(tracked, packets, id, view)
-      end)
-
-    # A region read for the first time starts at its entities' oldest view.
-    reads =
-      tracked
-      |> Enum.reduce(%{}, fn {_, entry}, acc ->
-        Map.update(acc, entry.region, entry.since, &min(&1, entry.since))
-      end)
-      |> Map.new(fn {region, since} ->
-        {region, frames.(region, Map.get(state.regions, region, since))}
-      end)
-
-    {tracked, updates} =
-      Enum.reduce(reads, {tracked, resyncs}, fn
-        {region, {:gap, _}}, {tracked, packets} ->
-          for({id, %{region: ^region}} <- tracked, do: id)
-          |> Enum.reduce({tracked, packets}, fn id, {tracked, packets} ->
-            resync(tracked, packets, id, desired[id])
-          end)
-
-        {region, {:ok, _, ticks}}, acc ->
-          for {tick, frame} <- ticks, {id, sent} <- frame, reduce: acc do
-            {tracked, packets} ->
-              case tracked do
-                %{^id => %{region: ^region, since: since}} when tick > since ->
-                  {tracked, Enum.reverse(sent, packets)}
-
-                _ ->
-                  {tracked, packets}
-              end
-          end
-      end)
-
-    {tracked, spawns, spawned} = spawn(tracked, desired)
-
-    regions =
-      spawned
-      |> Enum.reject(fn {region, _} -> is_map_key(reads, region) end)
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Map.new(fn {region, ticks} -> {region, Enum.min(ticks)} end)
-      |> Map.merge(Map.new(reads, fn {region, read} -> {region, elem(read, 1)} end))
-
-    {%{state | tracked: tracked, regions: regions}, removal ++ Enum.reverse(updates) ++ spawns}
+    {state, updates} = forward(state, desired, resyncs, frames)
+    {state, spawns} = spawn(state, desired)
+    {state, removal ++ Enum.reverse(updates) ++ spawns}
   end
 
   @doc "Forget the entity `id` (a peer that respawned): its row spawns it again."
-  def untrack(state, id), do: %{state | tracked: Map.delete(state.tracked, id)}
+  def untrack(state, id) do
+    case state.tracked do
+      %{^id => entry} ->
+        %{
+          drop(state, id, entry)
+          | waiting: MapSet.put(state.waiting, id)
+        }
 
-  defp resync(tracked, packets, id, view) do
+      _ ->
+        state
+    end
+  end
+
+  # Removals and resyncs among the examined ids; the others desired and not
+  # tracked wait for a spawn.
+  defp membership(state, desired, :all) do
+    {state, removed} =
+      Enum.reduce(state.tracked, {state, []}, fn {id, entry}, {state, removed} ->
+        if is_map_key(desired, id),
+          do: {state, removed},
+          else: {drop(state, id, entry), [id | removed]}
+      end)
+
+    {state, resyncs} =
+      Enum.reduce(state.tracked, {state, []}, fn {id, entry}, acc ->
+        resync_changed(acc, id, entry, desired[id])
+      end)
+
+    waiting =
+      for {id, _} <- desired, not is_map_key(state.tracked, id), into: MapSet.new(), do: id
+
+    {%{state | waiting: waiting}, removed, resyncs}
+  end
+
+  defp membership(state, desired, touched) do
+    Enum.reduce(touched, {state, [], []}, fn id, {state, removed, resyncs} ->
+      case {state.tracked, desired} do
+        {%{^id => entry}, %{^id => view}} ->
+          {state, resyncs} = resync_changed({state, resyncs}, id, entry, view)
+          {state, removed, resyncs}
+
+        {%{^id => entry}, _} ->
+          {drop(state, id, entry), [id | removed], resyncs}
+
+        {_, %{^id => _}} ->
+          {%{state | waiting: MapSet.put(state.waiting, id)}, removed, resyncs}
+
+        _ ->
+          {%{state | waiting: MapSet.delete(state.waiting, id)}, removed, resyncs}
+      end
+    end)
+  end
+
+  # An entity seen under another owner (its id survived a handoff) or with
+  # a new tracker (handed back to its section).
+  defp resync_changed({state, packets}, id, entry, view) do
+    if view.epoch == entry.epoch and view.tracker == entry.tracker,
+      do: {state, packets},
+      else: resync(state, packets, id, view)
+  end
+
+  defp drop(state, id, entry) do
+    %{
+      state
+      | tracked: Map.delete(state.tracked, id),
+        counts: uncount(state.counts, entry.region)
+    }
+  end
+
+  defp uncount(counts, region) do
+    case counts do
+      %{^region => 1} -> Map.delete(counts, region)
+      %{^region => n} -> Map.put(counts, region, n - 1)
+      _ -> counts
+    end
+  end
+
+  defp track(state, id, entry) do
+    counts =
+      case state.tracked do
+        %{^id => old} -> uncount(state.counts, old.region)
+        _ -> state.counts
+      end
+
+    %{
+      state
+      | tracked: Map.put(state.tracked, id, entry),
+        counts: Map.update(counts, entry.region, 1, &(&1 + 1))
+    }
+  end
+
+  # Each tracked region's frames; a region read for the first time starts
+  # at its entities' oldest view, one the observer fell behind on resyncs.
+  defp forward(state, desired, resyncs, frames) do
+    reads =
+      Map.new(state.counts, fn {region, _} ->
+        last =
+          case state.regions do
+            %{^region => last} -> last
+            _ -> oldest(state.tracked, region)
+          end
+
+        {region, frames.(region, last)}
+      end)
+
+    {state, packets} =
+      Enum.reduce(reads, {state, resyncs}, fn
+        {region, {:gap, _}}, {state, packets} ->
+          for({id, %{region: ^region}} <- state.tracked, do: id)
+          |> Enum.reduce({state, packets}, fn id, {state, packets} ->
+            resync(state, packets, id, desired[id])
+          end)
+
+        {region, {:ok, _, ticks}}, {state, packets} ->
+          packets =
+            Enum.reduce(ticks, packets, fn {tick, frame}, packets ->
+              forward(frame, tick, region, state.tracked, packets)
+            end)
+
+          {state, packets}
+      end)
+
+    regions = Map.new(reads, fn {region, read} -> {region, elem(read, 1)} end)
+    {%{state | regions: regions}, packets}
+  end
+
+  defp oldest(tracked, region) do
+    for({_, %{region: ^region, since: since}} <- tracked, do: since) |> Enum.min(fn -> nil end)
+  end
+
+  # A frame's entries (`Valimc.Entity.Tracking`) of the entities this
+  # observer tracks from `region` since before `tick`, newest first.
+  defp forward(
+         <<id::32-signed, packet::16, size::32, payload::binary-size(size), rest::binary>>,
+         tick,
+         region,
+         tracked,
+         packets
+       ) do
+    case tracked do
+      %{^id => %{region: ^region, since: since}} when tick > since ->
+        forward(rest, tick, region, tracked, [{packet, payload} | packets])
+
+      _ ->
+        forward(rest, tick, region, tracked, packets)
+    end
+  end
+
+  defp forward(<<>>, _tick, _region, _tracked, packets), do: packets
+
+  defp resync(state, packets, id, view) do
     entry = entry(view)
     {x, y, z} = view.base
 
@@ -121,34 +222,45 @@ defmodule Valimc.Entity.Observer do
         binary_packet(EntityPackets.motion(id, view.velocity))
       ] ++ List.wrap(view.metadata)
 
-    {Map.put(tracked, id, entry), Enum.reverse(sync, packets)}
+    {track(state, id, entry), Enum.reverse(sync, packets)}
   end
 
   # New entities in id order, within the batch budget; the rest wait a pass.
   # A region first read for spawned entities starts after the oldest spawn's
   # tick; the frames up to each spawn's own tick are skipped by `since`.
-  defp spawn(tracked, desired) do
-    desired
-    |> Enum.reject(fn {id, _} -> is_map_key(tracked, id) end)
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.reduce_while({tracked, [], [], 0}, fn {id, view},
-                                                  {tracked, packets, spawned, bytes} ->
-      bundle = [view.spawn | List.wrap(view.metadata)]
-      cost = Enum.reduce(bundle, 0, &(View.packet_bytes(&1) + &2))
+  defp spawn(%{waiting: waiting} = state, _desired) when map_size(waiting) == 0,
+    do: {state, []}
 
-      if length(spawned) >= @max_spawns or bytes + cost > @max_bytes do
-        {:halt, {tracked, packets, spawned, bytes}}
-      else
-        entry = entry(view)
+  defp spawn(state, desired) do
+    state.waiting
+    |> Enum.sort()
+    |> Enum.reduce_while({state, [], 0, 0}, fn id, {state, packets, spawned, bytes} ->
+      view = desired[id]
 
-        {:cont,
-         {Map.put(tracked, id, entry), Enum.reverse(bundle, packets),
-          [{entry.region, view.tick} | spawned], bytes + cost}}
+      cond do
+        view == nil or is_map_key(state.tracked, id) ->
+          {:cont, {%{state | waiting: MapSet.delete(state.waiting, id)}, packets, spawned, bytes}}
+
+        true ->
+          bundle = [view.spawn | List.wrap(view.metadata)]
+          cost = Enum.reduce(bundle, 0, &(View.packet_bytes(&1) + &2))
+
+          if spawned >= @max_spawns or bytes + cost > @max_bytes do
+            {:halt, {state, packets, spawned, bytes}}
+          else
+            entry = entry(view)
+            state = %{track(state, id, entry) | waiting: MapSet.delete(state.waiting, id)}
+
+            regions =
+              Map.update(state.regions, entry.region, view.tick, &min(&1, view.tick))
+
+            {:cont,
+             {%{state | regions: regions}, Enum.reverse(bundle, packets), spawned + 1,
+              bytes + cost}}
+          end
       end
     end)
-    |> then(fn {tracked, packets, spawned, _} ->
-      {tracked, Enum.reverse(packets), spawned}
-    end)
+    |> then(fn {state, packets, _, _} -> {state, Enum.reverse(packets)} end)
   end
 
   defp entry(view),

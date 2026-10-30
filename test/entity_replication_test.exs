@@ -11,10 +11,10 @@ defmodule Valimc.EntityReplicationTest do
         next
       end)
 
-    tracking = Tracking.sync(%Tracking{tick: tick}, store.views, nil)
+    {tracking, _} = Tracking.pass(%Tracking{}, store.views, {%{}, %{}}, nil, tick)
 
     tracking
-    |> Tracking.published(store.views)
+    |> Tracking.published()
     |> Map.new(fn {id, view} -> {id, Map.put(view, :tick, tick)} end)
   end
 
@@ -36,11 +36,12 @@ defmodule Valimc.EntityReplicationTest do
     [{id, _}] = Map.to_list(desired)
     {packet_id, payload} = EntityPackets.move(id, {4096, 0, 0}, false)
     move = {packet_id, IO.iodata_to_binary(payload)}
+    sent = fn -> IO.iodata_to_binary(Tracking.encode(id, [move])) end
     {state, packets} = Observer.reconcile(Observer.new(), desired, ring([]))
     assert names(packets) == ["add_entity", "set_entity_data"]
 
     # Tick 5 is already in the spawn; tick 6 is forwarded, once.
-    frames = ring([{5, %{id => [move]}}, {6, %{id => [move]}}])
+    frames = ring([{5, sent.()}, {6, sent.()}])
     state = %{state | regions: %{{0, 0} => 4}}
     {state, packets} = Observer.reconcile(state, desired, frames)
     assert packets == [move]

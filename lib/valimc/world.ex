@@ -183,6 +183,13 @@ defmodule Valimc.World do
     do: Valimc.World.EntityViews.read(regions, chunks, cache)
 
   @doc """
+  The published entity rows of `chunks` in `regions` (`EntityViews.rows/4`):
+  `{%{chunk => {stamp, views}}, cache}`.
+  """
+  def entity_rows(regions, chunks, cache \\ %{}),
+    do: Valimc.World.EntityViews.rows(regions, chunks, cache)
+
+  @doc """
   The entity frames of section `key` after tick `last`
   (`Valimc.Entity.Publication.frames/2`); none while it is not loaded.
   """

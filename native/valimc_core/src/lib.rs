@@ -17,6 +17,7 @@ pub mod rules;
 pub mod section;
 pub mod snapshot;
 pub mod spawning;
+pub mod tracker;
 pub mod wire;
 pub mod worldgen;
 

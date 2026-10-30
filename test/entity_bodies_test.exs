@@ -16,6 +16,15 @@ defmodule Valimc.EntityBodiesTest do
 
   defp binary({id, payload}), do: {id, IO.iodata_to_binary(payload)}
 
+  # One tracking tick with every changed view's tracker ticking: its frame by id.
+  defp step(tracking, views, tick) do
+    {tracking, publication} =
+      Tracking.pass(tracking, views, {%{}, %{}}, nil, tick, simulated: MapSet.new())
+
+    frame = publication.frame |> Tracking.decode() |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    {tracking, frame}
+  end
+
   describe "records" do
     test "a zombie pairs with its health and attributes, a primed TNT with nothing" do
       {store, id, record} = summoned("minecraft:zombie", {0, 0}, {1.5, 64.0, 2.5})
@@ -87,15 +96,15 @@ defmodule Valimc.EntityBodiesTest do
     test "trackers spawn the body facing its yaw, then send its death as it happens" do
       {store, id, _} = summoned("minecraft:zombie", {0, 0}, {1.5, 64.0, 2.5})
       # The first update sends the position, as vanilla's tick 0 does.
-      {tracking, frame} = Tracking.step(%Tracking{}, store.views, nil, 1)
+      {tracking, frame} = step(%Tracking{}, store.views, 1)
       assert frame == %{id => [binary(EntityPackets.move(id, {0, 0, 0}, false))]}
-      [row] = Map.values(Tracking.published(tracking, store.views))
+      [row] = Map.values(Tracking.published(tracking))
       assert row.range == EntityTypes.tracking_range("zombie") and row.type == "minecraft:zombie"
       position = %{entity_id: id, uuid: <<7::128>>, x: 1.5, y: 64.0, z: 2.5}
       assert row.spawn == binary(EntityPackets.spawn(position, "minecraft:zombie"))
 
       {:ok, store} = Store.kill(store, id)
-      {_tracking, frame} = Tracking.step(tracking, store.views, nil, 2)
+      {_tracking, frame} = step(tracking, store.views, 2)
 
       assert frame[id] == [
                binary(Packets.damage_event(id, :generic_kill)),

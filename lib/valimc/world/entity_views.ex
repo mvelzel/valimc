@@ -3,7 +3,28 @@ defmodule Valimc.World.EntityViews do
   alias Valimc.Entity.{Observer, Publication}
   alias Valimc.World.Directory
 
+  @doc """
+  The entity views of `chunks` in `regions` (at most 64 sections and
+  `Observer.max_visible/0` views, in chunk order), with `cache`:
+  `{views, cache}`.
+  """
   def read(regions, chunks, cache, lookup \\ &Directory.lookup/1) do
+    case rows(regions, chunks, cache, lookup) do
+      {_, %{views: views} = cache} ->
+        {views, cache}
+
+      {rows, cache} ->
+        views = select(rows)
+        {views, Map.put(cache, :views, views)}
+    end
+  end
+
+  @doc """
+  The published rows of `chunks` in `regions`, `%{chunk => {stamp, views}}`
+  (each row's views sorted by id), with `cache`: `{rows, cache}`. Unchanged
+  sections and chunks keep their terms, so a reader compares stamps.
+  """
+  def rows(regions, chunks, cache, lookup \\ &Directory.lookup/1) do
     routes =
       regions
       |> Enum.sort()
@@ -11,8 +32,8 @@ defmodule Valimc.World.EntityViews do
       |> Enum.map(&route(&1, lookup))
 
     case cache do
-      %{routes: ^routes, input: ^chunks, views: views} ->
-        {views, cache}
+      %{routes: ^routes, input: ^chunks, rows: rows} ->
+        {rows, cache}
 
       _ ->
         wanted =
@@ -28,10 +49,14 @@ defmodule Valimc.World.EntityViews do
             {key, section(table, revision, old[key])}
           end)
 
-        views = select(sections, wanted)
+        rows =
+          for {_, section} <- sections,
+              {chunk, row} <- section.chunks,
+              MapSet.member?(wanted, chunk),
+              into: %{},
+              do: {chunk, row}
 
-        {views,
-         %{routes: routes, input: chunks, wanted: wanted, sections: sections, views: views}}
+        {rows, %{routes: routes, input: chunks, wanted: wanted, sections: sections, rows: rows}}
     end
   end
 
@@ -53,13 +78,13 @@ defmodule Valimc.World.EntityViews do
     index = :ets.lookup_element(table, :entity_index, 2, %{})
 
     chunks =
-      Map.new(index, fn {chunk, _hash} ->
+      Map.new(index, fn {chunk, _} ->
         stamp = :ets.lookup_element(table, {:entities, chunk}, 2, nil)
 
         value =
           case old do
-            %{^chunk => {^stamp, views}} ->
-              {stamp, views}
+            %{^chunk => {^stamp, _} = row} ->
+              row
 
             _ ->
               case :ets.lookup(table, {:entities, chunk}) do
@@ -76,17 +101,17 @@ defmodule Valimc.World.EntityViews do
     ArgumentError -> %{table: nil, revision: nil, chunks: %{}}
   end
 
-  defp select(sections, wanted) do
+  @doc """
+  The views of `rows` an observer may see: at most `Observer.max_visible/0`,
+  in chunk order, the newer ownership generation where two sections publish
+  one entity (a handoff).
+  """
+  def select(rows) do
     limit = Observer.max_visible()
 
-    sections
-    |> Enum.flat_map(fn {_, section} ->
-      for {chunk, {_, views}} <- section.chunks,
-          MapSet.member?(wanted, chunk),
-          do: {chunk, views}
-    end)
+    rows
     |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.reduce_while(%{}, fn {_, views}, acc ->
+    |> Enum.reduce_while(%{}, fn {_, {_, views}}, acc ->
       if map_size(acc) == limit do
         {:halt, acc}
       else
@@ -96,6 +121,7 @@ defmodule Valimc.World.EntityViews do
     end)
   end
 
-  defp newer(_, old, view),
+  @doc "Of two views of one entity, the one of the newer ownership generation."
+  def newer(_, old, view),
     do: if(view.ownership_generation > old.ownership_generation, do: view, else: old)
 end

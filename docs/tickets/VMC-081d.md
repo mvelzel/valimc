@@ -470,8 +470,8 @@ the tick call 3.16, of it native turns 1.18, kernel inputs and order 0.22,
 solids 0.60 (since counted per section), fallbacks and the tick's start
 0.21, the AI's start 0.12, row checks 0.25, the report 0.28, portal
 sweeps 0.09; the owner's extras 0.18, applying the report 0.11; ageing
-0.09 natively plus 0.03; redstone contacts 0.34; tracking 2.41 (out of
-scope); the native cut 0.54 plus 0.25 encoding (20 cuts a tick);
+0.09 natively plus 0.03; redstone contacts 0.34; tracking 2.41 (made
+native and change-driven in [081i](VMC-081i.md)); the native cut 0.54 plus 0.25 encoding (20 cuts a tick);
 spawning inputs 0.11. Raw results in `.local/tick-budget/results/
 docker-{before081d,after081d}-*-mobs.json` and `docker-resident3probe-1`.
 
@@ -484,7 +484,6 @@ natural_spawning, mob_travel, hostile_spawns, aquatic_packs, bucket_mobs,
 water_age, the shulker, puffer, turtle, endermite, guardian and dolphin
 breath stages.
 
-Left: tracking still walks every view (its own ticket makes it native);
-the oracle harness seeding brains natively; a
+Left: the oracle harness seeding brains natively; a
 cheaper test than the stationary record for a touched mob's persistent
 change.

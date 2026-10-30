@@ -66,21 +66,25 @@ defmodule Valimc.EntityTrackerTest do
     {:ok, store, {epoch, id, revision}} =
       Store.create(Store.new(), {0, 0}, ItemStack.new("stone"), {0.5, 64.0, 0.5})
 
-    tracking = Tracking.sync(%Tracking{}, store.views, nil)
-    {tracking, _frame} = Tracking.step(tracking, store.views, nil, 1)
+    pass = fn tracking, views, outgoing, tick ->
+      Tracking.pass(tracking, views, {%{}, %{}}, outgoing, tick, simulated: MapSet.new([{0, 0}]))
+    end
+
+    {tracking, _} = pass.(%Tracking{}, store.views, nil, 1)
     {:ok, gone, [record]} = Store.withdraw(store, [{epoch, id, revision}])
     outgoing = %{destination: {1, 0}, records: [record], merge: nil}
 
-    leaving = Tracking.sync(tracking, gone.views, outgoing)
-    assert %{^id => %{spawn: _, base: {0.5, 64.0, 0.5}}} = Tracking.published(leaving, %{})
-    assert {_, frame} = Tracking.step(leaving, gone.views, outgoing, 2)
-    assert frame == %{}
+    {leaving, publication} = pass.(tracking, gone.views, outgoing, 2)
+    assert %{spawn: _, base: {0.5, 64.0, 0.5}} = Tracking.published(leaving, id)
+    assert publication.frame == <<>> and publication.rows == %{}
 
     # Back before the clear (a rejected merge): the same tracker goes on.
-    back = Tracking.sync(leaving, store.views, outgoing)
-    assert back.trackers[id] == leaving.trackers[id] and back.departing == %{}
+    {back, _} = pass.(leaving, store.views, outgoing, 3)
+    assert back.trackers[id].incarnation == leaving.trackers[id].incarnation
+    assert back.departing == %{}
 
-    cleared = Tracking.sync(leaving, gone.views, nil)
-    assert Tracking.published(cleared, %{}) == %{} and cleared.trackers == %{}
+    {cleared, publication} = pass.(leaving, gone.views, nil, 3)
+    assert Tracking.published(cleared) == %{} and cleared.trackers == %{}
+    assert publication.rows == %{{0, 0} => %{}}
   end
 end

@@ -12,35 +12,56 @@ defmodule Valimc.TrackingPublicationCacheTest do
         Store.body_record(body, <<1::128>>, {0.5, 64.0, 0.5})
       )
 
-    tracking = Tracking.sync(%Tracking{}, store.views, nil)
-    previous = %{source: store.views, views: Tracking.published(tracking, store.views)}
-    {store, id, tracking, previous}
+    {tracking, publication} = pass(%Tracking{}, store.views, 0, nil)
+    assert %{{0, 0} => %{^id => _}} = publication.rows
+    {store, id, tracking}
   end
 
-  test "unchanged observations reuse rows while periodic tracking frames still advance" do
-    {store, id, tracking, previous} = create("minecraft:cow")
+  defp pass(tracking, views, tick, simulated, outgoing \\ nil),
+    do: Tracking.pass(tracking, views, {%{}, %{}}, outgoing, tick, simulated: simulated)
 
-    Enum.reduce(1..100, tracking, fn tick, tracking ->
-      {tracking, frame} = Tracking.step(tracking, store.views, nil, tick)
-      cached = Tracking.published(tracking, store.views, previous)
-      assert cached == Tracking.published(tracking, store.views)
-      if tick == 61, do: assert(frame[id] != nil)
+  defp frame(publication),
+    do: publication.frame |> Tracking.decode() |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+  test "a static section publishes nothing; its trackers tick only in simulated chunks" do
+    {store, id, tracking} = create("minecraft:cow")
+    here = MapSet.new([{0, 0}])
+
+    # The new tracker ticks once (its view is new), then every tick in a
+    # simulated chunk: an unchanged position goes out every 60 ticks.
+    sent =
+      Enum.reduce(1..121, {tracking, []}, fn tick, {tracking, sent} ->
+        {tracking, publication} = pass(tracking, store.views, tick, here)
+        assert publication.rows == %{} and publication.sources == []
+        {tracking, if(publication.frame == <<>>, do: sent, else: [tick | sent])}
+      end)
+      |> elem(1)
+      |> Enum.reverse()
+
+    assert sent == [1, 61, 121]
+    assert frame(elem(pass(tracking, store.views, 1, here), 1))[id] != nil
+
+    # Outside simulated chunks only a changed view ticks its tracker.
+    {quiet, _} = pass(tracking, store.views, 1, MapSet.new())
+
+    Enum.reduce(2..130, quiet, fn tick, tracking ->
+      {tracking, publication} = pass(tracking, store.views, tick, MapSet.new())
+      assert publication == %{rows: %{}, sources: [], frame: <<>>}
       tracking
     end)
   end
 
-  test "moves, metadata, collider changes, tracker replacement and removal match uncached rows" do
-    {store, id, tracking, previous} = create("minecraft:shulker")
+  test "moves, data, colliders, a new tracker and removal rewrite the rows they touch" do
+    {store, id, tracking} = create("minecraft:shulker")
+    before = Tracking.published(tracking, id)
     body = store.entries[id].body
     open = put_in(body.data.peek_amount, 1.0)
     store = Store.change_body(store, id, open)
-    {tracking, _} = Tracking.step(tracking, store.views, nil, 1)
-
-    assert Tracking.published(tracking, store.views, previous) ==
-             Tracking.published(tracking, store.views)
-
-    refute Tracking.published(tracking, store.views, previous)[id].collider ==
-             previous.views[id].collider
+    {tracking, publication} = pass(tracking, store.views, 1, MapSet.new())
+    assert [{^id, _}] = publication.sources
+    assert %{{0, 0} => %{^id => row}} = publication.rows
+    refute row.collider == before.collider
+    assert row.tick == 1
 
     {:ok, store, _} =
       Store.step_body(
@@ -52,21 +73,19 @@ defmodule Valimc.TrackingPublicationCacheTest do
         Body.name(open, Valimc.Text.literal("shell"))
       )
 
-    {tracking, _} = Tracking.step(tracking, store.views, nil, 2)
+    {tracking, publication} = pass(tracking, store.views, 2, MapSet.new())
+    assert publication.rows[{0, 0}] == %{}
+    assert %{^id => %{at: {20.5, 64.0, 0.5}}} = publication.rows[{1, 0}]
 
-    assert Tracking.published(tracking, store.views, previous) ==
-             Tracking.published(tracking, store.views)
-
-    previous = %{source: store.views, views: Tracking.published(tracking, store.views)}
-    reset = Tracking.sync(%Tracking{}, store.views, nil)
-
-    assert Tracking.published(reset, store.views, previous) ==
-             Tracking.published(reset, store.views)
+    reset = elem(pass(%Tracking{}, store.views, 2, nil), 0)
+    refute Tracking.published(reset, id).tracker == Tracking.published(tracking, id).tracker
 
     departure = %{records: [Map.put(Store.record(store.entries[id]), :entity_id, id)]}
-    tracking = Tracking.sync(tracking, %{}, departure)
-    assert Tracking.published(tracking, %{}, previous) == Tracking.published(tracking, %{})
-    tracking = Tracking.sync(tracking, %{}, nil)
-    assert Tracking.published(tracking, %{}, previous) == %{}
+    {leaving, publication} = pass(tracking, %{}, 3, MapSet.new(), departure)
+    assert publication.rows == %{} and publication.sources == [{id, nil}]
+    assert Tracking.published(leaving, id).at == {20.5, 64.0, 0.5}
+    {cleared, publication} = pass(leaving, %{}, 4, MapSet.new())
+    assert publication.rows == %{{1, 0} => %{}}
+    assert Tracking.published(cleared) == %{} and cleared.trackers == %{}
   end
 end

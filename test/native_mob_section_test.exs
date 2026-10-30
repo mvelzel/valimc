@@ -140,6 +140,35 @@ defmodule Valimc.NativeMobSectionTest do
     assert {:error, _} = Store.find(store(ctx), <<2::128>>)
   end
 
+  test "its tracker is native: each tick's frame holds what an Elixir tracker sends", ctx do
+    alias Valimc.Entity.{Publication, Tracker, Tracking}
+    {x, z} = ctx.at
+    summon(ctx, "minecraft:wolf", <<9::128>>, {x, 70.0, z})
+    id = entry(ctx, <<9::128>>).entity.entity_id
+    section = Valimc.TestRegion.section(ctx.owner)
+    tracker = Tracker.new_body(section.entities.store.views[id])
+    last = elem(Publication.frames(section.publication, nil), 1)
+
+    # Falling, landing, a hit (its events, then its health) and a name.
+    {_, _, count} =
+      Enum.reduce(1..40, {tracker, last, 0}, fn tick, {tracker, last, count} ->
+        if tick == 20, do: Region.hurt_entity(ctx.owner, <<9::128>>, hit(2.0))
+        if tick == 30, do: Region.name_entity(ctx.owner, <<9::128>>, Valimc.Text.literal("Rex"))
+        step(ctx, 1)
+        section = Valimc.TestRegion.section(ctx.owner)
+        {tracker, expected} = Tracker.tick_body(tracker, section.entities.store.views[id])
+        {:ok, newest, frames} = Publication.frames(section.publication, last)
+
+        sent =
+          for {_, frame} <- frames, {^id, packet} <- Tracking.decode(frame), do: packet
+
+        assert sent == expected, "tick #{tick}"
+        {tracker, newest, count + length(sent)}
+      end)
+
+    assert count >= 10
+  end
+
   test "its records persist: a reloaded section has the same mob", ctx do
     {x, z} = ctx.at
     summon(ctx, "minecraft:panda", <<3::128>>, {x, 66.0, z})

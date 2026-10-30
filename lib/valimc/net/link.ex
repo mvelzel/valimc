@@ -18,7 +18,7 @@ defmodule Valimc.Net.Link do
   require Logger
   alias Valimc.Protocol.Codec
   alias Valimc.Protocol.{EntityPackets, Packets}
-  alias Valimc.Session.{ChunkSender, Events, Replication}
+  alias Valimc.Session.{ChunkSender, EntityMembership, Events, Replication}
   alias Valimc.World
   alias Valimc.World.ChestLidReplication
   alias Valimc.Entity.Observer
@@ -293,27 +293,32 @@ defmodule Valimc.Net.Link do
     # tracking range of their type are seen.
     {chunks, state} = Replication.cached_entity_chunks(state, @entity_range)
 
-    {desired, cache} =
-      World.visible_entities(
-        state.regions,
-        chunks,
-        state.entity_cache
+    cache = state.entity_cache
+    {rows, views} = World.entity_rows(state.regions, chunks, Map.get(cache, :views, %{}))
+
+    # Who it observes changes with the rows that changed, or all at once
+    # when the player moves or its view or game mode does (VMC-081i).
+    key =
+      {state.view, state.player.x, state.player.z, Map.get(state.player, :spectator, false),
+       state.player.entity_id}
+
+    {membership, desired, touched} =
+      EntityMembership.update(
+        Map.get(cache, :membership, %EntityMembership{}),
+        rows,
+        key,
+        &visible?(state, &1)
       )
 
-    desired =
-      for {_, %{kind: kind, at: {x, _, z}} = view} = entry <- desired,
-          Replication.sees?(state, {x, z}, Map.get(view, :range) || @tracking_ranges[kind]),
-          kind != :player or shows?(state, view),
-          into: %{},
-          do: entry
-
     {replication, packets} =
-      Observer.reconcile(state.entity_replication, desired, fn region, last ->
+      Observer.reconcile(state.entity_replication, desired, touched, fn region, last ->
         World.entity_frames(
           Grid.section(state.player.dimension, region, :section),
           last
         )
       end)
+
+    cache = %{views: views, membership: membership}
 
     state =
       Replication.buffer(%{state | entity_replication: replication, entity_cache: cache}, packets)
@@ -351,6 +356,12 @@ defmodule Valimc.Net.Link do
       _ ->
         state
     end
+  end
+
+  # Within vanilla's tracking range of its type, and a player only as shown.
+  defp visible?(state, %{kind: kind, at: {x, _, z}} = view) do
+    Replication.sees?(state, {x, z}, Map.get(view, :range) || @tracking_ranges[kind]) and
+      (kind != :player or shows?(state, view))
   end
 
   # Another online player; a spectator only to spectators, as vanilla's

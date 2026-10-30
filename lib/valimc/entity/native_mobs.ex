@@ -131,6 +131,13 @@ defmodule Valimc.Entity.NativeMobs do
         extra
       ])
 
+  @doc """
+  One tick of the native mobs' trackers (`Native.mob_section_track/5`,
+  `Valimc.Entity.Tracking`): `{frame, spawns}`.
+  """
+  def track(%__MODULE__{ref: ref}, mask, fresh, run, packet_ids),
+    do: Native.mob_section_track(ref, mask, fresh, run, packet_ids)
+
   @doc "The section's simulated chunks `chunks` as the tick's 64-bit mask."
   def simulated_mask({sx, sz}, chunks) do
     Enum.reduce(chunks, 0, fn {cx, cz}, mask ->

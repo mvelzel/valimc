@@ -218,6 +218,7 @@ defmodule Valimc.World.RegionData do
       )
 
     publication = :ets.new(:region_publication, [:set, :protected, read_concurrency: true])
+    :ok = Publication.init(publication, items.epoch)
     # Every generated chunk has a row, with its heightmaps and biomes (VMC-077e).
     present =
       for chunk <- RegionGeneration.chunks_of(key),
@@ -7613,92 +7614,60 @@ defmodule Valimc.World.RegionData do
 
   defp publish_item_views(state) do
     store = state.entities.store
-    tracking = Tracking.sync(state.entities.tracking, store.views, store.ledger.outgoing)
 
-    views =
-      Map.merge(
-        Tracking.published(tracking, store.views, state.entities.published),
-        state.player_views
-      )
-
-    :ok =
-      Publication.publish(
-        state.publication,
-        state.epoch,
-        tracking.tick,
-        views,
-        %{},
+    {tracking, publication} =
+      Tracking.pass(
+        state.entities.tracking,
         store.views,
-        state.entities.published
+        {state.player_views, %{}},
+        store.ledger.outgoing,
+        state.entities.tracking.tick
       )
 
-    %{
-      state
-      | entities: %{
-          state.entities
-          | tracking: tracking,
-            published: %{views: views, source: store.views}
-        }
-    }
+    :ok = Publication.publish(state.publication, state.epoch, tracking.tick, publication)
+    %{state | entities: %{state.entities | tracking: tracking}}
   end
 
-  # The entities phase's end (VMC-077h): every tracker ticks once, and the frame
-  # of their changes is published with the rows.
-  # A section without entities or players that published nothing last tick
-  # has nothing to publish (VMC-077w): most of a flying player's view.
-  defp track_entities(%{entities: %{quiet: true} = entities} = state)
-       when entities.store.views == %{} and entities.tracking.trackers == %{} and
-              entities.tracking.departing == %{} and state.player_views == %{} and
-              state.player_frame == %{},
-       do: state
-
+  # The entities phase's end (VMC-077h, VMC-081i): the trackers of entities
+  # in simulated chunks or whose view changed tick once (a native mob's in
+  # its section), and the frame of their changes is published with the rows
+  # that changed. A section whose store and players did not change and that
+  # simulates nothing costs one comparison (VMC-077w: most of a flying
+  # player's view).
   defp track_entities(state) do
     store = state.entities.store
 
-    {tracking, frame} =
-      Tracking.step(
-        state.entities.tracking,
-        store.views,
-        store.ledger.outgoing,
-        state.game_tick
-      )
+    simulated =
+      if Tickets.simulating?(state.tickets), do: state.tickets.simulated, else: MapSet.new()
 
-    views =
-      Map.merge(
-        Tracking.published(tracking, store.views, state.entities.published),
-        state.player_views
-      )
+    tracking = state.entities.tracking
+    players = {state.player_views, state.player_frame}
 
-    frame = Map.merge(frame, state.player_frame)
-
-    :ok =
-      Publication.publish(
-        state.publication,
-        state.epoch,
-        tracking.tick,
-        views,
-        frame,
-        store.views,
-        state.entities.published
-      )
-
-    Valimc.Data.Metrics.add(
-      :entity_frame_packets,
-      Enum.sum(Enum.map(frame, &length(elem(&1, 1))))
-    )
-
-    quiet = views == %{} and frame == %{}
-
-    %{
+    if Tracking.idle?(tracking, store.views, players, simulated) do
       state
-      | entities: %{
-          state.entities
-          | tracking: tracking,
-            quiet: quiet,
-            published: %{views: views, source: store.views}
-        },
-        player_frame: %{}
-    }
+    else
+      native = store.native
+
+      mask =
+        if native != nil and MapSet.size(simulated) > 0,
+          do: Valimc.Entity.NativeMobs.simulated_mask(state.key, simulated),
+          else: 0
+
+      {tracking, publication} =
+        Tracking.pass(
+          tracking,
+          store.views,
+          players,
+          store.ledger.outgoing,
+          state.game_tick,
+          simulated: simulated,
+          native: native,
+          mask: mask
+        )
+
+      :ok = Publication.publish(state.publication, state.epoch, tracking.tick, publication)
+      %{state | entities: %{state.entities | tracking: tracking}, player_frame: %{}}
+    end
   end
 
   # Players' drops become entities here; a record that cannot (it left the
