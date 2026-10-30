@@ -544,6 +544,18 @@ pub fn effect(facts: &MobFacts, e: &Effect) -> Option<Value> {
             Value::Int(*count as i64),
         ]),
         Effect::Drop(stack) => Value::tuple([Value::atom("drop"), stack.clone()]),
+        // A piglin's barter: the owner rolls the bartering table with the
+        // seed and throws each item.
+        Effect::Barter {
+            seed,
+            from,
+            velocity,
+        } => Value::tuple([
+            Value::atom("barter"),
+            Value::Int(*seed),
+            Value::vec3(*from),
+            Value::vec3(*velocity),
+        ]),
         Effect::Lay(v) => Value::tuple([Value::atom("lay"), Value::vec3(*v)]),
         Effect::Gift { table, velocity } => Value::tuple([
             Value::atom("gift"),

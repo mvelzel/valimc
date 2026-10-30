@@ -10,6 +10,7 @@
 
 pub mod axolotl;
 pub mod hoglin;
+pub mod piglin;
 
 use crate::mobs::facts::MobFacts;
 use crate::mobs::kinds::Kind;
@@ -20,6 +21,7 @@ use crate::mobs::sensing::Uuid;
 pub fn kinds(facts: &MobFacts) -> Result<Vec<Box<dyn Kind>>, String> {
     Ok(vec![
         Box::new(hoglin::Hoglin::new(facts)?),
+        Box::new(piglin::Piglin::new(facts)?),
         Box::new(crate::mobs::animals::Animal::new(
             facts,
             axolotl::Axolotl::new(facts)?,

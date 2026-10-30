@@ -31,13 +31,16 @@ defmodule Valimc.NativeMobBrainTest do
       pool = for x <- wx0..wx1, z <- wz0..wz1, do: {{x, @floor + 1, z}, water}
       edits = Map.new(floor.(@hoglins) ++ floor.(@pool) ++ pool)
       edits = Map.put(edits, {28, @floor + 1, 12}, Blocks.default_state("warped_fungus"))
-      {edits, %{fungus: {28, @floor + 1, 12}}}
+      edits = Map.put(edits, {16, @floor + 1, 2}, Blocks.default_state("soul_fire"))
+      {edits, %{fungus: {28, @floor + 1, 12}, soul_fire: {16, @floor + 1, 2}}}
     end)
   end
 
   test "the brain families are native and register no goals" do
     assert {:ok, types} = Native.mob_kinds()
-    for type <- ~w(minecraft:hoglin minecraft:axolotl), do: assert(type in types)
+
+    for type <- ~w(minecraft:hoglin minecraft:axolotl minecraft:piglin),
+        do: assert(type in types)
   end
 
   defp effects(observed), do: List.flatten(for {_, _, e, _} <- observed, do: e)
@@ -166,5 +169,79 @@ defmodule Valimc.NativeMobBrainTest do
     assert Enum.any?(effects, &match?({:offspring, "minecraft:axolotl", _, _}, &1))
     assert remembered?(observed, "tempting_player")
     assert remembered?(observed, "breed_target")
+  end
+
+  ## Piglins
+
+  defp gold(n, {x, z}), do: item(n, "minecraft:gold_ingot", {x + 0.5, @floor + 1.0, z + 0.5})
+
+  test "piglins admire gold, barter it and fight back with their kind", ctx do
+    gold = Valimc.Protocol.ItemTypes.id("minecraft:gold_ingot")
+
+    entries =
+      for {spot, n} <- Enum.with_index([{4, 8}, {6, 9}, {5, 12}, {8, 11}, {3, 13}], 1),
+          do: mob(n, "minecraft:piglin", on(spot), finalize: :natural)
+
+    scene =
+      scene([player(0, on({9, 13}), mainhand: gold)],
+        ticks: 320,
+        items: [gold(1, {5, 9}), gold(2, {6, 12})],
+        acts: [{200, 0, :hurt}, {201, 3, :hurt}],
+        loot_seeds: [101, 102, 103],
+        loot: Valimc.Blocks.Loot.registry(),
+        post: true,
+        level: 41
+      )
+
+    observed = compare(ctx, scene, entries)
+    effects = effects(observed)
+    assert Enum.any?(effects, &match?({:pickup, _, 1}, &1))
+    assert active?(observed, :admire_item)
+    assert remembered?(observed, "admiring_item")
+    assert remembered?(observed, "nearest_player_holding_wanted_item")
+    assert remembered?(observed, "angry_at")
+  end
+
+  test "piglins shy from soul fire and players opening what they guard anger them", ctx do
+    {sx, _, sz} = ctx.info.soul_fire
+    helmet = Valimc.Protocol.ItemTypes.id("minecraft:golden_helmet")
+
+    entries = [
+      mob(1, "minecraft:piglin", on({sx - 2, sz + 2})),
+      mob(2, "minecraft:piglin", on({sx + 3, sz + 1})),
+      mob(3, "minecraft:piglin", on({sx - 4, sz + 6}))
+    ]
+
+    scene =
+      scene([player(0, on({sx + 1, sz + 6}), head: helmet)],
+        ticks: 220,
+        events: [{40, 0, false}, {120, 0, true}],
+        post: true,
+        level: 42
+      )
+
+    observed = compare(ctx, scene, entries)
+    assert remembered?(observed, "nearest_repellent")
+    assert remembered?(observed, "angry_at")
+    assert active?(observed, :fight)
+  end
+
+  test "baby piglins flee their nemeses and piglins zombified ones", ctx do
+    entries = [
+      mob(1, "minecraft:piglin", on({24, 9}), data: [baby: true]),
+      mob(2, "minecraft:piglin", on({26, 11})),
+      mob(3, "minecraft:piglin", on({28, 9}))
+    ]
+
+    statues = [
+      mob(90, "minecraft:wither_skeleton", on({23, 13}), no_ai: true),
+      mob(91, "minecraft:zombified_piglin", on({29, 12}), no_ai: true)
+    ]
+
+    scene = scene([], ticks: 200, statues: statues, post: true, level: 43)
+    observed = compare(ctx, scene, entries)
+    assert remembered?(observed, "nearest_visible_nemesis")
+    assert remembered?(observed, "nearest_visible_zombified")
+    assert active?(observed, :avoid)
   end
 end

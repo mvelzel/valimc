@@ -65,6 +65,8 @@ struct PlayerT<'a> {
     pitch: f64,
     mode: Atom,
     mainhand: Option<i32>,
+    /// What it wears on its head.
+    head: Option<i32>,
     movement: V3,
     swimming: bool,
 }
@@ -145,6 +147,7 @@ struct SceneT<'a> {
 fn player_of(p: &PlayerT) -> NifResult<SensedPlayer> {
     let mut equipment = [None; 6];
     equipment[4] = p.mainhand;
+    equipment[2] = p.head;
     let m = mode(p.mode)?;
     Ok(SensedPlayer {
         uuid: uuid(&p.uuid)?,

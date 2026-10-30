@@ -169,6 +169,15 @@ pub enum Effect {
     ShootBullet(Value),
     /// `{:explode, blast}`.
     Explode(Value),
+    /// A piglin's barter (`stopHoldingOffHandItem` of a gold ingot): the
+    /// bartering table rolled with `seed` (`World.loot_seed`, the Elixir's
+    /// `Loot.barter/1`) and each item thrown from `from` at `velocity`
+    /// (`{:throw, stack, from, velocity}` per item).
+    Barter {
+        seed: i64,
+        from: [f64; 3],
+        velocity: [f64; 3],
+    },
     /// `{:pickup, {:item, uuid}, count}`.
     Pickup {
         item: Uuid,

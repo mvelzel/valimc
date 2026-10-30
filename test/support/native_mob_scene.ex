@@ -149,7 +149,13 @@ defmodule Valimc.NativeMobScene do
       velocity: {0.0, 0.0, 0.0},
       health: 20.0,
       effects: MapSet.new(),
-      equipment: if(p.mainhand, do: %{mainhand: p.mainhand}, else: %{})
+      equipment:
+        for(
+          {slot, id} <- [mainhand: p.mainhand, head: p[:head]],
+          id != nil,
+          into: %{},
+          do: {slot, id}
+        )
     }
   end
 
@@ -477,7 +483,8 @@ defmodule Valimc.NativeMobScene do
              :explode,
              :throw_potion,
              :throw_trident,
-             :remove_block
+             :remove_block,
+             :drop
            ],
       do: e
 
@@ -685,6 +692,7 @@ defmodule Valimc.NativeMobScene do
       pitch: Keyword.get(opts, :pitch, -3.0),
       mode: Keyword.get(opts, :mode, :survival),
       mainhand: Keyword.get(opts, :mainhand),
+      head: Keyword.get(opts, :head),
       movement: {0.0, 0.0, 0.0},
       swimming: Keyword.get(opts, :swimming, false)
     }
