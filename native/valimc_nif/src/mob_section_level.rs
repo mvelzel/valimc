@@ -425,6 +425,9 @@ pub fn mob(facts: &MobFacts, term: Term) -> NifResult<SensedMob<Extra>> {
                         .collect::<Option<Vec<_>>>()?;
                     FamilyData::new(fields)
                 }),
+            // An Elixir mob's own state is its own (a native family's
+            // fields are sensed natively).
+            own: None,
         },
     })
 }
