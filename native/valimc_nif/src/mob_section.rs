@@ -134,6 +134,15 @@ pub(crate) fn read(res: &MobSectionRes) -> NifResult<std::sync::MutexGuard<'_, I
     res.inner.lock().map_err(|_| fail(atoms::poisoned()))
 }
 
+/// A sibling section read while the caller holds its own: never waits. The
+/// group's own sections are free while one of them ticks (one process runs
+/// them in turn); a section another group took since the world's list was
+/// set may be in its new owner's hands, and is then left out rather than
+/// risk two owners waiting on each other.
+pub(crate) fn sibling(res: &MobSectionRes) -> Option<std::sync::MutexGuard<'_, Inner>> {
+    res.inner.try_lock().ok()
+}
+
 pub(crate) fn owned<'a>(
     env: Env,
     res: &'a MobSectionRes,

@@ -163,6 +163,16 @@ pub struct MobSection {
     pub revision: u64,
     /// Holds mobs anywhere (an oracle's scene around the origin).
     pub anywhere: bool,
+    /// How many of its mobs are of a solid type (`SOLID`).
+    solids: usize,
+}
+
+/// The types whose family gives them a collider other bodies meet
+/// (`Kind::collider`: a shulker's box).
+pub const SOLID: [&str; 1] = ["minecraft:shulker"];
+
+fn solid(mob: &NativeMob) -> bool {
+    SOLID.contains(&mob.body.entity_type.as_str())
 }
 
 impl MobSection {
@@ -175,7 +185,14 @@ impl MobSection {
             removed: HashMap::new(),
             revision: 0,
             anywhere: false,
+            solids: 0,
         }
+    }
+
+    /// How many of its mobs are of a solid type (a tick leaves a section
+    /// without any out of its colliders' search).
+    pub fn solids(&self) -> usize {
+        self.solids
     }
 
     pub fn len(&self) -> usize {
@@ -247,6 +264,7 @@ impl MobSection {
         self.removed.remove(&mob.uuid);
         let mut slot = Slot::new(mob, written);
         slot.touched = true;
+        self.solids += usize::from(solid(&slot.mob));
         self.uuids.insert(slot.mob.uuid, id);
         self.chunks.entry(slot.chunk).or_default().insert(id);
         self.slots.insert(id, slot);
@@ -258,6 +276,7 @@ impl MobSection {
     /// wrote it.
     pub fn remove(&mut self, id: i32) -> Option<Slot> {
         let slot = self.slots.remove(&id)?;
+        self.solids -= usize::from(solid(&slot.mob));
         self.uuids.remove(&slot.mob.uuid);
         if let Some(ids) = self.chunks.get_mut(&slot.chunk) {
             ids.remove(&id);

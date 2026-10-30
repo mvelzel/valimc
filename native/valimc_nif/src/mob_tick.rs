@@ -732,13 +732,17 @@ fn tick_section<'a>(
                 order.push(Entrant::Fixed);
             }
         };
-        add(&inner.section, true);
+        if inner.section.solids() > 0 {
+            add(&inner.section, true);
+        }
         for s in &sections {
             if s.key == key {
                 continue;
             }
             if let Some(native) = &s.native {
-                add(&ms::read(native)?.section, false);
+                if let Some(other) = ms::sibling(native).filter(|o| o.section.solids() > 0) {
+                    add(&other.section, false);
+                }
             }
         }
     }
@@ -790,7 +794,9 @@ fn tick_section<'a>(
     for s in &sections {
         if s.key != key {
             if let Some(native) = &s.native {
-                merge(&mut pois, &ms::read(native)?.claims);
+                if let Some(other) = ms::sibling(native) {
+                    merge(&mut pois, &other.claims);
+                }
             }
         }
     }

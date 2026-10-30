@@ -1528,7 +1528,7 @@ defmodule Valimc.World.RegionData do
             state.game_tick,
             Valimc.Entity.NativeMobs.simulated_mask(state.key, state.tickets.simulated),
             world.random,
-            native_extra(state, elixir)
+            native_extra(state, elixir, length(natives) + length(elixir))
           )
         else
           external = fn area ->
@@ -3011,9 +3011,9 @@ defmodule Valimc.World.RegionData do
   # the items its mobs sense, the knots where the group holds any, whether
   # goals run (tests turn them off per scope), the players' anger events,
   # the Elixir mobs' POI claims and an answered structure query.
-  defp native_extra(state, elixir) do
-    store = state.entities.store
-    extra = %{units: map_size(store.entries)}
+  defp native_extra(state, elixir, units) do
+    # Its mobs (the turns the call takes) choose its scheduler.
+    extra = %{units: units}
 
     extra =
       case sensed_items(state) do
