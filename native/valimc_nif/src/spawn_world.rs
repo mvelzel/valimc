@@ -412,9 +412,9 @@ type Natural = (
     Vec<((i32, i32, i32), Vec<Out>)>,
 );
 
-/// What a native mob counts as: its type
-/// (kept from before: a slot's type never changes) and its position's chunk,
-/// toward its category unless persistent or from a bucket.
+/// What a native mob counts as: its type and whether the type can come
+/// from a bucket (kept from before: a slot's type never changes), its
+/// position's chunk, and its category unless persistent or from a bucket.
 fn count(rules: &Rules, facts: &Facts, slot: &Slot, before: Option<&Counted>) -> Option<Counted> {
     let (kind, bucketable) = match before {
         Some(b) => (b.kind, b.bucketable),

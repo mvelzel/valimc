@@ -1,9 +1,10 @@
 # VMC-042a: a group's natural spawning tick against the 50 ms tick. Nine
 # sections (24 x 24 chunks) of stone with three cave layers under a grass
 # surface, lit by the light engine, one player at the centre at night: every
-# tick runs `World.Spawning.plan/1` (the mob list, one spawn-kernel call with
-# the despawn checks, the records of what spawned) and the spawned mobs join
-# the counts, so the caps fill and the tick reaches its steady state.
+# tick runs `World.Spawning.plan/1` (the inputs' sync into the group's
+# MobWorld, one spawn-kernel call with the despawn checks, the records of what
+# spawned; VMC-081g2) and the spawned mobs join the counts, so the caps fill
+# and the tick reaches its steady state.
 # A second argument places that many zombies across the sections first (they
 # count and are checked for despawning every tick).
 # Usage: MIX_ENV=bench mix run --no-start bench/natural_spawning.exs [ticks] [zombies]
