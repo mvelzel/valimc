@@ -3,7 +3,8 @@ defmodule Valimc.Living.Attributes do
   Attributes a living entity derives from its active effects (vanilla
   `AttributeMap` with the modifiers `MobEffect`s add): movement speed, safe
   fall distance and jump power, gravity and the fall reset of travel effects,
-  and maximum absorption. Derived values carry the protocol form
+  maximum absorption, and the attributes only effects modify (maximum health,
+  luck). Derived values carry the protocol form
   `{id, base, modifiers}` for replication. Only active (head) amplifiers matter,
   never durations.
   """
@@ -229,6 +230,40 @@ defmodule Valimc.Living.Attributes do
     else
       {:error, :invalid_absorption}
     end
+  end
+
+  # ---- attributes only effects modify ----
+
+  @doc """
+  An attribute only effects modify (Health Boost's `minecraft:max_health`,
+  Luck and Bad Luck's `minecraft:luck`): `base` with each active effect's
+  generated modifiers (`MobEffect.addAttributeModifiers`), in effect order.
+  """
+  def effect_attribute(effects, "minecraft:" <> _ = name, base) when is_float(base) do
+    if Effects.valid?(effects) do
+      modifiers =
+        for {id, [{_, amplifier, _, _, _} | _]} <- Enum.sort(effects),
+            {^name, modifier, amount, op} <-
+              Valimc.Data.HostileFacts.effect_modifiers(EffectTypes.name(id), amplifier),
+            do: {modifier, amount, op}
+
+      {:ok,
+       %{attribute: {@facts[name]["id"], base, modifiers}, value: value(name, base, modifiers)}}
+    else
+      {:error, :invalid_effect_attribute}
+    end
+  end
+
+  @doc "A player's maximum health under Health Boost (`getMaxHealth`, a float)."
+  def max_health(effects) do
+    {:ok, derived} = effect_attribute(effects, "minecraft:max_health", 20.0)
+    Float32.round(derived.value)
+  end
+
+  @doc "A player's luck under Luck and Bad Luck (`getLuck`, a float)."
+  def luck(effects) do
+    {:ok, derived} = effect_attribute(effects, "minecraft:luck", 0.0)
+    Float32.round(derived.value)
   end
 
   @doc "Whether a protocol input's sprint flag is set."

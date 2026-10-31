@@ -39,7 +39,7 @@ pub fn base_tick(rules: &Rules, mob: &mut NativeMob) -> Vec<Event> {
     if damage > 0.0 {
         hurt(rules, mob, &mut events, rules.living.damage.on_fire, damage);
     }
-    tick_effects(rules, mob, &mut events);
+    tick_effects(rules, ty, mob, &mut events);
     actually_hurt(rules, ty, mob, &before);
     events
 }
@@ -55,32 +55,59 @@ fn hurt(rules: &Rules, mob: &mut NativeMob, events: &mut Vec<Event>, source: u16
     events.extend(more);
 }
 
-fn tick_effects(rules: &Rules, mob: &mut NativeMob, events: &mut Vec<Event>) {
+fn tick_effects(rules: &Rules, ty: Type, mob: &mut NativeMob, events: &mut Vec<Event>) {
     let e = &rules.living.effects;
     if mob.body.mob.living.effects.0.is_empty() {
+        living_mob::reconcile_max_health(rules.living, rules.facts, ty, &mut mob.body.mob);
         return;
+    }
+    // An empty pool ends Absorption (`AbsorptionMobEffect.applyEffectTick`).
+    if mob.body.mob.living.absorption <= 0.0 {
+        living_mob::remove_effect(rules.facts, &mut mob.body.mob, e.absorption);
     }
     let periodic: Vec<(i32, Vec<Rung>)> = effects::periodic_ids(rules.living)
         .into_iter()
         .filter_map(|id| Some((id, mob.body.mob.living.effects.get(id)?.to_vec())))
         .collect();
-    if let Some(&head) = mob
+    let instant: Vec<(i32, u8)> = [e.instant_health, e.instant_damage]
+        .into_iter()
+        .filter_map(|id| {
+            let head = mob.body.mob.living.effects.get(id)?.first()?;
+            (head.ticks >= 1).then_some((id, head.amplifier))
+        })
+        .collect();
+    // A timed Instant Health or Damage acts each tick it has left
+    // (`HealOrHarmMobEffect.applyEffectTick`); undead take them the other
+    // way round.
+    let inverted = rules.facts.entity_tag(ty.id, "inverted_healing_and_harm");
+    for (id, amplifier) in instant {
+        let shift = (amplifier & 31) as u32;
+        if (id == e.instant_damage) == inverted {
+            let amount = 4i32.wrapping_shl(shift).max(0);
+            health::heal(&mut mob.body.mob.living.health, amount as f64);
+        } else if living_mob::alive(&mob.body.mob) {
+            let amount = 6i32.wrapping_shl(shift) as f32;
+            hurt(rules, mob, events, rules.living.damage.magic, f64::from(amount));
+        }
+    }
+    let heads: Vec<(i32, u8)> = mob
         .body
         .mob
         .living
         .effects
-        .get(e.instant_health)
-        .and_then(|r| r.first())
-    {
-        if head.ticks >= 1 {
-            if let effects::Action::Heal(amount) =
-                effects::instant(rules.living, e.instant_health, head.amplifier)
-            {
-                health::heal(&mut mob.body.mob.living.health, amount);
-            }
+        .0
+        .iter()
+        .map(|(id, rungs)| (*id, rungs[0].amplifier))
+        .collect();
+    effects::tick(&mut mob.body.mob.living.effects);
+    // A promoted or ended effect's modifiers follow it (`onEffectUpdated`,
+    // `onEffectsRemoved`).
+    for (id, amplifier) in heads {
+        if mob.body.mob.living.effects.amplifier(id) != Some(amplifier) {
+            living_mob::refresh_modifiers(rules.facts, &mut mob.body.mob, id);
         }
     }
-    effects::tick(&mut mob.body.mob.living.effects);
+    living_mob::reconcile_max_health(rules.living, rules.facts, ty, &mut mob.body.mob);
     let age = mob.body.mob.ai.as_ref().map_or(0, |m| rules.mind.tick(m));
     for (id, instance) in periodic {
         match effects::periodic(

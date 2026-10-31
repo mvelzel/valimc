@@ -799,7 +799,8 @@ defmodule Valimc.Player.Projectiles do
       uuid: player.uuid,
       id: player.entity_id,
       player: true,
-      creative: player.game_mode.current == :creative
+      creative: player.game_mode.current == :creative,
+      luck: Valimc.Living.Attributes.luck(player.living.effects)
     }
 
   # `getEyeY() - 0.1F` above the feet.

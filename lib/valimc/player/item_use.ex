@@ -1,7 +1,6 @@
 defmodule Valimc.Player.ItemUse do
   @moduledoc "Held-item use inside the connection: start, ticks, completion effects and equipment publication (VMC-069)."
 
-  alias Valimc.Data.EffectTypes
   alias Valimc.Protocol.{ItemTypes, Packets, PotionContents, UseItem}
 
   alias Valimc.Player.Vitals
@@ -14,9 +13,6 @@ defmodule Valimc.Player.ItemUse do
   alias Valimc.Living.FoodItems
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{PlayerList, Equipment, Input, Use}
-
-  @instant_effects Enum.map(~w(instant_health instant_damage saturation), &EffectTypes.id/1)
-  @live_effects Effects.live()
 
   def use_item(state, payload) do
     case UseItem.decode(payload) do
@@ -118,10 +114,9 @@ defmodule Valimc.Player.ItemUse do
 
         effects = PotionContents.effects(contents)
 
-        if Enum.all?(effects, fn {id, _} -> id in @live_effects or id in @instant_effects end) and
-             Valimc.Player.Consumption.admitted_effects?(effects),
-           do: {:ok, effects},
-           else: :unsupported
+        if Valimc.Player.Consumption.admitted_effects?(effects),
+          do: {:ok, effects},
+          else: :unsupported
 
       true ->
         case Effects.removal_policy(stack, props) do
@@ -129,14 +124,9 @@ defmodule Valimc.Player.ItemUse do
             {:ok, {:remove, policy}}
 
           :unsupported ->
-            with {:ok, callbacks} <- Effects.food_policy(stack, props),
-                 true <-
-                   Enum.all?(callbacks, fn callback ->
-                     Enum.all?(callback.effects, fn {id, _} -> id in @live_effects end)
-                   end) do
-              {:ok, {:chance, callbacks}}
-            else
-              _ -> :unsupported
+            case Effects.food_policy(stack, props) do
+              {:ok, callbacks} -> {:ok, {:chance, callbacks}}
+              :unsupported -> :unsupported
             end
         end
     end

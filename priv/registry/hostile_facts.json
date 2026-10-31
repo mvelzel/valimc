@@ -802,6 +802,94 @@
     "minecraft:snow_golem",
     "minecraft:strider"
   ],
+  "effect_immunities": {
+    "minecraft:bogged": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:camel_husk": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:cave_spider": [
+      "minecraft:poison"
+    ],
+    "minecraft:drowned": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:husk": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:nautilus": [
+      "minecraft:poison"
+    ],
+    "minecraft:parched": [
+      "minecraft:regeneration",
+      "minecraft:weakness",
+      "minecraft:poison"
+    ],
+    "minecraft:phantom": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:silverfish": [
+      "minecraft:infested"
+    ],
+    "minecraft:skeleton": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:skeleton_horse": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:slime": [
+      "minecraft:oozing"
+    ],
+    "minecraft:spider": [
+      "minecraft:poison"
+    ],
+    "minecraft:stray": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:wither": [
+      "minecraft:regeneration",
+      "minecraft:poison",
+      "minecraft:wither"
+    ],
+    "minecraft:wither_skeleton": [
+      "minecraft:regeneration",
+      "minecraft:poison",
+      "minecraft:wither"
+    ],
+    "minecraft:zoglin": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:zombie": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:zombie_horse": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:zombie_nautilus": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:zombie_villager": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ],
+    "minecraft:zombified_piglin": [
+      "minecraft:regeneration",
+      "minecraft:poison"
+    ]
+  },
   "monsters_burn": {
     "period": 24000,
     "keyframes": [

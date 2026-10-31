@@ -21,4 +21,5 @@ subprocess.run([sys.executable,'scripts/java_tool.py','ProtocolMetadata','priv/p
 subprocess.run([sys.executable,'scripts/java_tool.py','ItemMetadata','priv/protocol/items.json','priv/protocol/item_defaults.json','priv/protocol/component_types.json','priv/protocol/builtin_registries.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','EntityOracle','facts','priv/registry/entity_facts.json'],cwd=root,check=True)
 subprocess.run([sys.executable,'scripts/java_tool.py','AttributeMetadata','priv/protocol/attributes.json'],cwd=root,check=True)
+subprocess.run([sys.executable,'scripts/java_tool.py','EffectMetadata','priv/protocol/effect_facts.json'],cwd=root,check=True)
 print(f'Regenerated official {VERSION} protocol facts')

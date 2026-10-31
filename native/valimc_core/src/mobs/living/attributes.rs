@@ -39,9 +39,16 @@ pub fn jump_safe_distance(facts: &LivingFacts, effects: &Effects) -> f64 {
 
 /// Absorption's maximum (`Attributes.absorption/2` with base 0).
 pub fn absorption_maximum(facts: &LivingFacts, effects: &Effects, max: f64) -> f64 {
-    let value = match effects.amplifier(facts.effects.absorption) {
+    absorption_pool_maximum(effects, facts.effects.absorption, max)
+}
+
+/// The absorption pool's cap while effect `absorption` is as it is now
+/// (`getMaxAbsorption`): its amplifier's, clamped to the attribute's
+/// maximum `max`.
+pub fn absorption_pool_maximum(effects: &Effects, absorption: i32, max: f64) -> f64 {
+    let value = match effects.amplifier(absorption) {
         None => 0.0,
-        Some(amplifier) => 0.0 + (amplifier as i32 + 1) as f64 * 4.0,
+        Some(amplifier) => (amplifier as i32 + 1) as f64 * 4.0,
     };
     f(emin(max, value))
 }

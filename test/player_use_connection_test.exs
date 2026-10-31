@@ -232,7 +232,8 @@ defmodule Valimc.PlayerUseConnectionTest do
        ctx do
     food = %Food{}
     fire = potion("fire_resistance")
-    unsupported = potion("invisibility")
+    # Instant Health 30 overflows to a negative heal, which is refused.
+    unsupported = custom_potion([{5, [{1, 29, false, true, true}]}])
     seed(ctx, food, 20.0, inventory: %Inventory{slots: %{36 => fire, 45 => unsupported}})
     {client, pid} = login(ctx, 20.0, food)
     client = use_hand(client, pid)

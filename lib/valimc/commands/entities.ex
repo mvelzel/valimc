@@ -140,6 +140,30 @@ defmodule Valimc.Commands.Entities do
   end
 
   @doc """
+  `/effect` on `bodies` (`{:add, id, [rung]}`, `{:remove, id}` or
+  `:clear`): `[{body, true | false}]`, whether each changed.
+  """
+  def effect(bodies, action) do
+    action =
+      case action do
+        {:add, id, [rung]} -> {:add, id, rung}
+        :clear -> {:clear}
+        other -> other
+      end
+
+    bodies
+    |> Enum.group_by(& &1.section)
+    |> Enum.flat_map(fn {section, targets} ->
+      with {:ok, owner} <- World.existing_owner(section),
+           {:ok, changed} <- Region.effect_entities(owner, Enum.map(targets, & &1.uuid), action) do
+        Enum.map(targets, &{&1, &1.uuid in changed})
+      else
+        _ -> []
+      end
+    end)
+  end
+
+  @doc """
   `/teleport` of `bodies` to `pose_of.(body)` (`%{x, y, z, yaw, pitch,
   dimension}`) within their dimension: `[{body, 1}]` for each moved.
   Bodies do not change dimension yet.

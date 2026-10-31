@@ -20,8 +20,6 @@ defmodule Valimc.Net.LoginFlow do
 
   alias Valimc.World.TickClock
 
-  @live_effects Valimc.Living.Effects.live()
-
   def finish_login(state) do
     threshold = Valimc.config(:compression_threshold)
 
@@ -179,9 +177,6 @@ defmodule Valimc.Net.LoginFlow do
           }
 
           player = if living.health.value <= 0, do: Life.dead(player), else: player
-
-          unless Enum.all?(player.living.effects, fn {id, _} -> id in @live_effects end),
-            do: reject(state, "Saved status effect is not implemented in this preview")
 
           {storage, player, inventory}
 

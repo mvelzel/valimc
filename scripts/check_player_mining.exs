@@ -78,6 +78,27 @@ for row <- facts["speeds"] do
     do: raise("Native composed mining rate differs #{inspect(row)}")
 end
 
+for row <- facts["effects"] do
+  effects =
+    for name <- ~w(haste conduit_power mining_fatigue),
+        row[name] >= 0,
+        into: %{},
+        do: {Valimc.Data.EffectTypes.id(name), [{100, row[name], false, true, true}]}
+
+  actual =
+    for item <- [nil, "iron_pickaxe"],
+        name <- ["stone", "obsidian"],
+        water <- [false, true],
+        ground <- [false, true] do
+      slots = if item, do: %{43 => ItemStack.new(item)}, else: %{}
+      inventory = %Inventory{selected: 7, slots: slots}
+      bits.(MiningSpeed.speed(inventory, Data.block(name), water, ground, effects))
+    end
+
+  unless actual == row["speed_bits"],
+    do: raise("Native effect mining speed differs #{inspect(row)}")
+end
+
 IO.puts(
-  "PASS: #{length(facts["equipment"])} native mining equipment attributes, #{length(facts["equipment"]) * 8} geared speed contexts and #{length(facts["speeds"])} stock Player speed/harvest contexts; all Efficiency/Aqua Affinity levels0..255."
+  "PASS: #{length(facts["equipment"])} native mining equipment attributes, #{length(facts["equipment"]) * 8} geared speed contexts and #{length(facts["speeds"])} stock Player speed/harvest contexts, #{length(facts["effects"]) * 16} effect speed contexts; all Efficiency/Aqua Affinity levels0..255."
 )

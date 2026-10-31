@@ -321,6 +321,7 @@ fn player() -> Attacker {
         player: true,
         entity_type: "minecraft:player".into(),
         mainhand: None,
+        luck: 0.0,
     }
 }
 
@@ -856,7 +857,7 @@ fn attributes_values_and_mob_hits() {
         8.0
     );
     let speed = fx.living.effects.speed;
-    mob::add_effect(&fx.mob, &mut zombie.body.mob, speed, rung(100, 0));
+    mob::add_effect(&fx.mob, ty.id, &mut zombie.body.mob, speed, rung(100, 0));
     let movement = fx.mob.attributes.id("movement_speed").unwrap();
     let value = mob::value(&fx.living, &fx.mob, ty, &zombie.body.mob, movement);
     assert_eq!(value, 0.7 * (1.0 + f64::from_bits(0x3fc99999a0000000)));

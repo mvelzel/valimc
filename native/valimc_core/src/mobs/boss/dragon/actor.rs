@@ -630,6 +630,7 @@ pub fn crystal_destroyed(
                     player: false,
                     entity_type: "minecraft:end_crystal".to_owned(),
                     mainhand: None,
+                    luck: 0.0,
                 }),
                 position: Some(direct.position),
                 ..Hit::new(source, 10.0)

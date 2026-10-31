@@ -117,9 +117,4 @@ impl Kind for WitherSkeleton {
     fn can_hold(&self, _t: &Turn, item: i32) -> bool {
         !self.disliked.contains(&item)
     }
-
-    /// `canBeAffected`: never withered.
-    fn affected(&self, effect: i32) -> bool {
-        effect != self.wither
-    }
 }

@@ -238,7 +238,7 @@ impl Kind for Spider {
                 icon: true,
             };
             let facts = t.level.facts;
-            crate::mobs::living::mob::add_effect(facts, &mut t.mob.body.mob, effect, rung);
+            crate::mobs::living::mob::add_effect(facts, t.type_id, &mut t.mob.body.mob, effect, rung);
         }
     }
 

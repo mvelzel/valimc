@@ -539,6 +539,13 @@ defmodule Valimc.World.Region do
     do: call(pid, {:kill_entities, epoch, uuids}, budget(pid, 1000))
 
   @doc """
+  `/effect` on the mobs `uuids` of a section: `{:add, id, rung}`,
+  `{:remove, id}` or `{:clear}`; `{:ok, changed_uuids}`.
+  """
+  def effect_entities({pid, epoch}, uuids, action),
+    do: call(pid, {:effect_entities, epoch, uuids, action}, budget(pid, 1000))
+
+  @doc """
   A teleport of the entity `uuid` of a section to `position`, facing
   `rotation` (`{yaw, pitch}`) or as it faced (nil): `:ok` once it moved or its
   handoff left (VMC-043a).

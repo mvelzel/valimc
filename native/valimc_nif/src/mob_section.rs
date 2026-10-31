@@ -24,7 +24,7 @@ use std::sync::{Mutex, OnceLock};
 use valimc_core::mobs::ai::think::Ctx;
 use valimc_core::mobs::combat::{self, AiMind, Attacker, Event, Hit, Rules, SoundRef};
 use valimc_core::mobs::living::mob::{self as living_mob, Type};
-use valimc_core::mobs::living::{body as living_body, effects, health};
+use valimc_core::mobs::living::{body as living_body, health};
 use valimc_core::mobs::model::{NativeMob, Rung, Slot as EquipSlot};
 use valimc_core::mobs::record::{self, RecordError, RecordFacts};
 use valimc_core::mobs::section::{chunk_of, MobSection, Slot, Written};
@@ -35,7 +35,7 @@ mod atoms {
     rustler::atoms! {
         ok, error, not_owner, poisoned, invalid, unsupported, duplicate, outside, missing,
         busy, native, fixed, done, dying, ignored,
-        add, heal, ignite, hurt, all, record_facts_missing, no_tick,
+        add, heal, ignite, hurt, all, record_facts_missing, no_tick, remove, clear,
     }
 }
 
@@ -944,6 +944,7 @@ pub(crate) fn attacker(v: &Value) -> NifResult<Attacker> {
             .map(|b| String::from_utf8_lossy(b).into_owned())
             .unwrap_or_default(),
         mainhand: field(m, "mainhand").cloned(),
+        luck: field(m, "luck").and_then(Value::as_number).unwrap_or(0.0),
     })
 }
 
@@ -985,6 +986,7 @@ pub(crate) fn hit_of(rules: &Rules, v: &Value) -> NifResult<Hit> {
         }
         None => None,
     };
+    hit.effect = field(m, "effect").and_then(combat::Hit::effect_of);
     Ok(hit)
 }
 
@@ -1644,8 +1646,9 @@ fn mob_section_cooldown<'a>(
 }
 
 /// A status effect action (`RegionData.mob_effect/5`): `{:add, id, {ticks,
-/// amplifier, ambient, particles, icon}}` (`Effects.add/3`), `{:heal,
-/// amount}`.
+/// amplifier, ambient, particles, icon}}` (`addEffect`), `{:remove, id}`,
+/// `{:clear}` (`removeAllEffects`), `{:heal, amount}`, `{:ignite, ticks}`.
+/// The result is whether anything changed.
 #[rustler::nif]
 fn mob_section_effect<'a>(
     env: Env<'a>,
@@ -1672,14 +1675,29 @@ fn mob_section_effect<'a>(
             particles,
             icon,
         };
-        // `canBeAffected`: a family may refuse it (a wither skeleton's wither).
+        // The dragon refuses every effect; the rest refuse their immunities.
         let kinds = crate::mob_facts::kinds()?;
         act(env, &res, id, |rules, mob, _| {
-            let affected = rules
-                .of(&mob.body.entity_type)
-                .and_then(|ty| kinds.kind(ty.id))
-                .is_none_or(|kind| kind.affected(effect));
-            affected && effects::add(&mut mob.body.mob.living.effects, effect, rung)
+            let Some(ty) = rules.of(&mob.body.entity_type) else {
+                return false;
+            };
+            let added = kinds.kind(ty.id).is_none_or(|kind| kind.affected(effect))
+                && living_mob::add_effect(rules.facts, ty.id, &mut mob.body.mob, effect, rung);
+            reconcile(rules, mob);
+            added
+        })
+    } else if tag == atoms::remove() {
+        let effect: i32 = t.get(1).ok_or(rustler::Error::BadArg)?.decode()?;
+        act(env, &res, id, |rules, mob, _| {
+            let removed = living_mob::remove_effect(rules.facts, &mut mob.body.mob, effect);
+            reconcile(rules, mob);
+            removed
+        })
+    } else if tag == atoms::clear() {
+        act(env, &res, id, |rules, mob, _| {
+            let cleared = living_mob::clear_effects(rules.facts, &mut mob.body.mob);
+            reconcile(rules, mob);
+            cleared
         })
     } else if tag == atoms::heal() {
         let amount: f64 = t.get(1).ok_or(rustler::Error::BadArg)?.decode()?;
@@ -1694,6 +1712,13 @@ fn mob_section_effect<'a>(
         })
     } else {
         Err(rustler::Error::BadArg)
+    }
+}
+
+/// Health Boost's maximum follows its modifiers at once.
+fn reconcile(rules: &Rules, mob: &mut NativeMob) {
+    if let Some(ty) = rules.of(&mob.body.entity_type) {
+        living_mob::reconcile_max_health(rules.living, rules.facts, ty, &mut mob.body.mob);
     }
 }
 

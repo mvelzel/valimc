@@ -30,12 +30,15 @@ defmodule Valimc.Living do
   @doc """
   The living state saved in a player file: health, absorption, effects, fire,
   air and frozen ticks, each optional in older files; absorption is clamped to
-  the restored effects' maximum.
+  the restored effects' maximum, and health to Health Boost's.
   """
   def restore(saved) do
-    with {:ok, health} <- Health.restore(Map.get(saved, :health)) do
-      effects = Map.get(saved, :effects, %{})
+    effects = Map.get(saved, :effects, %{})
 
+    maximum =
+      if Effects.valid?(effects), do: Valimc.Living.Attributes.max_health(effects), else: 20.0
+
+    with {:ok, health} <- Health.restore(Map.get(saved, :health), maximum) do
       {:ok,
        %__MODULE__{
          health: health,

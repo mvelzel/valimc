@@ -1284,14 +1284,23 @@ defmodule Valimc.World.RegionData do
   # An effect on a native mob of the group (VMC-081d): its section applies
   # it; nil for any other.
   defp native_effect(state, sid, action) do
+    case native_effect_result(state, sid, action) do
+      {_, state} -> state
+      nil -> nil
+    end
+  end
+
+  # `{whether it changed, state}`, or nil for a mob that is not native.
+  defp native_effect_result(state, sid, action) do
     case group_entry(state, sid) do
       {key, store, %{native: ref}} when ref != nil ->
         case Native.mob_section_effect(ref, sid, action) do
-          {:ok, {_, events, {position, row}}} ->
-            change_group_entry(state, key, store, sid, {:native, position, row, events})
+          {:ok, {changed, events, {position, row}}} ->
+            {changed == true,
+             change_group_entry(state, key, store, sid, {:native, position, row, events})}
 
           _ ->
-            state
+            {false, state}
         end
 
       _ ->
@@ -4238,6 +4247,30 @@ defmodule Valimc.World.RegionData do
         )
 
       {:reply, {:ok, killed}, state}
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  # `/effect` over this section's mobs (VMC-037p): each mob's section
+  # applies `{:add, id, rung}`, `{:remove, id}` or `{:clear}`. The reply
+  # holds the uuids it changed.
+  def handle_call({:effect_entities, epoch, uuids, action}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state) do
+      {changed, state} =
+        Enum.reduce(uuids, {[], state}, fn uuid, {changed, acc} ->
+          with {:ok, {_, sid, _}} <- Store.find(acc.entities.store, uuid),
+               {true, next} <- native_effect_result(acc, sid, action) do
+            {[uuid | changed], next}
+          else
+            {false, next} -> {changed, next}
+            _ -> {changed, acc}
+          end
+        end)
+
+      {:reply, {:ok, changed}, state}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
@@ -7383,8 +7416,11 @@ defmodule Valimc.World.RegionData do
     stacks =
       with true <- drops and death.loot_table != nil and not death.loot.baby,
            <<seed::signed-64>> = :crypto.strong_rand_bytes(8),
+           # The killing player's luck (`withLuck`).
            {:ok, stacks} <-
-             Valimc.Blocks.Loot.entity_drops(death.loot_table, seed, death.position, death.loot) do
+             Valimc.Blocks.Loot.entity_drops(death.loot_table, seed, death.position, death.loot,
+               luck: Map.get(death, :luck, 0.0)
+             ) do
         stacks
       else
         _ -> []
@@ -8401,8 +8437,8 @@ defmodule Valimc.World.RegionData do
   end
 
   # Vanilla unpacks when a player who may open the chest or barrel opens it:
-  # not a spectator, and only where the open itself succeeds (`createMenu`).
-  # The opener's luck attribute has no source in ValiMC yet, so it is 0.
+  # not a spectator, and only where the open itself succeeds (`createMenu`),
+  # with the opener's luck (`unpackLootTable(player)`: Luck and Bad Luck).
   defp unpack_to_open(state, {x, y, z} = position, %{kind: :open, mode: mode} = grant)
        when mode != :spectator do
     block = Blocks.get(state.blocks, position)
@@ -8430,7 +8466,7 @@ defmodule Valimc.World.RegionData do
              grant,
              now
            ) do
-        {^menu, _, _} -> unpack_loot(state, position, 0.0)
+        {^menu, _, _} -> unpack_loot(state, position, Map.get(grant, :luck, 0.0))
         _ -> state
       end
     else

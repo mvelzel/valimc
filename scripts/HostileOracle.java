@@ -491,6 +491,80 @@ public class HostileOracle {
 
   // ---- facts ----
 
+  // VMC-037p: scripts of `addEffect` (["add", id, ticks, amplifier, flags]:
+  // ambient 1, visible 2, icon 4), `removeEffect`, `removeAllEffects`,
+  // `setHealth` and `tickEffects` on a fresh mob, with its effects, health,
+  // maximum, absorption and movement speed after each.
+  static final String[][] EFFECT_TYPES = {
+    {"minecraft:zombie", "speeds"}, {"minecraft:zombie", "health_boost"}, {"minecraft:zombie", "absorption"},
+    {"minecraft:zombie", "undead"}, {"minecraft:skeleton", "undead"}, {"minecraft:cow", "undead"},
+    {"minecraft:spider", "immune"}, {"minecraft:cave_spider", "immune"}, {"minecraft:wither_skeleton", "immune"},
+    {"minecraft:silverfish", "immune"}, {"minecraft:slime", "immune"}, {"minecraft:zombie", "immune"},
+  };
+
+  static int[][] effectScript(String type, String name) {
+    int row0Health = type.equals("minecraft:cow") ? 4 : 10;
+    int speed = 0, slowness = 1, health = 5, harm = 6, regeneration = 9, poison = 18, wither = 19, boost = 20,
+        absorption = 21, weaving = 36, oozing = 37, infested = 38;
+    return switch (name) {
+      case "speeds" -> new int[][] {{0, speed, 100, 0, 6}, {4, 40}, {0, speed, 30, 2, 6}, {4, 35}, {0, slowness, 20, 1, 2},
+          {4, 30}, {0, speed, 10, 1, 7}, {0, speed, 50, 1, 0}, {4, 60}};
+      case "health_boost" -> new int[][] {{0, boost, 200, 1, 6}, {3, 28}, {4, 1}, {3, 28}, {1, boost}, {0, boost, 100, 0, 6},
+          {4, 1}, {3, 24}, {0, boost, 300, 2, 6}, {4, 2}, {3, 40}, {4, 98}, {4, 3}, {2}};
+      case "absorption" -> new int[][] {{0, absorption, 100, 1, 6}, {0, absorption, 100, 0, 6}, {4, 3}, {1, absorption},
+          {0, absorption, 3, 0, 6}, {4, 5}, {0, absorption, 40, 2, 6}, {2}};
+      // One hurt each: the hurt cooldown is not part of this.
+      case "undead" -> new int[][] {{3, row0Health}, {0, health, 1, 0, 6}, {4, 1}, {0, harm, 1, 1, 6}, {4, 1}, {4, 3}};
+      case "immune" -> new int[][] {{0, poison, 100, 0, 6}, {0, regeneration, 100, 0, 6}, {0, wither, 100, 0, 6},
+          {0, infested, 100, 0, 6}, {0, oozing, 100, 0, 6}, {0, weaving, 100, 0, 6}, {2}};
+      default -> throw new IllegalArgumentException(name);
+    };
+  }
+
+  static JsonArray effects(Level level) throws Exception {
+    var tick = LivingEntity.class.getDeclaredMethod("tickEffects"); tick.setAccessible(true);
+    var hidden = net.minecraft.world.effect.MobEffectInstance.class.getDeclaredField("hiddenEffect"); hidden.setAccessible(true);
+    var out = new JsonArray();
+    for (var row : EFFECT_TYPES) {
+      var m = MobAiOracle.mob(row[0], level);
+      var ops = new JsonArray(); var states = new JsonArray();
+      for (var op : effectScript(row[0], row[1])) {
+        boolean changed = false;
+        switch (op[0]) {
+          case 0 -> changed = m.addEffect(new net.minecraft.world.effect.MobEffectInstance(BuiltInRegistries.MOB_EFFECT.get(op[1]).orElseThrow(),
+              op[2], op[3], (op[4] & 1) != 0, (op[4] & 2) != 0, (op[4] & 4) != 0));
+          case 1 -> changed = m.removeEffect(BuiltInRegistries.MOB_EFFECT.get(op[1]).orElseThrow());
+          case 2 -> changed = m.removeAllEffects();
+          case 3 -> m.setHealth(op[1]);
+          case 4 -> { for (int i = 0; i < op[1]; i++) { m.tickCount++; tick.invoke(m); } }
+          default -> throw new IllegalArgumentException("op " + op[0]);
+        }
+        var o = new JsonArray(); for (int v : op) o.add(v); ops.add(o);
+        var state = new JsonObject(); state.addProperty("changed", changed);
+        var effects = new JsonArray();
+        var active = new ArrayList<>(m.getActiveEffects());
+        active.sort(Comparator.comparingInt(e -> BuiltInRegistries.MOB_EFFECT.getId(e.getEffect().value())));
+        for (var e : active) {
+          var entry = new JsonArray(); entry.add(BuiltInRegistries.MOB_EFFECT.getId(e.getEffect().value()));
+          var rungs = new JsonArray();
+          for (var r = e; r != null; r = (net.minecraft.world.effect.MobEffectInstance)hidden.get(r)) {
+            var rung = new JsonArray(); rung.add(r.getDuration()); rung.add(r.getAmplifier()); rung.add(r.isAmbient());
+            rung.add(r.isVisible()); rung.add(r.showIcon()); rungs.add(rung);
+          }
+          entry.add(rungs); effects.add(entry);
+        }
+        state.add("effects", effects);
+        state.addProperty("health", m.getHealth()); state.addProperty("maximum", m.getMaxHealth());
+        state.addProperty("absorption", m.getAbsorptionAmount());
+        state.addProperty("speed", m.getAttributeValue(Attributes.MOVEMENT_SPEED));
+        states.add(state);
+      }
+      var c = new JsonObject(); c.addProperty("type", row[0]); c.addProperty("script", row[1]);
+      c.add("ops", ops); c.add("states", states); out.add(c);
+    }
+    return out;
+  }
+
   static JsonObject facts(Level level, HolderLookup.Provider lookup, net.minecraft.server.packs.resources.ResourceManager resources) throws Exception {
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
@@ -576,6 +650,22 @@ public class HostileOracle {
     }
     var sensitiveList = new JsonArray(); sensitive.forEach(sensitiveList::add);
     out.add("water_sensitive", sensitiveList);
+    // The effects each living type refuses (`canBeAffected`: its type tags and
+    // the spiders', withers', nautiluses' and parched's own rules), by type.
+    var immunities = new JsonObject();
+    var refusing = new TreeMap<String, JsonArray>();
+    for (var type : BuiltInRegistries.ENTITY_TYPE) {
+      net.minecraft.world.entity.Entity entity;
+      try { entity = type.create(level, net.minecraft.world.entity.EntitySpawnReason.COMMAND); } catch (Throwable ignored) { continue; }
+      if (!(entity instanceof net.minecraft.world.entity.LivingEntity living)) continue;
+      var refused = new JsonArray();
+      for (var effect : BuiltInRegistries.MOB_EFFECT)
+        if (!living.canBeAffected(new net.minecraft.world.effect.MobEffectInstance(BuiltInRegistries.MOB_EFFECT.wrapAsHolder(effect), 1)))
+          refused.add(BuiltInRegistries.MOB_EFFECT.getKey(effect).toString());
+      if (!refused.isEmpty()) refusing.put(BuiltInRegistries.ENTITY_TYPE.getKey(type).toString(), refused);
+    }
+    refusing.forEach(immunities::add);
+    out.add("effect_immunities", immunities);
     // When monsters burn (`EnvironmentAttributes.MONSTERS_BURN`): the overworld
     // day timeline's track (its keyframes over the day's period; the
     // dimension's own value is false).
@@ -790,7 +880,12 @@ public class HostileOracle {
           Files.writeString(Path.of(args[1]), json.create().toJson(out));
           System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla finalizeSpawn results (zombie family, piglins, skeletons, magma cubes, hoglins, wither skeletons).");
         }
-        default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases OUT.json");
+        case "effects" -> {
+          var out = effects(level);
+          Files.writeString(Path.of(args[1]), json.create().toJson(out));
+          System.out.println("PASS: " + out.size() + " vanilla effect scripts on fresh mobs (refusals, modifiers through refresh, promotion and expiry, Health Boost and Absorption clamps, undead instant effects).");
+        }
+        default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases|effects OUT.json");
       }
     }
   }

@@ -302,7 +302,7 @@ defmodule Valimc.Commands.Players do
   def effect(%{literals: ["give" | _]} = arguments, source), do: effect_give(arguments, source)
 
   defp effect_give(%{"targets" => selector, "effect" => effect} = arguments, source) do
-    id = live_effect!(effect)
+    id = EffectTypes.id(effect)
 
     # An instantaneous effect's duration is in ticks, one by default.
     instant = Valimc.Living.Effects.instantaneous?(id)
@@ -319,8 +319,8 @@ defmodule Valimc.Commands.Players do
     amplifier = Map.get(arguments, "amplifier", 0)
     hide = Map.get(arguments, "hideParticles", false)
     {:ok, incoming} = CommandOps.rung(ticks, amplifier, hide)
-    targets = Targets.required_entities(source, selector)
-    tracked = on_targets(targets, fn _ -> {:effect, id, incoming} end)
+    targets = Targets.required_any(source, selector)
+    tracked = effect_targets(targets, {:effect, id, incoming}, {:add, id, incoming})
     effect_name = Names.effect(effect)
     seconds = if ticks < 0, do: 0, else: div(ticks, 20)
 
@@ -348,14 +348,14 @@ defmodule Valimc.Commands.Players do
   defp effect_clear(arguments, source) do
     targets =
       case arguments do
-        %{"targets" => selector} -> Targets.required_entities(source, selector)
+        %{"targets" => selector} -> Targets.required_any(source, selector)
         _ -> [Source.player!(source)]
       end
 
     case arguments do
       %{"effect" => effect} ->
-        id = live_effect!(effect)
-        tracked = on_targets(targets, fn _ -> {:effect, id, :remove} end)
+        id = EffectTypes.id(effect)
+        tracked = effect_targets(targets, {:effect, id, :remove}, {:remove, id})
         effect_name = Names.effect(effect)
 
         total =
@@ -380,7 +380,7 @@ defmodule Valimc.Commands.Players do
         total
 
       _ ->
-        tracked = on_targets(targets, fn _ -> :clear_effects end)
+        tracked = effect_targets(targets, :clear_effects, :clear)
 
         total =
           respond(
@@ -402,13 +402,10 @@ defmodule Valimc.Commands.Players do
   defp value(true), do: 1
   defp value(_), do: 0
 
-  defp live_effect!(effect) do
-    id = EffectTypes.id(effect)
-
-    if id in Valimc.Living.Effects.live(),
-      do: id,
-      else:
-        Error.throw!(%Error{message: Text.literal("The effect #{effect} is not supported yet")})
+  # Players take the operation in their sessions, mobs in their sections.
+  defp effect_targets(targets, operation, action) do
+    {bodies, players} = Enum.split_with(targets, &Entities.body?/1)
+    on_targets(players, fn _ -> operation end) ++ Entities.effect(bodies, action)
   end
 
   # ---- experience ----

@@ -40,6 +40,8 @@ pub struct Attacker {
     pub entity_type: String,
     /// Its main hand's stack (None: empty).
     pub mainhand: Option<Value>,
+    /// A player's luck (`getLuck`), which the loot of a mob it kills reads.
+    pub luck: f64,
 }
 
 /// A hit (`%{source, amount, ...}`).
@@ -72,9 +74,30 @@ pub struct Hit {
     pub post_attack: bool,
     /// An arrow's Punch: its knockback and horizontal motion `{x, z}`.
     pub punch: Option<(f64, [f64; 2])>,
+    /// The effect a hit that lands adds (a tipped arrow's, a wither
+    /// skeleton's wither): `(id, rung)`.
+    pub effect: Option<(i32, super::model::Rung)>,
 }
 
 impl Hit {
+    /// An added effect's term, `{id, {ticks, amplifier, ambient, particles,
+    /// icon}}`.
+    pub fn effect_of(v: &Value) -> Option<(i32, super::model::Rung)> {
+        let [id, rung] = v.as_tuple_n::<2>()?;
+        let [ticks, amplifier, ambient, particles, icon] = rung.as_tuple_n::<5>()?;
+        let amplifier = u8::try_from(amplifier.as_int()?).ok()?;
+        Some((
+            i32::try_from(id.as_int()?).ok()?,
+            super::model::Rung {
+                ticks: i32::try_from(ticks.as_int()?).ok()?,
+                amplifier,
+                ambient: ambient.as_bool()?,
+                particles: particles.as_bool()?,
+                icon: icon.as_bool()?,
+            },
+        ))
+    }
+
     /// A hit of `amount` from damage type `source` with nothing else.
     pub fn new(source: u16, amount: f64) -> Hit {
         Hit {
@@ -91,6 +114,7 @@ impl Hit {
             dragon_part: None,
             post_attack: false,
             punch: None,
+            effect: None,
         }
     }
 }
@@ -789,6 +813,11 @@ pub fn hurt_body(
         );
         body.velocity[1] += lift * super::living::emax(0.0, 1.0 - resistance);
     }
+    // `doPostHurtEffects` and a melee's own (`WitherSkeleton.doHurtTarget`):
+    // a hit that lands adds its effect, even a killing one.
+    if let Some((id, rung)) = hit.effect {
+        living_mob::add_effect(rules.facts, ty.id, &mut body.mob, id, rung);
+    }
     if outcome.died {
         died(rules, ty, family, body, &uuid, Some(hit));
     }
@@ -978,6 +1007,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         player: false,
         entity_type: body.entity_type.clone(),
         mainhand: weapon.cloned(),
+        luck: 0.0,
     };
     let amount = enchantments::attack(
         rules.living,
@@ -1015,6 +1045,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         bypass_immunity: false,
         killer: Some(killer),
         dragon_part: None,
+        effect: None,
     })
 }
 
@@ -1054,6 +1085,8 @@ pub struct Death {
     pub experience: i32,
     /// Its equipment as it fell, then its family's own drops.
     pub equipment: Vec<Value>,
+    /// The killing player's luck (`withLuck`), 0 without one.
+    pub luck: f64,
 }
 
 fn binary(s: &str) -> Value {
@@ -1138,6 +1171,7 @@ impl Death {
             ("loot", Value::Map(loot)),
             ("experience", Value::Int(self.experience as i64)),
             ("equipment", Value::List(self.equipment.clone())),
+            ("luck", Value::Float(self.luck)),
         ]))
     }
 
@@ -1215,6 +1249,7 @@ pub fn died(
         source,
         experience: 0,
         equipment,
+        luck: attacker.filter(|a| a.player).map_or(0.0, |a| a.luck),
     };
     let experience = if killed_by_player && !baby(body) {
         experience(rules, ty, family, body, uuid)

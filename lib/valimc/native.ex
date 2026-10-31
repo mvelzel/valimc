@@ -417,6 +417,9 @@ defmodule Valimc.Native do
   def mob_section_oracle_mind(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_oracle_health(_section, _id), do: :erlang.nif_error(:nif_not_loaded)
 
+  # A fresh native mob through a script of effect operations (the `mob_effects` stage).
+  def mob_effect_parity(_type, _ops), do: :erlang.nif_error(:nif_not_loaded)
+
   # One native mob's body for the vanilla stages: kernel input, hooks, travel traces.
   def mob_oracle_body_kernel(_record), do: :erlang.nif_error(:nif_not_loaded)
 

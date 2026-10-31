@@ -16,20 +16,21 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.material.Fluid;
 
-/** Actual Player mining composition without status effects; equipment modifiers applied explicitly. */
+/** Actual Player mining composition, with Haste, Conduit Power and Mining Fatigue; equipment modifiers applied explicitly. */
 public class PlayerMiningOracle {
   private static List<Holder<Attribute>> ATTRIBUTES;
   private static class Probe extends Player {
     boolean water,ground;
     Map<Holder<Attribute>,AttributeInstance> attributes;
+    Map<Holder<MobEffect>,MobEffectInstance> effects=new HashMap<>();
     private Probe(){super(null,null);}
     public GameType gameMode(){return GameType.SURVIVAL;}
     public double getAttributeValue(Holder<Attribute> key){return getAttribute(key).getValue();}
     public AttributeInstance getAttribute(Holder<Attribute> key){return Objects.requireNonNull(attributes.get(key));}
     public boolean isEyeInFluid(TagKey<Fluid> tag){if(tag!=FluidTags.WATER)throw new AssertionError(tag);return water;}
     public boolean onGround(){return ground;}
-    public boolean hasEffect(Holder<MobEffect> type){return false;}
-    public MobEffectInstance getEffect(Holder<MobEffect> type){return null;}
+    public boolean hasEffect(Holder<MobEffect> type){return effects!=null&&effects.containsKey(type);}
+    public MobEffectInstance getEffect(Holder<MobEffect> type){return effects==null?null:effects.get(type);}
     void reset(){attributes=new HashMap<>();for(var key:ATTRIBUTES)attributes.put(key,new AttributeInstance(key,a->{}));}
   }
   private static String bits(float value){return String.format(Locale.ROOT,"%08x",Float.floatToIntBits(value));}
@@ -74,11 +75,25 @@ public class PlayerMiningOracle {
       var row=new JsonObject();row.addProperty("item",BuiltInRegistries.ITEM.getId(Items.DIAMOND_SWORD));row.addProperty("removed",false);row.addProperty("state",Block.getId(state));row.addProperty("water",true);row.addProperty("ground",ground);row.addProperty("head_aqua",level);
       row.addProperty("speed_bits",bits(p.getDestroySpeed(state)));row.addProperty("correct",p.hasCorrectToolForDrops(state));row.addProperty("rate_bits",bits(state.getDestroyProgress(p,net.minecraft.world.level.EmptyBlockGetter.INSTANCE,BlockPos.ZERO)));speeds.add(row);
     }
+    // Haste and Conduit Power (the larger amplifier) speed digging up, Mining Fatigue slows it.
+    var effectSpeeds=new JsonArray();
+    for(int haste:new int[]{-1,0,1,2,4,255})for(int conduit:new int[]{-1,0,2,255})for(int fatigue:new int[]{-1,0,1,2,3,255}){
+      p.reset();p.effects=new HashMap<>();
+      if(haste>=0)p.effects.put(MobEffects.HASTE,new MobEffectInstance(MobEffects.HASTE,100,haste));
+      if(conduit>=0)p.effects.put(MobEffects.CONDUIT_POWER,new MobEffectInstance(MobEffects.CONDUIT_POWER,100,conduit));
+      if(fatigue>=0)p.effects.put(MobEffects.MINING_FATIGUE,new MobEffectInstance(MobEffects.MINING_FATIGUE,100,fatigue));
+      var row=new JsonObject();row.addProperty("haste",haste);row.addProperty("conduit_power",conduit);row.addProperty("mining_fatigue",fatigue);
+      var values=new JsonArray();for(var item:List.of(Items.AIR,Items.IRON_PICKAXE))for(var state:List.of(Blocks.STONE.defaultBlockState(),Blocks.OBSIDIAN.defaultBlockState()))for(boolean water:new boolean[]{false,true})for(boolean ground:new boolean[]{false,true}){
+        p.water=water;p.ground=ground;inventory.setItem(7,new ItemStack(item));values.add(bits(p.getDestroySpeed(state)));
+      }
+      row.add("speed_bits",values);effectSpeeds.add(row);
+    }
+    p.effects=new HashMap<>();
     int defaults=0;
     for(var item:BuiltInRegistries.ITEM)for(var slot:EquipmentSlot.values()){
       new ItemStack(item).forEachModifier(slot,(attribute,modifier)->{if(ATTRIBUTES.contains(attribute)&&modifier.amount()!=0)throw new AssertionError("Nonzero stock mining modifier: "+item);});defaults++;
     }
-    var result=new JsonObject();result.add("baseline",baseline);result.add("equipment",equipment);result.add("speeds",speeds);Files.writeString(Path.of(args[0]),new Gson().toJson(result));
-    System.out.println("PASS: "+equipment.size()+" native mining attribute/equipment cases, "+equipment.size()*8+" geared Player speed contexts, "+speeds.size()+" stock Player speed/harvest contexts and "+defaults+" default modifier controls; status effects and automatic equipment update excluded.");
+    var result=new JsonObject();result.add("baseline",baseline);result.add("equipment",equipment);result.add("speeds",speeds);result.add("effects",effectSpeeds);Files.writeString(Path.of(args[0]),new Gson().toJson(result));
+    System.out.println("PASS: "+equipment.size()+" native mining attribute/equipment cases, "+equipment.size()*8+" geared Player speed contexts, "+speeds.size()+" stock Player speed/harvest contexts, "+effectSpeeds.size()*16+" effect speed contexts and "+defaults+" default modifier controls; automatic equipment update excluded.");
   }
 }

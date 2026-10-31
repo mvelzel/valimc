@@ -19,7 +19,7 @@ use super::fmath::f;
 use super::turn::Turn;
 use crate::mobs::facts::{Consumable, MobFacts};
 use crate::mobs::kinds::Kind;
-use crate::mobs::living::{effects, items};
+use crate::mobs::living::{items, mob};
 use crate::mobs::model::{Rung, Slot};
 use crate::mobs::term::Value;
 
@@ -125,18 +125,18 @@ fn finish(
 ) {
     sound(kind, t, consumable, stack);
     let facts = t.level.facts;
-    let living = &mut t.mob.body.mob.living;
+    let mob = &mut t.mob.body.mob;
     match items::component(stack, POTION_CONTENTS) {
         Some(contents) => {
             for (id, rung) in potion_effects(facts, contents) {
-                effects::add(&mut living.effects, id, rung);
+                mob::add_effect(facts, t.type_id, mob, id, rung);
             }
         }
         // Milk (and every drink that only clears) clears them all; an item
         // with listeners takes its default potion contents' effects, which
         // no item's defaults hold.
         None if consumable.effects > 0 && props.listeners == 0 => {
-            living.effects.0.clear();
+            mob::clear_effects(facts, mob);
         }
         None => {}
     }

@@ -289,8 +289,9 @@ pub trait Kind: Hooks + Family {
         None
     }
 
-    /// `affected?/1` (`canBeAffected`): whether status effect `effect` may
-    /// be given to it (a wither skeleton is never withered).
+    /// Whether `addEffect` may give it status effect `effect` at all (the
+    /// dragon's refuses every one); type immunities are the generated
+    /// `canBeAffected` (`living::mob::affected`).
     fn affected(&self, _effect: i32) -> bool {
         true
     }

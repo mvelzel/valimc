@@ -152,7 +152,13 @@ impl Witch {
                 .unwrap_or_default();
             for (effect, rungs) in effects {
                 if let Some(&rung) = rungs.first() {
-                    crate::mobs::living::mob::add_effect(facts, &mut t.mob.body.mob, effect, rung);
+                    crate::mobs::living::mob::add_effect(
+                        facts,
+                        t.type_id,
+                        &mut t.mob.body.mob,
+                        effect,
+                        rung,
+                    );
                 }
             }
         }

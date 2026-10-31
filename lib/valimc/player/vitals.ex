@@ -387,6 +387,7 @@ defmodule Valimc.Player.Vitals do
         absorption_view: nil,
         jump_boost_view: nil,
         attack_speed_view: nil,
+        effect_attributes_view: nil,
         fire_damage_due: false,
         fire_contacts_active: false,
         respawn_requested: false,
@@ -471,6 +472,59 @@ defmodule Valimc.Player.Vitals do
     |> Valimc.Player.Movement.publish_absorption()
     |> Valimc.Player.Movement.publish_jump_boost()
     |> Valimc.Player.Attack.publish_speed()
+    |> publish_effect_attributes_only()
+  end
+
+  @effect_only [{"minecraft:max_health", 20.0}, {"minecraft:luck", 0.0}]
+
+  # Health Boost's maximum health and Luck's luck replicate when their
+  # modifiers change; a lower maximum clamps health (`onAttributeUpdated`).
+  defp publish_effect_attributes_only(state) do
+    effects = state.player.living.effects
+
+    derived =
+      Map.new(@effect_only, fn {name, base} ->
+        {:ok, derived} = Attributes.effect_attribute(effects, name, base)
+        {name, derived.attribute}
+      end)
+
+    view = Map.new(derived, fn {name, {_, _, modifiers}} -> {name, modifiers} end)
+    previous = state.effect_attributes_view || Map.new(@effect_only, &{elem(&1, 0), []})
+
+    if view == previous do
+      state
+    else
+      packets =
+        for {name, _} <- @effect_only,
+            view[name] != previous[name],
+            do: Packets.attribute(state.player.entity_id, derived[name])
+
+      send_packets(state, packets)
+      state = put_max_health(state, Attributes.max_health(effects))
+      %{state | effect_attributes_view: view}
+    end
+  end
+
+  defp put_max_health(state, maximum) do
+    health = state.player.living.health
+
+    if health.maximum == maximum do
+      state
+    else
+      next = %{health | maximum: maximum, value: min(health.value, maximum)}
+      state = put_living(state, health: next)
+
+      if next.value != health.value do
+        PlayerList.update(state.connection, state.player)
+
+        send_packets(state, [
+          Valimc.Player.Packets.health(next, state.player.food),
+          Valimc.Player.Packets.player_health(state.player)
+        ])
+      end
+
+      state
+    end
   end
 
   def tick_effects(%{life_stage: :alive, player: %{living: %{effects: effects}}} = state)

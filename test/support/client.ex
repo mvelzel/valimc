@@ -593,21 +593,17 @@ defmodule Valimc.TestConn do
     end)
   end
 
-  @doc "Apply an effect the live game supports."
+  @doc "Apply an effect."
   def add_effect(pid, id, incoming) do
     call(pid, fn
       %{phase: :play, life_stage: :alive} = state ->
-        if id in Valimc.Living.Effects.live() do
-          try do
-            case Valimc.Player.Vitals.apply_effect(state, id, incoming) do
-              {:ok, changed, next} -> {:reply, {:ok, changed}, next}
-              {:error, _} = error -> {:reply, error, state}
-            end
-          catch
-            {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
+        try do
+          case Valimc.Player.Vitals.apply_effect(state, id, incoming) do
+            {:ok, changed, next} -> {:reply, {:ok, changed}, next}
+            {:error, _} = error -> {:reply, error, state}
           end
-        else
-          {:reply, {:error, :invalid_effect}, state}
+        catch
+          {:disconnect, _, current} -> {:stop, :normal, {:error, :disconnected}, current}
         end
 
       state ->

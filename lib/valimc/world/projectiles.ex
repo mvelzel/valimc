@@ -661,7 +661,8 @@ defmodule Valimc.World.Projectiles do
             player: owner.player,
             creative: owner[:creative] == true,
             type: owner[:type],
-            mainhand: nil
+            mainhand: nil,
+            luck: Map.get(owner, :luck, 0.0)
           }
       end
 

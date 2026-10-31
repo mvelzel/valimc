@@ -139,6 +139,8 @@ pub struct HostileFacts {
     pub water_sensitive: HashSet<u16>,
     /// By effect id.
     pub effect_modifiers: HashMap<u16, Vec<EffectModifier>>,
+    /// `(entity type id, effect id)` pairs `canBeAffected` refuses.
+    pub effect_immunities: HashSet<(u16, i32)>,
     /// Biome name => villager type name.
     pub villager_types: HashMap<String, String>,
     pub default_villager_type: String,
@@ -214,6 +216,15 @@ impl HostileFacts {
                 .collect::<Result<Vec<_>, String>>()?;
             effect_modifiers.insert(ctx.effect(effect)?, rows);
         }
+        let mut effect_immunities = HashSet::new();
+        if let Some(rows) = json.get("effect_immunities") {
+            for (entity, effects) in rows.entries()? {
+                let entity = ctx.entity(entity)?;
+                for effect in effects.as_array()? {
+                    effect_immunities.insert((entity, ctx.effect(effect.as_str()?)? as i32));
+                }
+            }
+        }
         Ok(HostileFacts {
             armour,
             drop_chance: float_bits(json.field("drop_chance")?)?,
@@ -233,6 +244,7 @@ impl HostileFacts {
                 .map(|t| ctx.entity(t.as_str()?))
                 .collect::<Result<_, _>>()?,
             effect_modifiers,
+            effect_immunities,
             villager_types: map(json.field("villager_types")?, |_, t| string(t))?,
             default_villager_type: string(json.field("default_villager_type")?)?,
             villager_type_ids: strings(json.field("villager_type_ids")?)?,
@@ -276,6 +288,11 @@ impl HostileFacts {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Whether type `entity` refuses effect `effect` (`canBeAffected`).
+    pub fn immune(&self, entity: u16, effect: i32) -> bool {
+        self.effect_immunities.contains(&(entity, effect))
     }
 
     /// `HostileFacts.villager_type/1`.

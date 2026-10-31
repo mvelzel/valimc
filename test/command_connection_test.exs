@@ -171,6 +171,56 @@ defmodule Valimc.CommandConnectionTest do
     _ = client
   end
 
+  test "every effect: Health Boost's maximum, luck and mobs as targets (VMC-037p)" do
+    {client, pid} = join()
+    living = fn -> Valimc.TestConn.state(pid).player.living end
+
+    client =
+      command(client, "effect give @s health_boost 30 1", "commands.effect.give.success.single")
+
+    Valimc.TestWait.until(fn -> living.().health.maximum == 28.0 end)
+    assert living.().health.value == 20.0
+
+    client = command(client, "effect give @s luck 30 2", "commands.effect.give.success.single")
+    assert Valimc.Living.Attributes.luck(living.().effects) == 3.0
+
+    client =
+      command(
+        client,
+        "effect give @s minecraft:hero_of_the_village",
+        "commands.effect.give.success.single"
+      )
+
+    client =
+      command(
+        client,
+        "effect clear @s health_boost",
+        "commands.effect.clear.specific.success.single"
+      )
+
+    Valimc.TestWait.until(fn -> living.().health.maximum == 20.0 end)
+
+    # A zombie takes Speed but refuses Poison (`canBeAffected`).
+    client = command(client, "summon zombie ~ ~ ~2", "commands.summon.success")
+
+    client =
+      command(
+        client,
+        "effect give @e[type=zombie] speed 30",
+        "commands.effect.give.success.single"
+      )
+
+    client =
+      command(client, "effect give @e[type=zombie] poison 30", "commands.effect.give.failed")
+
+    _client =
+      command(
+        client,
+        "effect clear @e[type=zombie]",
+        "commands.effect.clear.everything.success.single"
+      )
+  end
+
   test "commands reach other players through their own connections" do
     first = name("Op")
     second = name("Target")

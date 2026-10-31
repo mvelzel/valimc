@@ -357,6 +357,9 @@ pub fn with_extras(mut hit: combat::Hit, made: &[AiEffect], target: &Ref) -> com
     if let Some(v) = m.get_atom("lift") {
         hit.lift = v.as_number();
     }
+    if let Some(v) = m.get_atom("effect") {
+        hit.effect = combat::Hit::effect_of(v);
+    }
     if let Some(v) = m.get_atom("extra_knockback") {
         hit.extra_knockback = v.as_tuple_n::<2>().and_then(|[power, direction]| {
             let [x, z] = direction.as_tuple_n::<2>()?;
@@ -1204,6 +1207,7 @@ impl Tick {
                             player: false,
                             entity_type: dragon_mod::DRAGON.to_owned(),
                             mainhand: None,
+                            luck: 0.0,
                         };
                         let hit = combat::Hit {
                             attacker: Some(me.clone()),

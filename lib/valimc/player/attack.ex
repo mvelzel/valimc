@@ -480,7 +480,8 @@ defmodule Valimc.Player.Attack do
       player: true,
       creative: state.player.game_mode.current == :creative,
       type: "minecraft:player",
-      mainhand: mainhand
+      mainhand: mainhand,
+      luck: Attributes.luck(state.player.living.effects)
     }
 
   defp attack_speed(state, mainhand) do

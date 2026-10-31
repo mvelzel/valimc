@@ -103,9 +103,10 @@ pub trait Hooks: Send + Sync {
         1.0
     }
 
-    /// `Living.Effects.add/3` on the mob.
+    /// `addEffect` on the mob.
     fn add_effect(&self, t: &mut Turn, id: i32, rung: Rung) {
-        crate::mobs::living::effects::add(&mut t.mob.body.mob.living.effects, id, rung);
+        let facts = t.level.facts;
+        crate::mobs::living::mob::add_effect(facts, t.type_id, &mut t.mob.body.mob, id, rung);
     }
 
     /// `Animal.breed/2` (`Breeding::Animal`) or a family's breeding.

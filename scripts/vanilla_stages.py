@@ -979,6 +979,14 @@ STAGES = [
         ('regen', 'AttributeMetadata', '@attributes.json'),
         ('same', '@attributes.json', 'priv/protocol/attributes.json'),
     ]),
+    ('mob_effects', [
+        ('java', 'HostileOracle', 'effects', '@mob-effects.json'),
+        ('check', 'check_mob_effects.exs', '@mob-effects.json'),
+    ]),
+    ('effect_metadata', [
+        ('regen', 'EffectMetadata', '@effect-facts.json'),
+        ('same', '@effect-facts.json', 'priv/protocol/effect_facts.json'),
+    ]),
     ('interaction_range', [
         ('java', 'InteractionRangeOracle', '@ranges.json'),
         ('check', 'check_interaction_ranges.exs', '@ranges.json', '@ranges-elixir.json'),

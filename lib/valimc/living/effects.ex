@@ -26,12 +26,6 @@ defmodule Valimc.Living.Effects do
   @max_bytes 1 + 40 * (3 + 256 * 6)
 
   @periodic Enum.sort(Enum.map(~w(regeneration hunger poison wither), &EffectTypes.id/1))
-  @live Enum.map(
-          ~w(fire_resistance resistance absorption water_breathing speed slowness nausea
-            jump_boost slow_falling levitation night_vision blindness darkness mining_fatigue
-            dolphins_grace strength weakness saturation),
-          &EffectTypes.id/1
-        ) ++ @periodic
   @heal EffectTypes.id("instant_health")
   @harm EffectTypes.id("instant_damage")
   @saturation EffectTypes.id("saturation")
@@ -56,19 +50,6 @@ defmodule Valimc.Living.Effects do
 
                 {item["item_id"], callbacks}
               end)
-
-  @doc """
-  The status effects the live game applies, by registry id; others are refused
-  (login, commands, consumption). Besides those with server mechanics, this holds
-  effects whose only role without mobs is to be stored, ticked and sent: night
-  vision, blindness and darkness are drawn by the client; Mining Fatigue
-  slows mining and attacks, Dolphin's Grace swimming (VMC-043e), Strength
-  and Weakness a player's melee damage, and Saturation feeds a player each
-  tick it lasts. Glowing and invisibility need
-  replicated entity flags; haste and the like need their mechanics, so they
-  stay out.
-  """
-  def live, do: @live
 
   @doc """
   Whether effect `id` is instantaneous (`InstantenousMobEffect`: instant

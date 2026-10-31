@@ -111,7 +111,9 @@ defmodule Valimc.Player.Menus do
           %{item_id: id} -> id
           nil -> nil
         end,
-      feet: {state.player.x, state.player.y, state.player.z}
+      feet: {state.player.x, state.player.y, state.player.z},
+      # The opener's luck, which loot an opened chest unpacks reads.
+      luck: Valimc.Living.Attributes.luck(state.player.living.effects)
     }
 
     case state.table_menu do

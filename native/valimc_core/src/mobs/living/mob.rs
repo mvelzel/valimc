@@ -3,8 +3,8 @@
 //! memory, `/kill`, `hurtServer` up to its death (immunities, the hurt
 //! window, armour from its attributes, Resistance, enchantment protection,
 //! absorption), attribute values with its equipment's stock modifiers, the
-//! attributes a client is sent, equipment changes, drop chances and
-//! `addEffect` with the attribute modifiers effects give.
+//! attributes a client is sent, equipment changes, drop chances, and
+//! `addEffect` and `removeEffect` with the attribute modifiers effects give.
 
 use super::super::combat::{Family, Hit, Outcome};
 use super::super::facts::registry::EntityType;
@@ -315,21 +315,98 @@ pub fn put_drop_chance(facts: &LivingFacts, mob: &mut Mob, slot: Slot, chance: f
     mob.drop_chances.0[slot as usize] = (chance != facts.drop_chance).then_some(chance);
 }
 
-/// `Mob.add_effect/3`: effect `id` as `rung` (replacing any) and the
-/// attribute modifiers it gives (a hard spider's speed).
-pub fn add_effect(mob_facts: &MobFacts, mob: &mut Mob, id: i32, rung: Rung) {
-    for (attribute, mid, amount, operation) in mob_facts
-        .hostile
-        .effect_modifiers(id as u16, rung.amplifier as i32)
-    {
+/// `canBeAffected`: whether a mob of type `ty` takes effect `id` (the
+/// generated immunities: the type tags and the spiders', withers',
+/// nautiluses' and parched's own rules).
+pub fn affected(mob_facts: &MobFacts, ty: u16, id: i32) -> bool {
+    !mob_facts.hostile.immune(ty, id)
+}
+
+/// `LivingEntity.addEffect`: refused where its type is immune; otherwise
+/// merged in (`MobEffectInstance.update`), its attribute modifiers
+/// refreshed when it changed (`onEffectAdded`, `onEffectUpdated`), and
+/// Absorption's pool filled to the dose's (`onEffectStarted`, on every add).
+/// Whether the effect changed.
+pub fn add_effect(mob_facts: &MobFacts, ty: u16, mob: &mut Mob, id: i32, rung: Rung) -> bool {
+    if !affected(mob_facts, ty, id) {
+        return false;
+    }
+    let changed = effects::add(&mut mob.living.effects, id, rung);
+    if changed {
+        refresh_modifiers(mob_facts, mob, id);
+    }
+    if mob_facts.effects.id("absorption") == Some(id as u32) {
+        let dose = f((f64::from(rung.amplifier) + 1.0) * 4.0);
+        let maximum = absorption_maximum(mob_facts, mob, id);
+        mob.living.absorption = emax(0.0, mob.living.absorption.max(dose).min(maximum));
+    }
+    changed
+}
+
+/// `getMaxAbsorption` while effect `absorption` is as it is now.
+fn absorption_maximum(mob_facts: &MobFacts, mob: &Mob, absorption: i32) -> f64 {
+    let max = mob_facts
+        .attributes
+        .id("max_absorption")
+        .map_or(0.0, |a| mob_facts.attributes.attributes[a as usize].max);
+    super::attributes::absorption_pool_maximum(&mob.living.effects, absorption, max)
+}
+
+/// `removeEffect`: whether it was there; its modifiers go with it.
+pub fn remove_effect(mob_facts: &MobFacts, mob: &mut Mob, id: i32) -> bool {
+    let removed = effects::remove(&mut mob.living.effects, id);
+    if removed {
+        refresh_modifiers(mob_facts, mob, id);
+    }
+    removed
+}
+
+/// `removeAllEffects` (milk): whether any went.
+pub fn clear_effects(mob_facts: &MobFacts, mob: &mut Mob) -> bool {
+    let ids: Vec<i32> = mob.living.effects.0.iter().map(|(id, _)| *id).collect();
+    for &id in &ids {
+        remove_effect(mob_facts, mob, id);
+    }
+    !ids.is_empty()
+}
+
+/// `MobEffect.removeAttributeModifiers`, then `addAttributeModifiers` at
+/// the active amplifier while it lasts: effect `id`'s generated modifiers
+/// on the mob's attribute overrides.
+pub fn refresh_modifiers(mob_facts: &MobFacts, mob: &mut Mob, id: i32) {
+    let amplifier = mob.living.effects.amplifier(id).map_or(0, i32::from);
+    let rows = mob_facts.hostile.effect_modifiers(id as u16, amplifier);
+    let active = mob.living.effects.get(id).is_some();
+    // A lower maximum clamps the pool (`onAttributeUpdated`).
+    if mob_facts.effects.id("absorption") == Some(id as u32) {
+        let maximum = absorption_maximum(mob_facts, mob, id);
+        mob.living.absorption = mob.living.absorption.min(maximum);
+    }
+    for (attribute, mid, amount, operation) in rows {
         let name = &mob_facts.attributes.attributes[attribute as usize].name;
         let entry: &mut AttributeOverride = mob.attributes.entry(name);
         entry.modifiers.retain(|m| m.id != mid);
-        entry.modifiers.push(Modifier {
-            id: mid.to_owned(),
-            amount: Number::Float(amount),
-            operation: operation as i32,
-        });
+        if active {
+            entry.modifiers.push(Modifier {
+                id: mid.to_owned(),
+                amount: Number::Float(amount),
+                operation: operation as i32,
+            });
+        }
     }
-    effects::put(&mut mob.living.effects, id, vec![rung]);
+}
+
+/// Health Boost's maximum health (`onAttributeUpdated`): the maximum
+/// follows `max_health`'s value, and health above it is clamped. Only a mob
+/// whose `max_health` an effect has touched is looked at.
+pub fn reconcile_max_health(facts: &LivingFacts, mob_facts: &MobFacts, ty: Type, mob: &mut Mob) {
+    if mob.attributes.get("minecraft:max_health").is_none() {
+        return;
+    }
+    let maximum = f(value(facts, mob_facts, ty, mob, facts.attributes.max_health));
+    let health = &mut mob.living.health;
+    if health.maximum != maximum {
+        health.maximum = maximum;
+        health.value = health.value.min(maximum);
+    }
 }
