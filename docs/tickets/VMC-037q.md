@@ -222,6 +222,41 @@ cases), `combat`, `guardian_hurt`, `dragon_damage`, `mob_ai`, `hostile_ai`,
 `nether_mobs`, `animals`, `village` and `projectiles`. The shulker lid
 reach test fails now and then on `main` too.
 
+### q3 — Bows and crossbows (October 31, 2026)
+
+- **Drawing ammunition** (`ProjectileWeaponItem.draw` and `useAmmo`): a
+  shot takes as many arrows as the weapon's `projectile_count` (Multishot's
+  three), the first from the ammunition by its `ammo_use` (Infinity takes
+  none and shoots an intangible copy), the others intangible copies. A
+  crossbow loads them all into `charged_projectiles`.
+- **Shooting** (`ProjectileWeaponItem.shoot`): each arrow at its angle in
+  the weapon's `projectile_spread` (Multishot's 10 degrees each side): a
+  bow turns the yaw, a crossbow turns the view about the player's up
+  vector, with a shot sound and pitch per arrow; the weapon wears a point
+  each and stops when it breaks.
+- **Charging**: the charge time is the crossbow's `crossbow_charge_time`
+  (Quick Charge's quarter second off per level) and its sounds the
+  highest-levelled `crossbow_charging_sounds`.
+- **Arrows** (`Entity.Projectile.arm/3`, for players' shots and skeletons'):
+  an arrow keeps its weapon, pierces what the weapon's `projectile_piercing`
+  gives for its ammunition, and takes `projectile_spawned` (Flame: 100
+  seconds of fire). On a hit its base damage goes through the weapon's
+  `damage` effects (Power) before the speed and critical bonus; the
+  weapon's `knockback` (Punch) pushes along the arrow's horizontal motion,
+  less the target's knockback resistance (`doKnockback`, players and mobs);
+  the post-attack effects run. A piercing arrow passes what it pierced (the
+  kernel skips those ids), flies on after a hurt, is gone after its count,
+  and stops piercing when it hits a block. The pierce level is sent.
+
+Tests: the connection tests "a Multishot, Quick Charge III crossbow loads
+three arrows from one in ten ticks" and "an Infinity, Flame, Power V bow
+keeps its arrow and shoots it burning"; stages `projectiles`,
+`shulker_bullets`, `shulker_bullet_hurt`, `shulker_body_box`,
+`enchantment_effects`, `hostile_ai` and `combat`.
+
+Not shot yet: firework rockets from crossbows, and pillagers' and piglins'
+crossbows (VMC-044d's illagers).
+
 ## Awaiting client
 
 - **Efficiency and Mending** (q1a): an Efficiency V diamond pickaxe breaks
@@ -229,6 +264,11 @@ reach test fails now and then on `main` too.
   hand mends from orbs, and the experience bar fills only once it is whole.
 - **Depth Strider** (q1a): Depth Strider III boots walk on a pool's floor at
   land speed.
+- **Bows and crossbows** (q3): a Multishot crossbow shoots three arrows in
+  a fan; Quick Charge III charges in half a second with its own sounds; a
+  Flame bow's arrows burn; Infinity keeps the last arrow; a Piercing IV
+  crossbow's arrow passes through a line of zombies; Punch II knocks one
+  back further.
 - **Fire Aspect and Thorns** (q2): a Fire Aspect sword sets a zombie
   burning; a zombie hitting a player in Thorns III armour is hurt now and
   then, with the thorns sound and the armour wearing.

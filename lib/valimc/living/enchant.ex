@@ -140,6 +140,12 @@ defmodule Valimc.Living.Enchant do
     count
   end
 
+  @doc "A crossbow's charging sounds (`{start, mid, end}`, each nil or a name), nil for the defaults."
+  def charging_sounds(enchantments) do
+    {:ok, sounds} = Native.enchant_charging_sounds(enchantments)
+    sounds
+  end
+
   @doc "Curse of Binding's `prevent_armor_change`."
   def prevents_armor_change?(enchantments) do
     {:ok, {armor, _drop}} = Native.enchant_flags(enchantments)

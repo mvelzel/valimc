@@ -139,7 +139,17 @@ defmodule Valimc.World.Projectiles do
 
       match?({:block, _, _, _, _, _}, hit) ->
         sound = {:sound, d.sound, "neutral", position, 1.0, hit_pitch()}
-        data = %{d | shake: @shake, crit: false, sound: default_sound(type), life: 0}
+        # `onHitBlock` also ends a Piercing arrow's piercing.
+        data = %{
+          d
+          | shake: @shake,
+            crit: false,
+            sound: default_sound(type),
+            life: 0,
+            pierce: 0,
+            pierced: []
+        }
+
         {:keep, Projectile.impulse(%{body | data: data}), position, [sound]}
 
       match?({:entities, [_ | _]}, hit) ->
@@ -148,7 +158,7 @@ defmodule Valimc.World.Projectiles do
         case targets[id] do
           nil -> {:keep, tail(body), at, []}
           target when type == @trident -> trident_hit(body, at, target, context)
-          target -> arrow_hit(body, at, target, context)
+          target -> arrow_hit(body, at, Map.put(target, :id, id), context)
         end
 
       true ->
@@ -335,11 +345,29 @@ defmodule Valimc.World.Projectiles do
   ## Arrow hits
 
   # `AbstractArrow.onHitEntity` on one entity (an arrow does not pierce).
+  # `AbstractArrow.onHitEntity`: its damage (the weapon's enchantments on
+  # its base, VMC-037q: Power) by its speed, a Piercing arrow's count of what
+  # it passed, the critical bonus; then on a hurt the weapon's Punch, the
+  # post-attack effects, the tipped effect and the sound, and a Piercing
+  # arrow flies on.
   defp arrow_hit(body, at, target, context) do
+    d = body.data
+    pierce = Map.get(d, :pierce, 0)
+
+    if pierce > 0 and length(d.pierced) >= pierce + 1 do
+      {:remove, []}
+    else
+      arrow_hurt(body, at, target, context, pierce)
+    end
+  end
+
+  defp arrow_hurt(body, at, target, context, pierce) do
     d = body.data
     {vx, vy, vz} = body.velocity
     speed = Float32.round(:math.sqrt(vx * vx + vy * vy + vz * vz))
-    damage = min(ceil(speed * d.damage), 2_147_483_647)
+    {base, knockback} = enchanted(d, target, body.type)
+    damage = min(ceil(speed * base), 2_147_483_647)
+    body = if pierce > 0, do: %{body | data: %{d | pierced: [target.id | d.pierced]}}, else: body
 
     damage =
       if d.crit,
@@ -350,6 +378,15 @@ defmodule Valimc.World.Projectiles do
     hit = if Projectile.burning?(body), do: Map.put(hit, :ignite, 100), else: hit
     # `Arrow.doPostHurtEffects`: a tipped arrow's effect (VMC-043b).
     hit = if d.effects != [], do: Map.put(hit, :effect, hd(d.effects)), else: hit
+    hit = if knockback > 0.0, do: Map.put(hit, :punch, {knockback, {vx, vz}}), else: hit
+
+    # The weapon's and the target's post-attack effects (the weapon in the
+    # attacker's hand).
+    hit =
+      if d.weapon,
+        do:
+          %{hit | attacker: %{hit.attacker | mainhand: d.weapon}} |> Map.put(:post_attack, true),
+        else: Map.put(hit, :post_attack, true)
 
     {:hurt, target, hit,
      fn
@@ -366,7 +403,9 @@ defmodule Valimc.World.Projectiles do
                []
            end
 
-         {:remove, [sound | bell]}
+         if pierce > 0,
+           do: {:keep, tail(body), at, [sound | bell]},
+           else: {:remove, [sound | bell]}
 
        false ->
          # `ProjectileDeflection.REVERSE` at a fifth of the power, then the
@@ -389,6 +428,31 @@ defmodule Valimc.World.Projectiles do
            {:keep, Projectile.impulse(tail(body)), at, []}
          end
      end}
+  end
+
+  # The arrow's base damage and knockback after its weapon's enchantments
+  # (`EnchantmentHelper.modifyDamage`, `modifyKnockback` on 0): Power, Punch.
+  defp enchanted(%{weapon: nil} = d, _target, _type), do: {d.damage, 0.0}
+
+  defp enchanted(d, target, type) do
+    levels = Valimc.Living.Enchant.levels(d.weapon)
+
+    owner =
+      case d.owner do
+        %{type: owner_type} when is_binary(owner_type) -> EntityTypes.id(owner_type)
+        %{player: true} -> EntityTypes.id("minecraft:player")
+        _ -> nil
+      end
+
+    ctx = %{
+      this: Valimc.Living.Enchant.entity(type_id: EntityTypes.id(target.type)),
+      attacker: owner && Valimc.Living.Enchant.entity(type_id: owner),
+      direct: Valimc.Living.Enchant.entity(type_id: EntityTypes.id(type)),
+      damage: {Valimc.Protocol.DamageTypes.id(:arrow), false}
+    }
+
+    {Valimc.Living.Enchant.value(:damage, levels, ctx, d.damage),
+     Valimc.Living.Enchant.value(:knockback, levels, ctx, 0.0)}
   end
 
   defp default_sound(@trident), do: "minecraft:item.trident.hit_ground"

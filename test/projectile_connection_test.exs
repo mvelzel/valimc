@@ -163,6 +163,104 @@ defmodule Valimc.ProjectileConnectionTest do
     Valimc.TestWait.until(fn -> TestPlayer.state(pid).inventory.slots[37].count == 3 end)
   end
 
+  test "a Multishot, Quick Charge III crossbow loads three arrows from one in ten ticks (VMC-037q)",
+       ctx do
+    crossbow = %{
+      ItemStack.new("crossbow")
+      | components: %{
+          "minecraft:enchantments" => %{"minecraft:multishot" => 1, "minecraft:quick_charge" => 3}
+        }
+    }
+
+    save(ctx, %Inventory{slots: %{36 => crossbow, 9 => ItemStack.new("arrow", 2)}})
+    {client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+
+    use =
+      IO.iodata_to_binary([Wire.varint(0), Wire.varint(1), <<-90.0::float-32, 0.0::float-32>>])
+
+    Client.send_packet(client, :play, "use_item", use)
+    Valimc.TestWait.until(fn -> match?(%{kind: :crossbow}, TestPlayer.state(pid).active_use) end)
+    TestPlayer.ticks(pid, 11)
+
+    loaded = fn ->
+      TestPlayer.state(pid).inventory.slots[36].components["minecraft:charged_projectiles"]
+    end
+
+    Valimc.TestWait.until(fn -> match?([_, _, _], loaded.()) end)
+    [first, second, third] = loaded.()
+    refute Map.has_key?(first.components, "minecraft:intangible_projectile")
+    assert Map.has_key?(second.components, "minecraft:intangible_projectile")
+    assert Map.has_key?(third.components, "minecraft:intangible_projectile")
+    assert TestPlayer.state(pid).inventory.slots[9].count == 1
+
+    release =
+      IO.iodata_to_binary([
+        Wire.varint(ItemTypes.action_id("release_use_item")),
+        Wire.position({0, 0, 0}),
+        <<0>>,
+        Wire.varint(2)
+      ])
+
+    Client.send_packet(client, :play, "player_action", release)
+    Client.send_packet(client, :play, "use_item", use)
+
+    arrows = fn ->
+      for {_, %{body: %Body{type: "minecraft:arrow"} = body}} <- store(owner).entries, do: body
+    end
+
+    Valimc.TestWait.until(fn -> length(arrows.()) == 3 end)
+    # Three shots wear the crossbow by three.
+    assert TestPlayer.state(pid).inventory.slots[36].components["minecraft:damage"] == 3
+    _ = client
+  end
+
+  test "an Infinity, Flame, Power V bow keeps its arrow and shoots it burning (VMC-037q)", ctx do
+    bow = %{
+      ItemStack.new("bow")
+      | components: %{
+          "minecraft:enchantments" => %{
+            "minecraft:infinity" => 1,
+            "minecraft:flame" => 1,
+            "minecraft:power" => 5
+          }
+        }
+    }
+
+    save(ctx, %Inventory{slots: %{36 => bow, 9 => ItemStack.new("arrow", 1)}})
+    {client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+
+    use =
+      IO.iodata_to_binary([Wire.varint(0), Wire.varint(1), <<-90.0::float-32, 0.0::float-32>>])
+
+    Client.send_packet(client, :play, "use_item", use)
+    Valimc.TestWait.until(fn -> match?(%{kind: :bow}, TestPlayer.state(pid).active_use) end)
+    TestPlayer.ticks(pid, 21)
+
+    release =
+      IO.iodata_to_binary([
+        Wire.varint(ItemTypes.action_id("release_use_item")),
+        Wire.position({0, 0, 0}),
+        <<0>>,
+        Wire.varint(2)
+      ])
+
+    Client.send_packet(client, :play, "player_action", release)
+
+    arrows = fn ->
+      for {_, %{body: %Body{type: "minecraft:arrow"} = body}} <- store(owner).entries, do: body
+    end
+
+    Valimc.TestWait.until(fn -> arrows.() != [] end)
+    [arrow] = arrows.()
+    assert Projectile.burning?(arrow)
+    assert arrow.data.pickup == :creative_only
+    assert arrow.data.weapon.components["minecraft:enchantments"]["minecraft:power"] == 5
+    assert TestPlayer.state(pid).inventory.slots[9].count == 1
+    _ = client
+  end
+
   test "an arrow shot into the ground is picked up again", ctx do
     save(ctx, %Inventory{slots: %{36 => ItemStack.new("bow"), 9 => ItemStack.new("arrow", 2)}})
     {client, pid} = TestPlayer.login(ctx)

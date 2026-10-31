@@ -189,6 +189,13 @@ defmodule Valimc.Player.Hurt do
             _ -> state
           end
 
+        # An arrow's Punch (`AbstractArrow.doKnockback`, VMC-037q).
+        state =
+          case hit[:punch] do
+            {power, along} when result in [:hurt, :dead] -> punch(state, power, along)
+            _ -> state
+          end
+
         # A burning arrow or small fireball sets the player on fire (VMC-037o).
         state =
           case hit[:ignite] do
@@ -372,6 +379,25 @@ defmodule Valimc.Player.Hurt do
     state = %{state | player: %{state.player | motion: %{motion | velocity: velocity}}}
     Movement.send_velocity(state, velocity)
     state
+  end
+
+  # `doKnockback`: along the arrow's horizontal motion, `power * 0.6` less
+  # the knockback resistance, and up 0.1.
+  defp punch(state, power, {ax, az}) do
+    resistance = max(0.0, 1.0 - resistance(Armor.equipment(state.inventory)))
+    length = :math.sqrt(ax * ax + az * az)
+
+    if length < 1.0e-4 do
+      state
+    else
+      scale = power * 0.6 * resistance / length
+      motion = state.player.motion
+      {vx, vy, vz} = motion.velocity
+      velocity = {vx + ax * scale, vy + 0.1, vz + az * scale}
+      state = %{state | player: %{state.player | motion: %{motion | velocity: velocity}}}
+      Movement.send_velocity(state, velocity)
+      state
+    end
   end
 
   @doc "`dealDefaultKnockback`'s direction: from `position` towards `source` (reversed by knockback)."

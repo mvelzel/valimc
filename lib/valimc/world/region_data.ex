@@ -3095,7 +3095,14 @@ defmodule Valimc.World.RegionData do
             {name, ticks} -> {Valimc.Data.EffectTypes.id(name), {ticks, 0, false, true, true}}
           end
 
-        opts = %{from: shot.from, pitch: shot.pitch, effect: effect}
+        # The bow in its hand arms the arrow (VMC-037q: Power, Punch, Flame).
+        weapon =
+          case state.entities.store.entries[id].body do
+            %{shown: {_, _, equipment, _}} -> equipment[:mainhand]
+            _ -> nil
+          end
+
+        opts = %{from: shot.from, pitch: shot.pitch, effect: effect, weapon: weapon}
 
         case mob_shoot(state, uuid, shot.at, shot.power, opts) do
           {:ok, state} -> state
@@ -7290,7 +7297,10 @@ defmodule Valimc.World.RegionData do
         Valimc.Data.Float32.round(power * 2.0) + difficulty * 0.11 +
           0.57425 * (:rand.uniform() - :rand.uniform())
 
-      arrow = %{arrow | data: %{arrow.data | damage: damage}}
+      arrow =
+        %{arrow | data: %{arrow.data | damage: damage}}
+        |> Projectile.arm(opts[:weapon], Valimc.Protocol.ItemStack.new("arrow"))
+
       {xd, zd} = {tx - x, tz - z}
       distance = :math.sqrt(xd * xd + zd * zd)
       yd = ty + height / 3.0 - y + distance * Valimc.Data.Float32.round(0.2)

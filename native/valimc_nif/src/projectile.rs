@@ -7,7 +7,8 @@
 //! - `kind` `{:arrow, gravity}`, `{:throwable, gravity}`, `{:hurting,
 //!   acceleration}` or `{:eye, target}` (`target` nil or a point);
 //! - `size` `{width, height}`, `random` three floats in [0, 1), `owner` the
-//!   owner's network id or nil.
+//!   owner's network id or nil, or `{owner, ignored}` with the ids it does
+//!   not hit (a piercing arrow's).
 //!
 //! Targets are `{id, position, box}`. Each result is `{:ok, state, hit,
 //! {water, lava}, loosened}`, `{:unreadable, position}` or `:limit`, with
@@ -31,8 +32,17 @@ type ProjectileT<'a> = (
     (Atom, Term<'a>),
     (f32, f32),
     (f32, f32, f32),
-    Option<i32>,
+    Term<'a>,
 );
+
+/// The owner's network id (or nil), or `{owner, ignored}` with the network
+/// ids a piercing arrow passes (`piercingIgnoreEntityIds`, VMC-037q).
+fn owner_of(term: Term) -> NifResult<(Option<i32>, Vec<i32>)> {
+    match term.decode::<(Option<i32>, Vec<i32>)>() {
+        Ok(pair) => Ok(pair),
+        Err(_) => Ok((term.decode::<Option<i32>>()?, Vec::new())),
+    }
+}
 type TargetT = (i32, Vec3, BoxT);
 
 fn kind(tag: Atom, arg: Term) -> NifResult<Kind> {
@@ -156,6 +166,7 @@ fn run<'a>(
         owner,
     ) in projectiles
     {
+        let owner = owner_of(owner)?;
         let projectile = Projectile {
             position: v3(p),
             velocity: v3(v),
@@ -205,8 +216,10 @@ fn run<'a>(
     let results: Vec<Term> = inputs
         .iter()
         .map(|(input, owner)| {
+            let (owner, ignored) = owner;
             let mine: Vec<Target> = all
                 .iter()
+                .filter(|(id, _, _)| !ignored.contains(id))
                 .map(|&(id, position, bbox)| Target {
                     id,
                     position,

@@ -431,7 +431,7 @@ fn enchant_immune(enchantments: Vec<(String, i32)>, ctx: Ctx) -> NifResult<(Atom
 fn enchant_modifiers(
     enchantments: Vec<(String, i32)>,
     slot_name: String,
-) -> NifResult<(Atom, Vec<(String, String, f64, u8)>)> {
+) -> NifResult<(Atom, Vec<Modifier>)> {
     let facts = crate::mob_living::facts()?;
     let out = facts
         .enchant
@@ -510,6 +510,10 @@ fn enchant_entity<'a>(
 }
 
 type Active = Vec<(String, String, usize)>;
+type Modifier = (String, String, f64, u8);
+type Located<'a> = (Vec<Term<'a>>, Active, u64);
+type Position = (i32, i32, i32);
+type Sounds = (Option<String>, Option<String>, Option<String>);
 
 fn active_of(active: &Active) -> NifResult<Vec<(Slot, String, usize)>> {
     active
@@ -535,7 +539,7 @@ fn enchant_location<'a>(
     active: Active,
     ctx: Ctx,
     state: u64,
-) -> NifResult<(Atom, (Vec<Term<'a>>, Active, u64))> {
+) -> NifResult<(Atom, Located<'a>)> {
     let facts = crate::mob_living::facts()?;
     let mob = crate::mob_facts::facts()?;
     let mut r = random(state)?;
@@ -595,7 +599,7 @@ fn enchant_disk_positions(
     offset: (i32, i32, i32),
     radius: i32,
     height: i32,
-) -> NifResult<(Atom, Vec<(i32, i32, i32)>)> {
+) -> NifResult<(Atom, Vec<Position>)> {
     if !(0..=16).contains(&radius) || !(0..=16).contains(&height) {
         return Err(rustler::Error::BadArg);
     }
@@ -626,5 +630,19 @@ fn enchant_count_with(
             &levels(&enchantments),
             slot(&slot_name)?,
         ),
+    ))
+}
+
+/// The crossbow charging sounds of the enchantments (`{start, mid, end}`),
+/// or nil for the default ones.
+#[rustler::nif]
+fn enchant_charging_sounds(enchantments: Vec<(String, i32)>) -> NifResult<(Atom, Option<Sounds>)> {
+    let facts = crate::mob_living::facts()?;
+    Ok((
+        crate::atoms::ok(),
+        facts
+            .enchant
+            .charging_sounds(&levels(&enchantments))
+            .cloned(),
     ))
 }

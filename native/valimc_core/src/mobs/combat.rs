@@ -70,6 +70,8 @@ pub struct Hit {
     /// Its enchantments' post-attack effects run when it hurts (VMC-037q):
     /// a melee hit, `doPostAttackEffects`.
     pub post_attack: bool,
+    /// An arrow's Punch: its knockback and horizontal motion `{x, z}`.
+    pub punch: Option<(f64, [f64; 2])>,
 }
 
 impl Hit {
@@ -88,6 +90,7 @@ impl Hit {
             killer: None,
             dragon_part: None,
             post_attack: false,
+            punch: None,
         }
     }
 }
@@ -758,6 +761,24 @@ pub fn hurt_body(
             knock(rules, ty, family, body, power, direction);
         }
     }
+    // `AbstractArrow.doKnockback`: along the arrow's horizontal motion,
+    // its Punch times 0.6 less the knockback resistance, and up 0.1.
+    if let Some((power, [ax, az])) = hit.punch {
+        let resistance = living_mob::value(
+            rules.living,
+            rules.facts,
+            ty,
+            &body.mob,
+            rules.living.attributes.knockback_resistance,
+        );
+        let length = (ax * ax + az * az).sqrt();
+        if length >= 1.0e-4 {
+            let scale = power * 0.6 * super::living::emax(0.0, 1.0 - resistance) / length;
+            body.velocity[0] += ax * scale;
+            body.velocity[1] += 0.1;
+            body.velocity[2] += az * scale;
+        }
+    }
     if let Some(lift) = hit.lift {
         let resistance = living_mob::value(
             rules.living,
@@ -987,6 +1008,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         direct: Some(attacker),
         position: Some(mob.position),
         post_attack: true,
+        punch: None,
         direction: None,
         extra_knockback: Some((knockback, melee::facing(body.yaw))),
         lift: None,

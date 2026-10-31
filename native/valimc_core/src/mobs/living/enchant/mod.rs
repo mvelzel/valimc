@@ -286,11 +286,14 @@ pub struct Definition {
     pub immunity: Vec<Option<Condition>>,
     pub prevent_armor_change: bool,
     pub prevent_equipment_drop: bool,
-    /// `crossbow_charging_sounds`: `(start, mid, end)` by level.
-    pub charging_sounds: Vec<(Option<String>, Option<String>, Option<String>)>,
+    /// `crossbow_charging_sounds` by level.
+    pub charging_sounds: Vec<ChargingSounds>,
     /// `trident_sound` by level.
     pub trident_sounds: Vec<String>,
 }
+
+/// `CrossbowItem.ChargingSounds`: start, mid and end.
+pub type ChargingSounds = (Option<String>, Option<String>, Option<String>);
 
 /// Every enchantment's definition, by name.
 #[derive(Clone, Debug, Default)]

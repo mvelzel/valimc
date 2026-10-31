@@ -31,7 +31,7 @@ defmodule Valimc.Player.Projectiles do
   """
   alias Valimc.Data.{Float32, Grid, PlayerPose}
   alias Valimc.Entity.{Projectile, Store}
-  alias Valimc.Living.{DamageSource, Durability}
+  alias Valimc.Living.{DamageSource, Durability, Enchant}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{CreativeInventory, ItemUse, Items, Jobs, Movement, Teleports, Use, Vitals}
   alias Valimc.Protocol.{CombatPackets, ItemStack, ItemTypes, Packets, Wire}
@@ -50,8 +50,6 @@ defmodule Valimc.Player.Projectiles do
   @arrows ["minecraft:arrow", "minecraft:tipped_arrow"]
   @eye "minecraft:eye_of_ender"
   @eye_item "minecraft:ender_eye"
-  # `CrossbowItem.getChargeDuration` without Quick Charge: 1.25 seconds.
-  @charge 25
   # `use_cooldown` of an ender pearl: one second.
   @pearl_cooldown 20
 
@@ -240,8 +238,9 @@ defmodule Valimc.Player.Projectiles do
   end
 
   @doc """
-  The release of a drawn bow (`BowItem.releaseUsing`): an arrow at the
-  power of the ticks drawn. Any use ends.
+  The release of a drawn bow (`BowItem.releaseUsing`): the arrows it draws
+  (`draw_ammo/2`) at three times the power of the ticks drawn, spread by its
+  enchantments (`ProjectileWeaponItem.shoot`). Any use ends.
   """
   def release(%{active_use: %Use{kind: :bow} = use} = state) do
     bow = Inventory.held(state.inventory, use.hand)
@@ -250,28 +249,26 @@ defmodule Valimc.Player.Projectiles do
     state =
       with true <- power >= 0.1,
            %ItemStack{} <- bow,
-           {:ok, arrow, inventory} <- take_ammo(state.inventory, :bow) do
+           {:ok, arrows, inventory} <- draw_ammo(%{state | inventory: state.inventory}, bow) do
         player = state.player
         state = %{state | inventory: inventory}
 
-        body =
-          "minecraft:arrow"
-          |> Projectile.new(owner(player), arrow)
-          |> creative_only(arrow)
-          |> crit(power == 1.0)
-          |> Projectile.from_rotation(
-            {player.pitch, player.yaw},
-            0.0,
-            Float32.round(power * 3.0),
-            1.0,
-            movement(player)
-          )
+        # `BowItem.shootProjectile`: along the view turned by the angle.
+        aim = fn body, angle, _index, state ->
+          body =
+            Projectile.from_rotation(
+              body,
+              {player.pitch, Float32.round(player.yaw + angle)},
+              0.0,
+              Float32.round(power * 3.0),
+              1.0,
+              movement(player)
+            )
 
-        state =
-          case launch(state, body, launch_point(player)) do
-            {:ok, state} -> wear(state, use.hand)
-            :error -> state
-          end
+          {body, state}
+        end
+
+        state = shoot(state, use.hand, bow, arrows, power == 1.0, nil, aim)
 
         pitch =
           Float32.round(
@@ -297,39 +294,41 @@ defmodule Valimc.Player.Projectiles do
 
   @doc """
   One tick of a charging crossbow (`CrossbowItem.onUseTick`): its loading
-  sounds at a fifth and half of the charge, and the arrow loaded once full.
+  sounds at a fifth and half of the charge, and the arrows loaded once full
+  (`draw_ammo/2`). The charge time and the sounds are its enchantments'
+  (Quick Charge, VMC-037q).
   """
   def charge(%{active_use: %Use{kind: :crossbow} = use} = state) do
-    progress = Float32.round(Use.elapsed(use) / @charge)
+    crossbow = Inventory.held(state.inventory, use.hand)
+    levels = Enchant.levels(crossbow)
+    progress = Float32.round(Use.elapsed(use) / charge_duration(levels))
     loads = Map.get(use, :sounds, 0)
+    {start, mid, finish} = charging_sounds(levels)
 
     cond do
       progress >= 1.0 and loads < 3 ->
-        crossbow = Inventory.held(state.inventory, use.hand)
-
         with %ItemStack{} <- crossbow,
              nil <- ItemStack.component(crossbow, "minecraft:charged_projectiles") |> loaded(),
-             {:ok, arrow, inventory} <- take_ammo(state.inventory, :crossbow) do
-          charged =
-            put_in(crossbow.components["minecraft:charged_projectiles"], [%{arrow | count: 1}])
+             {:ok, arrows, inventory} <- draw_ammo(state, crossbow) do
+          charged = put_in(crossbow.components["minecraft:charged_projectiles"], arrows)
 
           inventory =
             inventory |> Inventory.put(slot(state, use.hand), charged) |> Inventory.advance()
 
           state = CreativeInventory.resync_inventory(%{state | inventory: inventory})
           pitch = Float32.round(Float32.round(1.0 / Float32.round(float() * 0.5 + 1.0)) + 0.2)
-          play(state, "minecraft:item.crossbow.loading_end", "player", 1.0, pitch)
+          state = if finish, do: play(state, finish, "player", 1.0, pitch), else: state
           %{state | active_use: %{use | sounds: 3}}
         else
           _ -> %{state | active_use: %{use | sounds: 3}}
         end
 
       progress >= 0.5 and loads < 2 ->
-        play(state, "minecraft:item.crossbow.loading_middle", "player", 0.5, 1.0)
+        state = if mid, do: play(state, mid, "player", 0.5, 1.0), else: state
         %{state | active_use: %{use | sounds: 2}}
 
       progress >= 0.2 and loads < 1 ->
-        play(state, "minecraft:item.crossbow.loading_start", "player", 0.5, 1.0)
+        state = if start, do: play(state, start, "player", 0.5, 1.0), else: state
         %{state | active_use: %{use | sounds: 1}}
 
       true ->
@@ -339,12 +338,25 @@ defmodule Valimc.Player.Projectiles do
 
   def charge(state), do: state
 
+  # `CrossbowItem.getChargeDuration`: 1.25 seconds after Quick Charge.
+  defp charge_duration(levels) do
+    seconds = max(0.0, Enchant.unconditioned(:crossbow_charge_time, levels, 1.25))
+    max(floor(Float32.round(seconds * 20.0)), 1)
+  end
+
+  @default_sounds {"minecraft:item.crossbow.loading_start",
+                   "minecraft:item.crossbow.loading_middle",
+                   "minecraft:item.crossbow.loading_end"}
+
+  defp charging_sounds(levels), do: Enchant.charging_sounds(levels) || @default_sounds
+
   defp loaded([_ | _]), do: :loaded
   defp loaded(_), do: nil
 
-  # `CrossbowItem.performShooting` of its loaded arrow: along the view at
-  # 3.15, critical, with the crossbow's hit sound.
-  defp shoot_crossbow(state, hand, crossbow, [arrow | _]) do
+  # `CrossbowItem.performShooting` of its loaded arrows: along the view
+  # turned about the player's up vector by each arrow's angle, at 3.15,
+  # critical, with the crossbow's hit sound and a shot sound each.
+  defp shoot_crossbow(state, hand, crossbow, loaded) do
     player = state.player
     emptied = put_in(crossbow.components["minecraft:charged_projectiles"], [])
 
@@ -353,22 +365,94 @@ defmodule Valimc.Player.Projectiles do
 
     state = %{state | inventory: inventory}
 
-    body =
-      "minecraft:arrow"
-      |> Projectile.new(owner(player), arrow)
-      |> creative_only(arrow)
-      |> crit(true)
-      |> then(&%{&1 | data: %{&1.data | sound: "minecraft:item.crossbow.hit"}})
-      |> Projectile.shoot(view(player), 3.15, 1.0)
+    aim = fn body, angle, index, state ->
+      direction = turn(view(player), up(player), angle)
+      body = Projectile.shoot(body, direction, 3.15, 1.0)
+      {body, play(state, "minecraft:item.crossbow.shoot", "player", 1.0, shot_pitch(index))}
+    end
 
-    state =
-      case launch(state, body, launch_point(player)) do
-        {:ok, state} -> wear(state, hand)
-        :error -> state
-      end
+    state
+    |> shoot(hand, emptied, loaded, true, "minecraft:item.crossbow.hit", aim)
+    |> CreativeInventory.resync_inventory()
+  end
 
-    play(state, "minecraft:item.crossbow.shoot", "player", 1.0, 1.0)
-    CreativeInventory.resync_inventory(state)
+  # `CrossbowItem.getShotPitch`.
+  defp shot_pitch(0), do: 1.0
+
+  defp shot_pitch(index) do
+    decider = if rem(index, 2) == 1, do: Float32.round(0.63), else: Float32.round(0.43)
+    Float32.round(Float32.round(1.0 / Float32.round(float() * 0.5 + 1.8)) + decider)
+  end
+
+  # `ProjectileWeaponItem.shoot`: each arrow from `weapon`, at its angle in
+  # the spread its enchantments give (Multishot's 10 degrees each side),
+  # aimed by `aim`; the weapon wears a point each, and a broken weapon
+  # shoots no more.
+  defp shoot(state, hand, weapon, arrows, crit, sound, aim) do
+    levels = Enchant.levels(weapon)
+
+    max_angle =
+      max(
+        0.0,
+        Enchant.value(
+          :projectile_spread,
+          levels,
+          %{this: Valimc.Player.Enchantments.view(state)},
+          0.0
+        )
+      )
+
+    n = length(arrows)
+    step = if n == 1, do: 0.0, else: Float32.round(2.0 * max_angle / (n - 1))
+    offset = Float32.round(rem(n - 1, 2) * step / 2.0)
+
+    {state, _} =
+      arrows
+      |> Enum.with_index()
+      |> Enum.reduce_while({state, 1.0}, fn {arrow, index}, {state, direction} ->
+        angle = Float32.round(offset + direction * div(index + 1, 2) * step)
+
+        body =
+          "minecraft:arrow"
+          |> Projectile.new(owner(state.player), arrow)
+          |> creative_only(arrow)
+          |> crit(crit)
+          |> Projectile.arm(weapon, arrow)
+          |> then(fn body ->
+            if sound, do: %{body | data: %{body.data | sound: sound}}, else: body
+          end)
+
+        {body, state} = aim.(body, angle, index, state)
+
+        state =
+          case launch(state, body, launch_point(state.player)) do
+            {:ok, state} -> wear(state, hand)
+            :error -> state
+          end
+
+        if Inventory.get(state.inventory, slot(state, hand)) == nil,
+          do: {:halt, {state, -direction}},
+          else: {:cont, {state, -direction}}
+      end)
+
+    state
+  end
+
+  # `getUpVector(1.0F)`: the view vector of the pitch less 90 degrees.
+  defp up(player), do: view(%{player | pitch: Float32.round(player.pitch - 90.0)})
+
+  # `Vector3f.rotate` by the axis-angle quaternion of `degrees` about `axis`.
+  defp turn(v, _axis, angle) when angle == 0.0, do: v
+
+  defp turn({vx, vy, vz}, {kx, ky, kz}, degrees) do
+    theta = Float32.round(degrees * Float32.round(:math.pi() / 180.0))
+    {c, s} = {:math.cos(theta), :math.sin(theta)}
+    dot = kx * vx + ky * vy + kz * vz
+    {cx, cy, cz} = {ky * vz - kz * vy, kz * vx - kx * vz, kx * vy - ky * vx}
+
+    {Float32.round(vx * c + cx * s + kx * dot * (1 - c)),
+     Float32.round(vy * c + cy * s + ky * dot * (1 - c)),
+     Float32.round(vz * c + cz * s + kz * dot * (1 - c))}
   end
 
   @doc "`Entity.calculateViewVector` of the player's rotation, in floats (`getLookAngle`)."
@@ -416,24 +500,72 @@ defmodule Valimc.Player.Projectiles do
     )
   end
 
-  # `ProjectileWeaponItem.useAmmo`: one arrow from the stack, or with
-  # infinite materials a copy marked intangible (a plain arrow if none is held).
-  defp take_ammo(inventory, kind) do
-    case {ammo(inventory, kind), inventory.infinite_materials} do
-      {nil, true} ->
-        {:ok, put_in(ItemStack.new("arrow").components["minecraft:intangible_projectile"], :unit),
-         inventory}
+  # `ProjectileWeaponItem.draw` from `weapon`: the arrows of one shot,
+  # `{:ok, arrows, inventory}` or `:none`. The first is the ammunition's
+  # (`useAmmo`: what its `ammo_use` effects take, Infinity none); Multishot's
+  # others are intangible copies. Infinite materials take none and shoot a
+  # plain arrow when none is held.
+  defp draw_ammo(state, weapon) do
+    inventory = state.inventory
 
-      {{_, stack}, true} ->
-        {:ok, put_in(%{stack | count: 1}.components["minecraft:intangible_projectile"], :unit),
-         inventory}
+    found =
+      case ammo(inventory, :any) do
+        nil -> if inventory.infinite_materials, do: {nil, ItemStack.new("arrow")}
+        found -> found
+      end
 
-      {{slot, stack}, false} ->
-        left = if stack.count > 1, do: %{stack | count: stack.count - 1}, else: nil
-        {:ok, %{stack | count: 1}, Inventory.put(inventory, slot, left) |> Inventory.advance()}
-
-      {nil, false} ->
+    case found do
+      nil ->
         :none
+
+      {slot, projectile} ->
+        levels = Enchant.levels(weapon)
+
+        count =
+          max(
+            0,
+            trunc(
+              Enchant.value(
+                :projectile_count,
+                levels,
+                %{this: Valimc.Player.Enchantments.view(state)},
+                1
+              )
+            )
+          )
+
+        {drawn, inventory} =
+          Enum.reduce(0..(count - 1)//1, {[], inventory}, fn i, {drawn, inventory} ->
+            infinite = i > 0 or inventory.infinite_materials
+
+            used =
+              if infinite,
+                do: 0,
+                else: trunc(Enchant.value(:ammo_use, levels, %{tool: projectile.item_id}, 1))
+
+            cond do
+              used > projectile.count ->
+                {drawn, inventory}
+
+              used == 0 ->
+                copy =
+                  put_in(
+                    %{projectile | count: 1}.components["minecraft:intangible_projectile"],
+                    :unit
+                  )
+
+                {[copy | drawn], inventory}
+
+              true ->
+                left =
+                  if projectile.count > used, do: %{projectile | count: projectile.count - used}
+
+                {[%{projectile | count: used} | drawn],
+                 Inventory.put(inventory, slot, left) |> Inventory.advance()}
+            end
+          end)
+
+        if drawn == [], do: :none, else: {:ok, Enum.reverse(drawn), inventory}
     end
   end
 

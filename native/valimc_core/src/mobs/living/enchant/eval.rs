@@ -421,6 +421,23 @@ impl Engine {
             .count()
     }
 
+    /// `pickHighestLevel(stack, CROSSBOW_CHARGING_SOUNDS)`: the charging
+    /// sounds of the highest-levelled enchantment that has them, by its level.
+    pub fn charging_sounds(&self, enchantments: &[(&str, i32)]) -> Option<&ChargingSounds> {
+        let mut best: Option<(i32, &Definition)> = None;
+        for (name, level) in enchantments {
+            if let Some(def) = self.get(name) {
+                if !def.charging_sounds.is_empty() && best.is_none_or(|(l, _)| *level > l) {
+                    best = Some((*level, def));
+                }
+            }
+        }
+        best.map(|(level, def)| {
+            let i = (level - 1).clamp(0, def.charging_sounds.len() as i32 - 1) as usize;
+            &def.charging_sounds[i]
+        })
+    }
+
     /// Whether any of `enchantments` has the flag component.
     pub fn prevents_armor_change(&self, enchantments: &[(&str, i32)]) -> bool {
         enchantments

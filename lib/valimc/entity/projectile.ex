@@ -84,7 +84,11 @@ defmodule Valimc.Entity.Projectile do
       weapon: nil,
       # A tipped arrow's effects on what it hits (`{id, rung}`, a stray's
       # slowness, VMC-043b).
-      effects: []
+      effects: [],
+      # Piercing (VMC-037q): the bodies it may pass through, and the network
+      # ids it has passed (`piercingIgnoreEntityIds`).
+      pierce: 0,
+      pierced: []
     }
 
   # `ThrownTrident`: eight damage whatever its speed, its own sound in the
@@ -220,6 +224,14 @@ defmodule Valimc.Entity.Projectile do
 
     %{width: width, height: height} = EntityTypes.fetch(type)
     owner = if d.owner, do: d.owner.id
+
+    # A piercing arrow passes what it pierced (VMC-037q).
+    owner =
+      case Map.get(d, :pierced, []) do
+        [] -> owner
+        pierced -> {owner, pierced}
+      end
+
     {state, kind(body), {width * 1.0, height * 1.0}, random, owner}
   end
 
@@ -275,7 +287,7 @@ defmodule Valimc.Entity.Projectile do
 
     [
       {:arrow_flags, flags, 0},
-      {:arrow_pierce_level, 0, 0},
+      {:arrow_pierce_level, Map.get(d, :pierce, 0), 0},
       {:arrow_in_ground, d.in_ground, false},
       {:arrow_color, -1, -1}
     ]
@@ -293,6 +305,39 @@ defmodule Valimc.Entity.Projectile do
   def values(%Body{type: type, data: d}) when type in @thrown, do: [{:thrown_item, d.item, nil}]
   def values(%Body{type: @eye, data: d}), do: [{:eye_item, d.item, nil}]
   def values(_body), do: []
+
+  @doc """
+  An arrow fired from `weapon` (the `AbstractArrow` constructor's
+  `firedFromWeapon`, VMC-037q): it keeps the weapon, pierces as many bodies
+  as the weapon's `projectile_piercing` effects give for the ammunition
+  `arrow`, and takes the weapon's `projectile_spawned` effects (Flame sets it
+  alight for 100 seconds).
+  """
+  def arm(%Body{} = body, nil, _arrow), do: body
+
+  def arm(%Body{data: d} = body, %ItemStack{} = weapon, %ItemStack{} = arrow) do
+    levels = Valimc.Living.Enchant.levels(weapon)
+
+    pierce =
+      max(
+        0,
+        trunc(
+          Valimc.Living.Enchant.value(:projectile_piercing, levels, %{tool: arrow.item_id}, 0)
+        )
+      )
+
+    fire =
+      :projectile_spawned
+      |> Valimc.Living.Enchant.entity_hook(levels, %{
+        this: Valimc.Living.Enchant.entity(type_id: EntityTypes.id(body.type))
+      })
+      |> Enum.reduce(d.fire, fn
+        {:ignite, seconds}, fire -> max(fire, floor(Float32.round(seconds) * 20))
+        _, fire -> fire
+      end)
+
+    %{body | data: %{d | weapon: weapon, pierce: min(pierce, 127), fire: fire}}
+  end
 
   @doc "The on-fire flag (shared flag bit 0) of a burning projectile."
   def burning?(%Body{data: %{fire: fire}}), do: fire > 0
