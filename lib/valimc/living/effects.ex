@@ -17,7 +17,7 @@ defmodule Valimc.Living.Effects do
   import Bitwise
   alias Valimc.Living.FoodItems
   alias Valimc.Living.Health
-  alias Valimc.Data.EffectTypes
+  alias Valimc.Data.{EffectFacts, EffectTypes}
   alias Valimc.Protocol.{ItemStack, ItemTypes}
 
   @type rung :: {integer(), 0..255, boolean(), boolean(), boolean()}
@@ -55,7 +55,36 @@ defmodule Valimc.Living.Effects do
   Whether effect `id` is instantaneous (`InstantenousMobEffect`: instant
   health and damage, saturation): `/effect` counts its duration in ticks.
   """
-  def instantaneous?(id), do: id in [@heal, @harm, @saturation]
+  def instantaneous?(id), do: EffectFacts.get(id).instantaneous
+
+  # `MobEffect.AMBIENT_ALPHA`: an ambient effect's swirls are faint.
+  @ambient_alpha 38
+
+  @doc """
+  The effect particles and ambience a living entity shows others
+  (`updateSynchronizedMobEffectParticles`): each active effect whose
+  particles are visible gives `{particle id, ARGB colour}` (its tint, faint
+  when ambient) or `{particle id, nil}` (its own particle), in id order; the
+  ambience holds when every visible one is ambient (`areAllEffectsAmbient`).
+  Without effects, the list is empty and the ambience false.
+  """
+  def particles(effects) when map_size(effects) == 0, do: {[], false}
+
+  def particles(effects) do
+    visible =
+      for {id, [{_, _, ambient, true, _} | _]} <- Enum.sort(effects) do
+        facts = EffectFacts.get(id)
+
+        if facts.tinted do
+          alpha = if ambient, do: @ambient_alpha, else: 255
+          {{facts.particle, bor(bsl(alpha, 24), facts.color)}, ambient}
+        else
+          {{facts.particle, nil}, ambient}
+        end
+      end
+
+    {Enum.map(visible, &elem(&1, 0)), Enum.all?(visible, &elem(&1, 1))}
+  end
 
   @doc "Effects with periodic actions, in the native action order."
   def periodic_ids, do: @periodic

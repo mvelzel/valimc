@@ -189,9 +189,35 @@ defmodule Valimc.Player.Packets do
     EntityPackets.metadata(player.entity_id, air_supply: air)
   end
 
+  @invisibility Valimc.Data.EffectTypes.id("invisibility")
+  @glowing Valimc.Data.EffectTypes.id("glowing")
+
+  @doc """
+  The shared flags (`Entity.DATA_SHARED_FLAGS_ID`): the input's sneaking and
+  sprinting, fire, swimming, and Invisibility (`updateInvisibilityStatus`)
+  and Glowing (`updateGlowingStatus`).
+  """
   def shared_flags(player) do
-    flags = Map.get(player, :input, %Valimc.Player.Input{}).shared_flags &&& bnot(17)
+    flags =
+      Map.get(player, :input, %Valimc.Player.Input{}).shared_flags &&& bnot(17 ||| 32 ||| 64)
+
+    effects = living(player).effects
     flags = if living(player).fire_ticks > 0, do: flags ||| 1, else: flags
-    if Map.get(player, :motion, %Valimc.Player.Motion{}).swimming, do: flags ||| 16, else: flags
+
+    flags =
+      if Map.get(player, :motion, %Valimc.Player.Motion{}).swimming, do: flags ||| 16, else: flags
+
+    flags = if Map.has_key?(effects, @invisibility), do: flags ||| 32, else: flags
+    if Map.has_key?(effects, @glowing), do: flags ||| 64, else: flags
+  end
+
+  @doc "The effect swirls others see on the player (`Living.Effects.particles/1`)."
+  def player_effect_particles(player) do
+    {particles, ambience} = Valimc.Living.Effects.particles(living(player).effects)
+
+    EntityPackets.metadata(player.entity_id,
+      effect_particles: particles,
+      effect_ambience: ambience
+    )
   end
 end

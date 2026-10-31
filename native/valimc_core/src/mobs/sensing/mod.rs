@@ -144,6 +144,10 @@ pub struct SensedMob<X = ()> {
     /// The player who last hurt it.
     pub killed_by: Option<Uuid>,
     pub panicking: bool,
+    /// Under Invisibility (`isInvisible`), and the share of its armour
+    /// slots that are filled (`getArmorCoverPercentage`).
+    pub invisible: bool,
+    pub armor_cover: f64,
     pub extra: X,
 }
 
@@ -510,10 +514,13 @@ pub fn can_attack<X, S: Seer<X>>(level: &Level, seer: &S, target: Entity<'_, X>)
 
 /// `LivingEntity.getVisibilityPercent` of `target` for a mob of type
 /// `type_id` (`World.visibility/2`): crouching, invisibility under its armor
-/// cover, and worn items that hide their wearer from the type.
+/// cover, and worn items that hide their wearer from the type (a player's;
+/// a mob is only hidden by Invisibility).
 pub fn visibility<X>(level: &Level, target: Entity<'_, X>, type_id: u16) -> f64 {
-    let Entity::Player(p) = target else {
-        return 1.0;
+    let p = match target {
+        Entity::Player(p) => p,
+        Entity::Mob(m) if m.invisible => return 0.7 * m.armor_cover.max(0.1f32 as f64),
+        _ => return 1.0,
     };
     let mut v = 1.0f64;
     if p.crouching {

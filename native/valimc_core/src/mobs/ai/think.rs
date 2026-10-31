@@ -257,6 +257,20 @@ pub fn sensed(ctx: &Ctx, id: i32, mob: &NativeMob) -> Option<SensedMob<Extra>> {
         invulnerable: kind.is_some_and(|k| k.hidden(body)),
         killed_by: body.mob.hurt_by_player,
         panicking: running_panic(mob),
+        invisible: body
+            .mob
+            .living
+            .effects
+            .get(ctx.rules.living.effects.invisibility)
+            .is_some(),
+        armor_cover: f64::from(
+            f32::from(
+                [Slot::Head, Slot::Chest, Slot::Legs, Slot::Feet]
+                    .iter()
+                    .filter(|&&s| body.mob.equipment.get(s).is_some())
+                    .count() as u8,
+            ) / 4.0,
+        ),
         extra: Extra {
             data: (animal || brain.is_some()).then(|| body.data.clone()),
             own: own_sensed(kind, mob),

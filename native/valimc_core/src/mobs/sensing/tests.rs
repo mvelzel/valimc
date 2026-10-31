@@ -104,6 +104,8 @@ fn mob(n: u8, type_id: u16, at: [f64; 3]) -> SensedMob {
         invulnerable: false,
         killed_by: None,
         panicking: false,
+        invisible: false,
+        armor_cover: 0.0,
         extra: (),
     }
 }

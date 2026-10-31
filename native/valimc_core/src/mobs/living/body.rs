@@ -114,7 +114,21 @@ pub fn values(rules: &Rules, ty: Type, body: &Body) -> Vec<DataValue> {
         0
     };
     let sprinting = if flag(&body.data, "sprinting") { 8 } else { 0 };
-    let invisible = if flag(&body.data, "invisible") { 32 } else { 0 };
+    // `updateInvisibilityStatus` and `updateGlowingStatus` (a wandering
+    // trader's own flag follows its potion as its data syncs).
+    let e = &rules.living.effects;
+    let invisible = if flag(&body.data, "invisible") || living.effects.get(e.invisibility).is_some()
+    {
+        32
+    } else {
+        0
+    };
+    let glowing = if living.effects.get(e.glowing).is_some() {
+        64
+    } else {
+        0
+    };
+    let (particles, ambience) = effect_particles(rules, &living.effects);
     let swimming = if flag(&body.data, "swimming") { 16 } else { 0 };
     let sleeping = body.data.get("sleeping").cloned().unwrap_or(NIL);
     let pose = if living.health.value <= 0.0 {
@@ -138,7 +152,7 @@ pub fn values(rules: &Rules, ty: Type, body: &Body) -> Vec<DataValue> {
     let mut out = vec![
         (
             atom("shared_flags"),
-            Value::Int(fire + sprinting + swimming + invisible),
+            Value::Int(fire + sprinting + swimming + invisible + glowing),
             Value::Int(0),
         ),
         (
@@ -172,11 +186,46 @@ pub fn values(rules: &Rules, ty: Type, body: &Body) -> Vec<DataValue> {
             Value::Float(living.health.value),
             Value::Float(1.0),
         ),
+        (atom("effect_particles"), particles, Value::List(Vec::new())),
+        (
+            atom("effect_ambience"),
+            Value::bool(ambience),
+            Value::bool(false),
+        ),
         (atom("sleeping_pos"), sleeping, NIL),
         (atom("mob_flags"), Value::Int(mob_flags), Value::Int(0)),
     ];
     out.extend(rules.family(ty).values(body));
     out
+}
+
+/// `Living.Effects.particles/1`: each active effect with visible particles
+/// gives `{particle id, ARGB}` (its tint, faint when ambient) or `{particle
+/// id, nil}`, in id order, and whether every visible one is ambient; none
+/// without effects.
+pub fn effect_particles(rules: &Rules, effects: &super::super::model::Effects) -> (Value, bool) {
+    if effects.0.is_empty() {
+        return (Value::List(Vec::new()), false);
+    }
+    let facts = &rules.facts.effect_facts;
+    let mut ambient = true;
+    let list = effects
+        .0
+        .iter()
+        .filter(|(_, rungs)| rungs[0].particles)
+        .filter_map(|(id, rungs)| {
+            let fact = facts.get(*id as usize)?;
+            ambient &= rungs[0].ambient;
+            let color = if fact.tinted {
+                let alpha: u32 = if rungs[0].ambient { 38 } else { 255 };
+                Value::Int(i64::from((alpha << 24) | fact.color))
+            } else {
+                NIL
+            };
+            Some(Value::tuple([Value::Int(i64::from(fact.particle)), color]))
+        })
+        .collect();
+    (Value::List(list), ambient)
 }
 
 /// Elixir's `==`: numbers compare arithmetically (`0.0 == -0.0`, `1 ==

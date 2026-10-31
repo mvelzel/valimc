@@ -9,6 +9,7 @@
       "color": 3402751,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -22,6 +23,7 @@
       "color": 9154528,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -35,6 +37,7 @@
       "color": 14270531,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -48,6 +51,7 @@
       "color": 4866583,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -61,6 +65,7 @@
       "color": 16762624,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -74,6 +79,7 @@
       "color": 16262179,
       "instantaneous": true,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -87,6 +93,7 @@
       "color": 11101546,
       "instantaneous": true,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -100,6 +107,7 @@
       "color": 16646020,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -113,6 +121,7 @@
       "color": 5578058,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         150,
         20,
@@ -126,6 +135,7 @@
       "color": 13458603,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -139,6 +149,7 @@
       "color": 9520880,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -152,6 +163,7 @@
       "color": 16750848,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -165,6 +177,7 @@
       "color": 10017472,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -178,6 +191,7 @@
       "color": 16185078,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -191,6 +205,7 @@
       "color": 2039587,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -204,6 +219,7 @@
       "color": 12779366,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -217,6 +233,7 @@
       "color": 5797459,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -230,6 +247,7 @@
       "color": 4738376,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -243,6 +261,7 @@
       "color": 8889187,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -256,6 +275,7 @@
       "color": 7561558,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -269,6 +289,7 @@
       "color": 16284963,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -282,6 +303,7 @@
       "color": 2445989,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -295,6 +317,7 @@
       "color": 16262179,
       "instantaneous": true,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -308,6 +331,7 @@
       "color": 9740385,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -321,6 +345,7 @@
       "color": 13565951,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -334,6 +359,7 @@
       "color": 5882118,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -347,6 +373,7 @@
       "color": 12624973,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -360,6 +387,7 @@
       "color": 15978425,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -373,6 +401,7 @@
       "color": 1950417,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -386,6 +415,7 @@
       "color": 8954814,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -399,12 +429,16 @@
       "color": 745784,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
         0
       ],
-      "sound_on_added": "minecraft:event.mob_effect.bad_omen"
+      "sound_on_added": [
+        "minecraft:event.mob_effect.bad_omen",
+        1910
+      ]
     },
     {
       "name": "minecraft:hero_of_the_village",
@@ -412,6 +446,7 @@
       "color": 4521796,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,
@@ -425,6 +460,7 @@
       "color": 2696993,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         22,
         22,
@@ -438,12 +474,16 @@
       "color": 1484454,
       "instantaneous": false,
       "particle": "minecraft:trial_omen",
+      "particle_id": 124,
       "blend": [
         0,
         0,
         0
       ],
-      "sound_on_added": "minecraft:event.mob_effect.trial_omen"
+      "sound_on_added": [
+        "minecraft:event.mob_effect.trial_omen",
+        1911
+      ]
     },
     {
       "name": "minecraft:raid_omen",
@@ -451,12 +491,16 @@
       "color": 14565464,
       "instantaneous": false,
       "particle": "minecraft:raid_omen",
+      "particle_id": 123,
       "blend": [
         0,
         0,
         0
       ],
-      "sound_on_added": "minecraft:event.mob_effect.raid_omen"
+      "sound_on_added": [
+        "minecraft:event.mob_effect.raid_omen",
+        1912
+      ]
     },
     {
       "name": "minecraft:wind_charged",
@@ -464,6 +508,7 @@
       "color": 12438015,
       "instantaneous": false,
       "particle": "minecraft:small_gust",
+      "particle_id": 32,
       "blend": [
         0,
         0,
@@ -477,6 +522,7 @@
       "color": 7891290,
       "instantaneous": false,
       "particle": "minecraft:item_cobweb",
+      "particle_id": 63,
       "blend": [
         0,
         0,
@@ -490,6 +536,7 @@
       "color": 10092451,
       "instantaneous": false,
       "particle": "minecraft:item_slime",
+      "particle_id": 62,
       "blend": [
         0,
         0,
@@ -503,6 +550,7 @@
       "color": 9214860,
       "instantaneous": false,
       "particle": "minecraft:infested",
+      "particle_id": 40,
       "blend": [
         0,
         0,
@@ -516,6 +564,7 @@
       "color": 65518,
       "instantaneous": false,
       "particle": "minecraft:entity_effect",
+      "particle_id": 28,
       "blend": [
         0,
         0,

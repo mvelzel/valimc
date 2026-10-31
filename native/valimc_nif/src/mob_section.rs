@@ -1677,13 +1677,28 @@ fn mob_section_effect<'a>(
         };
         // The dragon refuses every effect; the rest refuse their immunities.
         let kinds = crate::mob_facts::kinds()?;
-        act(env, &res, id, |rules, mob, _| {
+        act(env, &res, id, |rules, mob, events| {
             let Some(ty) = rules.of(&mob.body.entity_type) else {
                 return false;
             };
+            let new = mob.body.mob.living.effects.get(effect).is_none();
             let added = kinds.kind(ty.id).is_none_or(|kind| kind.affected(effect))
                 && living_mob::add_effect(rules.facts, ty.id, &mut mob.body.mob, effect, rung);
             reconcile(rules, mob);
+            // `MobEffect.onEffectAdded`: an omen's sound, from the mob.
+            let sound = rules
+                .facts
+                .effect_facts
+                .get(effect as usize)
+                .and_then(|f| f.sound);
+            if let (true, true, Some(sound)) = (added, new, sound) {
+                events.push(Event::Sound {
+                    sound: combat::SoundRef::Id(sound),
+                    source: rules.facts.combat.mob_sounds(ty.id).source,
+                    volume: 1.0,
+                    pitch: 1.0,
+                });
+            }
             added
         })
     } else if tag == atoms::remove() {

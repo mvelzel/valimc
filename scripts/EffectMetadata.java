@@ -29,12 +29,16 @@ public class EffectMetadata {
       var plain = effect.createParticleOptions(new MobEffectInstance(holder, 1, 0, false, true, true));
       // `entity_effect` is the default factory's: coloured by the effect, fainter when ambient.
       row.addProperty("particle", BuiltInRegistries.PARTICLE_TYPE.getKey(plain.getType()).toString());
+      row.addProperty("particle_id", BuiltInRegistries.PARTICLE_TYPE.getId(plain.getType()));
       var blend = new JsonArray();
       blend.add(effect.getBlendInDurationTicks()); blend.add(effect.getBlendOutDurationTicks()); blend.add(effect.getBlendOutAdvanceTicks());
       row.add("blend", blend);
       var added = (Optional<?>) sound.get(effect);
-      if (added.isPresent()) row.addProperty("sound_on_added", ((SoundEvent) added.get()).location().toString());
-      else row.add("sound_on_added", JsonNull.INSTANCE);
+      if (added.isPresent()) {
+        var event = (SoundEvent) added.get();
+        var pair = new JsonArray(); pair.add(event.location().toString()); pair.add(BuiltInRegistries.SOUND_EVENT.getId(event));
+        row.add("sound_on_added", pair);
+      } else row.add("sound_on_added", JsonNull.INSTANCE);
       effects.add(row);
     }
     var out = new JsonObject();

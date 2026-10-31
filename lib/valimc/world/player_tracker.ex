@@ -174,6 +174,10 @@ defmodule Valimc.World.PlayerTracker do
       Valimc.Player.Packets.player_absorption(player),
       absorption_attribute(player)
     ] ++
+      if(player.living.effects != %{},
+        do: [Valimc.Player.Packets.player_effect_particles(player)],
+        else: []
+      ) ++
       if(Valimc.Player.Packets.sleeping_pos(player),
         do: [Valimc.Player.Packets.player_sleeping_pos(player)],
         else: []
@@ -186,7 +190,7 @@ defmodule Valimc.World.PlayerTracker do
     {Valimc.Player.Packets.shared_flags(player), Map.get(player, :pose, :standing),
      {living.freezing.frozen_ticks, living.air_supply}, Map.get(player, :use_flags, 0),
      living.health.value, living.absorption, Attributes.absorption_level(living.effects),
-     Valimc.Player.Packets.sleeping_pos(player)}
+     Valimc.Player.Packets.sleeping_pos(player), Valimc.Living.Effects.particles(living.effects)}
   end
 
   defp data_packets(_player, same, same), do: []
@@ -200,7 +204,8 @@ defmodule Valimc.World.PlayerTracker do
       {4, &Valimc.Player.Packets.player_health/1},
       {5, &Valimc.Player.Packets.player_absorption/1},
       {6, &absorption_attribute/1},
-      {7, &Valimc.Player.Packets.player_sleeping_pos/1}
+      {7, &Valimc.Player.Packets.player_sleeping_pos/1},
+      {8, &Valimc.Player.Packets.player_effect_particles/1}
     ]
     |> Enum.filter(fn {index, _} -> elem(old, index) != elem(new, index) end)
     |> Enum.map(fn {_, packet} -> binary(packet.(player)) end)

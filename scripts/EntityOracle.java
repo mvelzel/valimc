@@ -109,6 +109,20 @@ public class EntityOracle {
     cases.put("metadata_empty_stack",new ClientboundSetEntityDataPacket(ID,List.of(value(item,ItemStack.EMPTY))));
     cases.put("metadata_empty",new ClientboundSetEntityDataPacket(ID,List.of()));
     cases.put("metadata_clear_flags",new ClientboundSetEntityDataPacket(ID,List.of(value(flags,(byte)0),value(gravity,false))));
+    // VMC-037p: effect particles and ambience. Each spec is `{effect id, ambient, visible}`.
+    var particles = accessor(LivingEntity.class,"DATA_EFFECT_PARTICLES");
+    var ambience = accessor(LivingEntity.class,"DATA_EFFECT_AMBIENCE_ID");
+    int[][][] specs = {{}, {{0,0,1}}, {{0,1,1}}, {{0,1,1},{18,0,1},{33,1,1},{35,0,1}}, {{1,0,0},{24,1,1}}, {{30,0,1},{36,0,1},{37,0,1},{38,0,1}}};
+    for (int i = 0; i < specs.length; i++) {
+      var list = new ArrayList<net.minecraft.core.particles.ParticleOptions>(); boolean all = true;
+      for (var spec : specs[i]) {
+        var instance = new net.minecraft.world.effect.MobEffectInstance(BuiltInRegistries.MOB_EFFECT.get(spec[0]).orElseThrow(), 100, 0, spec[1] == 1, spec[2] == 1, true);
+        if (instance.isVisible()) list.add(instance.getParticleOptions());
+        if (instance.isVisible() && !instance.isAmbient()) all = false;
+      }
+      if (specs[i].length == 0) all = false;
+      cases.put("effect_particles_"+i,new ClientboundSetEntityDataPacket(ID,List.of(value(particles,list),value(ambience,all))));
+    }
     var pose = accessor(Entity.class,"DATA_POSE");
     var frozen = accessor(Entity.class,"DATA_TICKS_FROZEN");
     var air = accessor(Entity.class,"DATA_AIR_SUPPLY_ID");
@@ -180,6 +194,9 @@ public class EntityOracle {
             var actualStack=(ItemStack)a.value();
             if (!ItemStack.matches(actualStack,stack) || !actualStack.getComponentsPatch().equals(stack.getComponentsPatch()))
               throw new AssertionError("Metadata stack or patch differs");
+          } else if (e.value() instanceof List<?>) {
+            // Particle options have no equality: their packets' bytes must agree.
+            if (!packet(decoded).equals(packet(expected))) throw new AssertionError("Wrong metadata list");
           } else if (!Objects.equals(a.value(),e.value())) throw new AssertionError("Wrong metadata value");
         }
       } else if (!packet(decoded).equals(packet(expected))) throw new AssertionError("Elixir packet differs from vanilla");

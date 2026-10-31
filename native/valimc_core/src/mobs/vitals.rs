@@ -87,7 +87,13 @@ fn tick_effects(rules: &Rules, ty: Type, mob: &mut NativeMob, events: &mut Vec<E
             health::heal(&mut mob.body.mob.living.health, amount as f64);
         } else if living_mob::alive(&mob.body.mob) {
             let amount = 6i32.wrapping_shl(shift) as f32;
-            hurt(rules, mob, events, rules.living.damage.magic, f64::from(amount));
+            hurt(
+                rules,
+                mob,
+                events,
+                rules.living.damage.magic,
+                f64::from(amount),
+            );
         }
     }
     let heads: Vec<(i32, u8)> = mob

@@ -403,7 +403,13 @@ pub fn reconcile_max_health(facts: &LivingFacts, mob_facts: &MobFacts, ty: Type,
     if mob.attributes.get("minecraft:max_health").is_none() {
         return;
     }
-    let maximum = f(value(facts, mob_facts, ty, mob, facts.attributes.max_health));
+    let maximum = f(value(
+        facts,
+        mob_facts,
+        ty,
+        mob,
+        facts.attributes.max_health,
+    ));
     let health = &mut mob.living.health;
     if health.maximum != maximum {
         health.maximum = maximum;

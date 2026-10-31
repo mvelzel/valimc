@@ -82,6 +82,24 @@ packets =
         "metadata" ->
           EntityPackets.metadata(300, item_stack: stone, no_gravity: true, shared_flags: 64)
 
+        "effect_particles_" <> i ->
+          specs = [
+            [],
+            [{0, 0, 1}],
+            [{0, 1, 1}],
+            [{0, 1, 1}, {18, 0, 1}, {33, 1, 1}, {35, 0, 1}],
+            [{1, 0, 0}, {24, 1, 1}],
+            [{30, 0, 1}, {36, 0, 1}, {37, 0, 1}, {38, 0, 1}]
+          ]
+
+          effects =
+            for {id, ambient, visible} <- Enum.at(specs, String.to_integer(i)),
+                into: %{},
+                do: {id, [{100, 0, ambient == 1, visible == 1, true}]}
+
+          {particles, ambience} = Valimc.Living.Effects.particles(effects)
+          EntityPackets.metadata(300, effect_particles: particles, effect_ambience: ambience)
+
         "metadata_empty_stack" ->
           EntityPackets.metadata(300, item_stack: nil)
 

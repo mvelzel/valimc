@@ -65,6 +65,7 @@ defmodule Valimc.Entity.MobFacts do
       "ai" => Map.take(ai, ~w(mobs mob_visibility sounds shulker_look swing_fields path_types)),
       "entities" => Map.take(entities, ~w(types categories fields)),
       "effects" => Facts.read!("protocol/status_effects.json")["effects"],
+      "effect_facts" => Facts.read!("protocol/effect_facts.json")["effects"],
       "hostile" => Facts.read!("registry/hostile_facts.json"),
       "animal" =>
         Map.put(Facts.read!("registry/animal_facts.json"), "sheep_mixes", sheep_mixes()),

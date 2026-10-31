@@ -33,7 +33,7 @@ const DAMAGE: [&str; 17] = [
     "falling_anvil",
 ];
 
-const EFFECTS: [&str; 18] = [
+const EFFECTS: [&str; 20] = [
     "speed",
     "slowness",
     "regeneration",
@@ -52,6 +52,8 @@ const EFFECTS: [&str; 18] = [
     "slow_falling",
     "levitation",
     "absorption",
+    "invisibility",
+    "glowing",
 ];
 
 /// `(name, id, default, min, max)`.
@@ -869,7 +871,7 @@ fn attributes_values_and_mob_hits() {
     let synced = mob::synced(&fx.living, &fx.mob, ty, &zombie.body.mob.attributes);
     assert!(synced.windows(2).all(|w| w[0].id < w[1].id));
     let values = body::values(&rules, ty, &zombie.body);
-    assert_eq!(values.len(), 10);
+    assert_eq!(values.len(), 12);
     assert_eq!(values[7].1, Value::Float(20.0));
 }
 

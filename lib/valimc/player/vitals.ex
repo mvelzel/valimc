@@ -456,6 +456,7 @@ defmodule Valimc.Player.Vitals do
                 Valimc.Living.Packets.update_effect(player.entity_id, id, hd(effects[id]), new)
 
           send_packets(next, [packet])
+          if new and incoming != :remove, do: added_sound(next, id)
         end
 
         PlayerList.update(state.connection, player)
@@ -463,6 +464,22 @@ defmodule Valimc.Player.Vitals do
 
       error ->
         error
+    end
+  end
+
+  # `MobEffect.onEffectAdded`: an omen's sound at the player, for it and
+  # those around.
+  defp added_sound(state, id) do
+    case Valimc.Data.EffectFacts.get(id).sound do
+      nil ->
+        :ok
+
+      {_, sound} ->
+        <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+        at = {state.player.x, state.player.y, state.player.z}
+        packet = Valimc.Protocol.CombatPackets.sound(sound, "player", at, 1.0, 1.0, seed)
+        Valimc.Player.Movement.broadcast_player_packet(state, packet)
+        send_packets(state, [packet])
     end
   end
 
@@ -606,6 +623,8 @@ defmodule Valimc.Player.Vitals do
       end)
 
     send_packets(next, packets)
+    # Observers see an ended or promoted effect's flags and swirls.
+    if events != [], do: PlayerList.update(next.connection, next.player)
     publish_effect_attributes(next)
   end
 

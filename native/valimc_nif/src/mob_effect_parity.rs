@@ -34,7 +34,11 @@ fn mob_effect_parity<'a>(
 ) -> NifResult<Term<'a>> {
     let rules = mob_section::rules()?;
     let ty = rules.of(&entity_type).ok_or_else(bad)?;
-    let speed = rules.facts.attributes.id("movement_speed").ok_or_else(bad)?;
+    let speed = rules
+        .facts
+        .attributes
+        .id("movement_speed")
+        .ok_or_else(bad)?;
     let mut mob = NativeMob {
         uuid: [0; 16],
         position: [0.0; 3],

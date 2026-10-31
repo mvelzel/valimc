@@ -291,6 +291,8 @@ defmodule Valimc.Protocol.EntityPackets do
               :cloud_radius,
               :cloud_waiting,
               :cloud_particle,
+              :effect_particles,
+              :effect_ambience,
               :custom_name,
               :villager_data,
               :tamable_owner
@@ -320,7 +322,8 @@ defmodule Valimc.Protocol.EntityPackets do
                :arrow_in_ground,
                :trident_foil,
                :cloud_waiting,
-               :crystal_bottom
+               :crystal_bottom,
+               :effect_ambience
              ] or
                name in @mob_flags ->
           check(is_boolean(value), "invalid flag")
@@ -362,6 +365,25 @@ defmodule Valimc.Protocol.EntityPackets do
           {type, power} = value
           check(is_integer(type) and type >= 0 and is_number(power), "invalid particle")
           [Wire.varint(type), <<power::float-32>>]
+
+        # A living entity's effect particles (`ParticleTypes.STREAM_CODEC`
+        # lists): a tinted `entity_effect` carries its ARGB colour.
+        :effect_particles ->
+          check(is_list(value) and length(value) <= 40, "invalid effect particles")
+
+          [
+            Wire.varint(length(value)),
+            Enum.map(value, fn
+              {type, nil} when is_integer(type) and type >= 0 ->
+                Wire.varint(type)
+
+              {type, argb} when is_integer(type) and type >= 0 and argb in 0..0xFFFFFFFF ->
+                [Wire.varint(type), <<argb::32>>]
+
+              _ ->
+                check(false, "invalid effect particle")
+            end)
+          ]
 
         :pose ->
           check(match?({:ok, _}, Valimc.Data.PlayerPose.dimensions(value)), "invalid pose")

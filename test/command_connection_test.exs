@@ -171,7 +171,7 @@ defmodule Valimc.CommandConnectionTest do
     _ = client
   end
 
-  test "every effect: Health Boost's maximum, luck and mobs as targets (VMC-037p)" do
+  test "every effect: Health Boost's maximum, luck, glowing and invisibility (VMC-037p)" do
     {client, pid} = join()
     living = fn -> Valimc.TestConn.state(pid).player.living end
 
@@ -191,6 +191,22 @@ defmodule Valimc.CommandConnectionTest do
         "commands.effect.give.success.single"
       )
 
+    # Glowing and Invisibility set the shared flags; the swirls follow the effects.
+    client = command(client, "effect give @s glowing 30", "commands.effect.give.success.single")
+
+    client =
+      command(
+        client,
+        "effect give @s invisibility 30 0 true",
+        "commands.effect.give.success.single"
+      )
+
+    player = Valimc.TestConn.state(pid).player
+    assert Bitwise.band(Valimc.Player.Packets.shared_flags(player), 96) == 96
+    {particles, false} = Valimc.Living.Effects.particles(player.living.effects)
+    # Hidden particles leave Invisibility out.
+    assert length(particles) == 4
+
     client =
       command(
         client,
@@ -200,6 +216,11 @@ defmodule Valimc.CommandConnectionTest do
 
     Valimc.TestWait.until(fn -> living.().health.maximum == 20.0 end)
 
+    _ = client
+  end
+
+  test "mobs as /effect targets (VMC-037p)" do
+    {client, _pid} = join()
     # A zombie takes Speed but refuses Poison (`canBeAffected`).
     client = command(client, "summon zombie ~ ~ ~2", "commands.summon.success")
 

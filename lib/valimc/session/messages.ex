@@ -268,6 +268,17 @@ defmodule Valimc.Session.Messages do
           state
         end
 
+      # Its own effect swirls, which it sees from behind.
+      particles = Valimc.Living.Effects.particles(state.player.living.effects)
+
+      state =
+        if state.effect_particles_view != particles do
+          send_packets(state, [Valimc.Player.Packets.player_effect_particles(state.player)])
+          %{state | effect_particles_view: particles}
+        else
+          state
+        end
+
       {touching, cache} = touching(state)
       state = Items.pickup(%{state | pickup_cache: cache}, touching)
       state = Valimc.Player.Projectiles.pickup(state, touching)

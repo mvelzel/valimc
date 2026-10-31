@@ -140,6 +140,7 @@ defmodule Valimc.Net.Connection do
        # Vanilla's default until the client sends its settings (VMC-070).
        requested_view_distance: 2,
        player_flags_view: 0,
+       effect_particles_view: {[], false},
        equipment_source: nil,
        pose_checked: nil,
        pose_generation: 0,

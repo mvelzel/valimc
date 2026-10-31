@@ -35,6 +35,8 @@ pub struct EffectIds {
     pub slow_falling: i32,
     pub levitation: i32,
     pub absorption: i32,
+    pub invisibility: i32,
+    pub glowing: i32,
 }
 
 /// Damage type registry ids the rules name.
@@ -278,6 +280,8 @@ impl LivingFacts {
             slow_falling: effect("slow_falling")?,
             levitation: effect("levitation")?,
             absorption: effect("absorption")?,
+            invisibility: effect("invisibility")?,
+            glowing: effect("glowing")?,
         };
         let damage_id = |name: &str| {
             mob.damage_types

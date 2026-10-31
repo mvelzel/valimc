@@ -55,6 +55,20 @@ pub struct MobFacts {
     pub food: HashMap<i32, FoodItem>,
     /// The ender dragon's facts (`dragon_facts.json`), where given.
     pub dragon: Option<crate::mobs::boss::dragon::DragonFacts>,
+    /// Each effect's facts by registry id (`Valimc.Data.EffectFacts`),
+    /// where given.
+    pub effect_facts: Vec<EffectFact>,
+}
+
+/// What a living entity shows of an effect: its particle type
+/// (`MobEffect.createParticleOptions`), whether that is `entity_effect`
+/// tinted by `color`, and the sound it plays when added.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EffectFact {
+    pub particle: i32,
+    pub tinted: bool,
+    pub color: u32,
+    pub sound: Option<i32>,
 }
 
 /// An item's consumable defaults (`FoodItems.defaults/1`): its
@@ -239,8 +253,28 @@ impl MobFacts {
             Ok(d) => Some(crate::mobs::boss::dragon::DragonFacts::parse(d)?),
             Err(_) => None,
         };
+        let effect_facts = match json.field("effect_facts") {
+            Ok(rows) => rows
+                .as_array()?
+                .iter()
+                .map(|row| {
+                    let sound = match row.field("sound_on_added")? {
+                        Json::Null => None,
+                        pair => Some(pair.as_array()?.get(1).ok_or("bad sound")?.as_i32()?),
+                    };
+                    Ok(EffectFact {
+                        particle: row.field("particle_id")?.as_i32()?,
+                        tinted: row.field("particle")?.as_str()? == "minecraft:entity_effect",
+                        color: row.field("color")?.as_i32()? as u32,
+                        sound,
+                    })
+                })
+                .collect::<Result<_, String>>()?,
+            Err(_) => Vec::new(),
+        };
         Ok(MobFacts {
             dragon,
+            effect_facts,
             food,
             potions,
             outlines,
