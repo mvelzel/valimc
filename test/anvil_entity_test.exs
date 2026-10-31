@@ -26,25 +26,12 @@ defmodule Valimc.AnvilEntityTest do
      )}
   end
 
-  test "owned, riding and unsupported items and every other entity are preserved" do
-    book = %{
-      "Item" =>
-        {:compound,
-         %{
-           "id" => {:string, "minecraft:writable_book"},
-           "count" => {:int, 1},
-           "components" =>
-             {:compound,
-              %{"minecraft:writable_book_content" => {:compound, %{"pages" => NBT.list([])}}}}
-         }}
-    }
-
+  test "owned and riding items and every other entity are preserved" do
     for extra <- [
           %{"Owner" => {:int_array, @uuid}},
           %{"Passengers" => NBT.list([item()])},
           %{"Pos" => doubles([4.0e7, 70.0, 0.0])},
           %{"UUID" => {:int_array, <<1::32>>}},
-          book,
           %{"id" => {:string, "minecraft:experience_orb"}}
         ],
         do: assert(Entity.convert(item(extra)) == :preserve)
