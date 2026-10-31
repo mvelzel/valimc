@@ -86,6 +86,13 @@ defmodule Valimc.AnvilBlockEntityTest do
 
       loot = be("minecraft:barrel", {1, 64, 2}, %{"LootTable" => {:string, "minecraft:x"}})
       assert {:ok, _, {:preserved, _}} = BlockEntity.convert(loot, barrel)
+
+      # So do a shulker box's (VMC-032c2).
+      box = BlockRegistry.state("cyan_shulker_box", %{"facing" => "down"})
+      tag = be("minecraft:shulker_box", {1, 64, 2}, %{"Items" => items})
+
+      assert {:ok, {1, 64, 2}, {:storage, %{kind: :shulker_box, slots: ^slots}}} =
+               BlockEntity.convert(tag, box)
     end
 
     defp without_components({:compound, fields}),

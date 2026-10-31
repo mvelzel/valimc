@@ -7,6 +7,8 @@
     "minecraft:block.chest.open": 349,
     "minecraft:block.chest.close": 347,
     "minecraft:block.barrel.open": 141,
-    "minecraft:block.barrel.close": 140
+    "minecraft:block.barrel.close": 140,
+    "minecraft:block.shulker_box.open": 1469,
+    "minecraft:block.shulker_box.close": 1468
   }
 }

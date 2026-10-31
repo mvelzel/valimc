@@ -47,6 +47,25 @@ failures =
 
       Enum.map(drops, &CheckBlockLoot.plain(ItemData.tag(&1))) == row["drops"]
 
+    # A shulker box (VMC-032c2): its table yields the plain box, which the
+    # owner drops holding the entry's slots (`ShulkerBox.drop/2`).
+    %{"contents" => contents} = row ->
+      [x, y, z] = row["origin"]
+
+      {:ok, plain} =
+        MiningLoot.drops(row["state"], {x, y, z}, seed: String.to_integer(row["seed"]))
+
+      slots =
+        Enum.reduce(contents, Tuple.duplicate(nil, 27), fn [slot, id, count], acc ->
+          put_elem(acc, slot, ItemStack.new(String.replace_prefix(id, "minecraft:", ""), count))
+        end)
+
+      drop = Valimc.Blocks.ShulkerBox.drop(row["state"], slots)
+
+      plain == [%ItemStack{item_id: drop.item_id}] and
+        MiningLoot.table(row["state"]) == row["table"] and
+        [CheckBlockLoot.plain(ItemData.tag(drop))] == row["drops"]
+
     row ->
       [x, y, z] = row["origin"]
 
@@ -77,5 +96,5 @@ stacks = cases |> Enum.map(&length(&1["drops"])) |> Enum.sum()
 interactions = Enum.count(cases, & &1["interact"])
 
 IO.puts(
-  "PASS: #{length(cases) - interactions} block breaks over #{states} states and #{interactions} block interactions equal vanilla's drops (#{stacks} stacks)"
+  "PASS: #{length(cases) - interactions} block breaks over #{states} states (#{Enum.count(cases, &Map.has_key?(&1, "contents"))} filled shulker boxes) and #{interactions} block interactions equal vanilla's drops (#{stacks} stacks)"
 )

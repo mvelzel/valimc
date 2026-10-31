@@ -4087,6 +4087,8 @@ defmodule Valimc.World.RegionData do
       state = publish_blocks(state, batch, proposal)
       state = %{state | containers: Map.get(plan, :containers, state.containers)}
       state = publish_item_views(state)
+      # A shulker box drops with its contents from its entry's retirement.
+      records = ContainerSpills.without_boxes(records, Map.get(plan, :removed, []))
       {:reply, :ok, adopt_drops(state, records)}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
@@ -5122,7 +5124,14 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  def handle_call({:place_block, epoch, revision, %BlockBatch{} = batch, deadline}, from, state) do
+  def handle_call({:place_block, epoch, revision, %BlockBatch{} = batch, deadline}, from, state),
+    do: handle_call({:place_block, epoch, revision, batch, deadline, %{}}, from, state)
+
+  def handle_call(
+        {:place_block, epoch, revision, %BlockBatch{} = batch, deadline, fill},
+        from,
+        state
+      ) do
     now = System.monotonic_time(:millisecond)
 
     expected =
@@ -5137,6 +5146,9 @@ defmodule Valimc.World.RegionData do
              deadline <= now + Valimc.Txn.Permits.window(250) and
                map_size(batch.edits) in 1..3) ->
         {:reply, {:error, :invalid_or_expired_placement}, state}
+
+      not valid_fill?(fill, batch) ->
+        {:reply, {:error, :invalid_container_contents}, state}
 
       not container_metadata_affected?(state.containers, expected, batch.edits) ->
         case handle_call({:set_blocks, epoch, revision, batch}, from, state) do
@@ -5160,8 +5172,17 @@ defmodule Valimc.World.RegionData do
         {:reply, {:error, busy}, state}
 
       true ->
-        start_container_blocks(state, from, batch, expected)
+        start_container_blocks(state, from, batch, expected, :revision, fill: fill)
     end
+  end
+
+  # A placed shulker box's slots: 27 stacks or nil at one of the placed cells.
+  defp valid_fill?(fill, batch) do
+    Enum.all?(fill, fn {position, slots} ->
+      Valimc.Blocks.ShulkerBox.shulker_box?(batch.edits[position]) and is_tuple(slots) and
+        tuple_size(slots) == 27 and
+        Enum.all?(Tuple.to_list(slots), &(is_nil(&1) or is_struct(&1, Valimc.Protocol.ItemStack)))
+    end)
   end
 
   # A placed tripwire hook calculates its line, a diode checks its input
@@ -5235,8 +5256,13 @@ defmodule Valimc.World.RegionData do
       if busy = write_busy(state) do
         {:reply, {:error, busy}, state}
       else
+        # A creative player's break drops a filled shulker box itself
+        # (`ShulkerBoxBlock.playerWillDestroy`).
         with {:ok, batch} <- BlockBatch.prepare(%{position => replacement}),
-             do: start_container_blocks(state, from, batch, %{position => block}, :ok),
+             do:
+               start_container_blocks(state, from, batch, %{position => block}, :ok,
+                 drop: :creative
+               ),
              else: (error -> {:reply, error, state})
       end
     else
@@ -8245,7 +8271,9 @@ defmodule Valimc.World.RegionData do
     end)
   end
 
-  defp start_container_blocks(state, from, batch, expected, reply \\ :revision) do
+  # `opts`: `:drop`, how a removed shulker box drops (`ContainerSpills.add/4`),
+  # and `:fill`, the slots a placed shulker box starts with by position.
+  defp start_container_blocks(state, from, batch, expected, reply, opts) do
     containers = state.containers
     items = state.entities.store
     key = state.key
@@ -8260,10 +8288,30 @@ defmodule Valimc.World.RegionData do
     # break is a plain call from its group (VMC-077i3) that cannot wait.
     result =
       with {:ok, change} <- ContainerLifecycle.plan(containers, key, expected, batch.edits),
-           {:ok, next} <- ContainerSpills.add(items, key, change.removed),
+           {:ok, change} <- fill_placed(change, key, batch, Keyword.get(opts, :fill, %{})),
+           {:ok, next} <-
+             ContainerSpills.add(items, key, change.removed, Keyword.get(opts, :drop, :loot)),
            do: {:ok, Map.put(change, :items, next)}
 
     job_done(:plan, Map.put(pending, :from, from), result, state)
+  end
+
+  # A shulker box placed from an item holding contents starts with them
+  # (`BaseContainerBlockEntity.applyImplicitComponents`), in the commit that
+  # creates its entry.
+  defp fill_placed(change, _key, _batch, fill) when map_size(fill) == 0, do: {:ok, change}
+
+  defp fill_placed(change, key, batch, fill) do
+    Enum.reduce_while(fill, {:ok, change}, fn {position, slots}, {:ok, acc} ->
+      with true <- Valimc.Blocks.ShulkerBox.shulker_box?(batch.edits[position]),
+           %{kind: :shulker_box, revision: revision} <- acc.containers.entries[position],
+           {:ok, containers, _} <- Containers.replace(acc.containers, position, revision, slots),
+           {:ok, _} <- Containers.encode(key, containers) do
+        {:cont, {:ok, %{acc | containers: containers}}}
+      else
+        _ -> {:halt, {:error, :invalid_container_contents}}
+      end
+    end)
   end
 
   defp block_container_metadata(plan, containers, key) do
@@ -8371,6 +8419,8 @@ defmodule Valimc.World.RegionData do
       above = Blocks.get(state.blocks, {x, y + 1, z})
       now = System.monotonic_time(:millisecond)
 
+      above = if menu == :storage, do: shulker_room(state, position, block), else: above
+
       case Valimc.Menus.MenuAccess.authorize(
              menu,
              block,
@@ -8420,6 +8470,39 @@ defmodule Valimc.World.RegionData do
         _ -> acc
       end
     end)
+  end
+
+  # `ShulkerBoxBlock.canOpen`: a box nobody holds open (its lid closed)
+  # opens only when the half block in front of its lid is clear; `:blocked`
+  # otherwise. A front cell in another section is read from its published
+  # blocks. ValiMC does not run the lid's ten closing ticks, so a box counts
+  # as closed as soon as its last viewer leaves.
+  defp shulker_room(state, position, block) do
+    if Valimc.Blocks.ShulkerBox.shulker_box?(block) and
+         ContainerViewers.open_count(state.container_viewers, position) == 0 do
+      {_, y, _} = front = Valimc.Blocks.ShulkerBox.front(block, position)
+
+      neighbour =
+        cond do
+          not Chunk.valid_y?(y) ->
+            nil
+
+          in_region?(state, front) ->
+            Blocks.get(state.blocks, front)
+
+          true ->
+            state.dimension
+            |> Valimc.World.View.new()
+            |> Valimc.World.View.blocks([front])
+            |> hd()
+        end
+
+      if Valimc.Blocks.ShulkerBox.lid_clear?(block, position, neighbour),
+        do: :clear,
+        else: :blocked
+    else
+      :clear
+    end
   end
 
   defp unpack_to_break(state, position, block) do
@@ -8988,14 +9071,15 @@ defmodule Valimc.World.RegionData do
             preserved_use?(state, position, block) ->
               Valimc.Menus.MenuAccess.refuse_use(block, position, grant, now)
 
-            # Hoppers, droppers and dispensers (VMC-049a), barrels (VMC-032c1).
+            # Hoppers, droppers and dispensers (VMC-049a), barrels (VMC-032c1)
+            # and shulker boxes (VMC-032c2).
             Valimc.Menus.MenuAccess.menu(block) in [:hopper, :dispenser, :storage] or
                 (is_map(grant) and grant[:menu] in [:hopper, :dispenser, :storage]) ->
               Valimc.Menus.MenuAccess.authorize(
                 Valimc.Menus.MenuAccess.menu(block) || grant[:menu],
                 block,
                 state.containers.entries[position],
-                nil,
+                shulker_room(state, position, block),
                 position,
                 grant,
                 now
@@ -9155,7 +9239,7 @@ defmodule Valimc.World.RegionData do
       else
         frame =
           positions
-          |> Enum.map(&Packets.frame(Packets.chest_lid(&1, true), threshold))
+          |> Enum.map(&Packets.frame(lid_packet(state, &1, true), threshold))
           |> IO.iodata_to_binary()
 
         :ets.insert(
@@ -9166,16 +9250,23 @@ defmodule Valimc.World.RegionData do
     end
 
     for {position, open} <- lids do
-      frame = Packets.frame(Packets.chest_lid(position, open), threshold)
+      frame = Packets.frame(lid_packet(state, position, open), threshold)
+      block = Blocks.get(state.blocks, position)
 
-      sound_position =
-        Valimc.Blocks.Chest.sound_position(Blocks.get(state.blocks, position), position)
+      # A shulker box sounds at its own centre (`ShulkerBoxBlockEntity.startOpen`).
+      {sound_position, kind} =
+        if Valimc.Blocks.ShulkerBox.shulker_box?(block),
+          do: {position, :shulker_box},
+          else: {Valimc.Blocks.Chest.sound_position(block, position), :chest}
 
       sound =
         if sound? and sound_position != nil do
           <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
           draw = (:rand.uniform(16_777_216) - 1) / 16_777_216
-          {:ok, packet} = Valimc.Protocol.ChestSounds.packet(open, sound_position, draw, seed)
+
+          {:ok, packet} =
+            Valimc.Protocol.ChestSounds.packet(open, sound_position, draw, seed, kind)
+
           Packets.frame(packet, threshold)
         end
 
@@ -9187,6 +9278,16 @@ defmodule Valimc.World.RegionData do
 
     # A removed barrel's viewers leave silently (`stopOpen` of a removed entity).
     if sound?, do: Enum.reduce(barrels, state, &barrel_opened/2), else: state
+  end
+
+  # A container's lid event: a chest's, or a shulker box's for its own block
+  # (both block event 1, VMC-032c2).
+  defp lid_packet(state, position, open) do
+    block = Blocks.get(state.blocks, position)
+
+    if Valimc.Blocks.ShulkerBox.shulker_box?(block),
+      do: Valimc.Blocks.ShulkerBox.lid_event(block, position, open),
+      else: Packets.chest_lid(position, open)
   end
 
   # The first viewer opens a barrel and the last one leaving closes it

@@ -66,11 +66,12 @@ defmodule Valimc.Blocks.Placement do
   @doc """
   Whether a held stack places. A block entity's data from a stack (a name,
   patterns, contents) needs its owned record first (VMC-032), so stacks of
-  blocks with a block entity place only without component changes.
+  blocks with a block entity place only without component changes, but for
+  a shulker box's contents (VMC-032c2).
   """
-  def placeable_stack?(%Valimc.Protocol.ItemStack{item_id: item, components: components}) do
+  def placeable_stack?(%Valimc.Protocol.ItemStack{item_id: item, components: components} = stack) do
     placeable?(item) and
-      (components == %{} or
+      (components == %{} or Valimc.Blocks.ShulkerBox.placeable_stack?(stack) or
          not Valimc.Blocks.BlockEntityTypes.native?(Valimc.Protocol.Data.item_block(item) || 0))
   end
 

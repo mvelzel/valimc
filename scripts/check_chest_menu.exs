@@ -87,6 +87,33 @@ IO.puts(
   "PASS: the native barrel menu (a three-row chest menu, 63 slot identities) and its titled open body"
 )
 
+shulkers = facts["shulker_boxes"]
+true = length(shulkers) == 2
+shulker_menu = Menu.storage(:shulker_box)
+
+for box <- shulkers do
+  true = box["shulker_menu"] and box["size"] == 27 and length(box["slots"]) == 63
+  {:ok, type} = Menu.type(shulker_menu)
+  true = type == box["type"]
+  probes = Enum.map(box["probes"], &Valimc.Protocol.ItemStack.new/1)
+
+  for {{[kind, index], accepts}, wire} <-
+        Enum.with_index(Enum.zip(box["slots"], box["accepts"])) do
+    expected = if kind == "container", do: {:container, index}, else: index
+    {:ok, ^expected} = Menu.address(shulker_menu, wire)
+
+    true =
+      Enum.map(probes, &Menu.may_place?(shulker_menu, expected, &1)) == accepts
+  end
+
+  {_, body} = Valimc.Menus.Packets.open_storage(17, :shulker_box)
+  true = IO.iodata_to_binary(body) == Base.decode16!(box["open_hex"], case: :lower)
+end
+
+IO.puts(
+  "PASS: the native shulker box menu (#{length(shulkers)} boxes, 63 slot identities, the slots' refusal of shulker boxes) and its titled open body"
+)
+
 IO.puts(
   "PASS: six native chest layouts/405 slot identities, open/content bodies/hotbar pickup input and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

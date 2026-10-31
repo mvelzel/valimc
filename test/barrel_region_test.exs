@@ -265,10 +265,12 @@ defmodule Valimc.BarrelRegionTest do
     {:storage, _, view} = Region.menu(ob, self(), at, grant(:open, at))
     assert elem(view.slots, 26) == ItemStack.new("emerald", 5)
 
-    for key <- [ctx.a, ctx.b], {pid, _} <- Valimc.TestWorld.registered(key) do
-      :ok = Region.flush(pid)
-      TestScope.kill(pid)
-    end
+    # One group holds both sections now: flush and stop each group once.
+    pids =
+      for key <- [ctx.a, ctx.b], {pid, _} <- Valimc.TestWorld.registered(key), uniq: true, do: pid
+
+    for pid <- pids, do: :ok = Region.flush(pid)
+    for pid <- pids, do: TestScope.kill(pid)
 
     {:ok, ob} = Valimc.TestWorld.item_owner(ctx.b)
     assert %{kind: :barrel, slots: slots} = entry(ob, at)

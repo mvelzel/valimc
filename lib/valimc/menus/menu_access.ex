@@ -13,7 +13,9 @@ defmodule Valimc.Menus.MenuAccess do
   `:subscribe` and `:refresh`.
 
   A chest opens only when nothing solid sits on it (`provider?/4`, vanilla's
-  `ChestBlock.isChestBlockedAt` from the generated opening facts).
+  `ChestBlock.isChestBlockedAt` from the generated opening facts); a closed
+  shulker box only when its lid has room (VMC-032c2, `ShulkerBoxBlock.canOpen`),
+  which its owner reads from the blocks.
   """
   import Bitwise
   alias Valimc.Blocks.{Cooking, CookingBlocks}
@@ -46,7 +48,7 @@ defmodule Valimc.Menus.MenuAccess do
 
   @doc """
   The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser`
-  (droppers too), `:storage` (a barrel), `:table` or nil.
+  (droppers too), `:storage` (a barrel or a shulker box), `:table` or nil.
   """
   def menu(nil), do: nil
 
@@ -95,7 +97,8 @@ defmodule Valimc.Menus.MenuAccess do
   A grant's decision for `menu`'s block: `:pass` (not a menu use; placement
   goes on), `:open` (a table opens), `:valid` (the entry is the one the grant
   saw), `{menu, block, entry}` (open or refresh with this entry) or an error.
-  `above` is the block on a chest.
+  `above` is the block on a chest; for a storage block, `:blocked` when a
+  shulker box's lid has no room to open.
   """
   def authorize(menu, block, entry, above, position, grant, now)
       when is_map_key(@kinds, menu) and is_map(grant) and is_integer(now) do
@@ -145,6 +148,9 @@ defmodule Valimc.Menus.MenuAccess do
 
       menu == :chest and opening and not provider?(block, true, above, false) ->
         {:error, :blocked_chest}
+
+      menu == :storage and opening and above == :blocked ->
+        {:error, :blocked_shulker_box}
 
       not valid_view?(menu, block, grant.mode, grant.eye, position) ->
         {:error, :invalid_menu_context}

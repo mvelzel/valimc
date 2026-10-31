@@ -17,7 +17,7 @@ defmodule Valimc.World.Containers do
   @machine_kinds %{0 => :hopper, 1 => :dropper, 2 => :dispenser}
   # Plain storage blocks (VMC-032c1): their kind and its slots, no timers.
   @storage Valimc.Blocks.Storage.sizes()
-  @storage_ids %{barrel: 0}
+  @storage_ids %{barrel: 0, shulker_box: 1}
   @storage_kinds Map.new(@storage_ids, fn {kind, id} -> {id, kind} end)
   def max_bytes, do: @max_bytes
 

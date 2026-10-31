@@ -24,7 +24,7 @@ defmodule Valimc.Blocks.BlockEntityTypes do
 
   def native?(state), do: Map.has_key?(@by_state, state)
 
-  @doc "Chests, the furnace family, item machines and barrels have owned ValiMC entries."
+  @doc "Chests, the furnace family, item machines, barrels and shulker boxes have owned ValiMC entries."
   def supported?(state), do: Valimc.Blocks.block_entity(state) != nil
 
   # Block entities placed as plain blocks (VMC-026b3/b4): end portals keep

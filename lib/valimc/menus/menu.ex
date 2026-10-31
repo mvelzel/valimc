@@ -22,9 +22,10 @@ defmodule Valimc.Menus.Menu do
 
   defstruct kind: :inventory, rows: nil, block: nil
 
-  # Menus over a container's plain slots: chests, hoppers (`HopperMenu`) and
-  # dispensers and droppers (`DispenserMenu`, VMC-049a).
-  @plain [:chest, :hopper, :dispenser]
+  # Menus over a container's plain slots: chests, hoppers (`HopperMenu`),
+  # dispensers and droppers (`DispenserMenu`, VMC-049a) and shulker boxes
+  # (`ShulkerBoxMenu`, VMC-032c2).
+  @plain [:chest, :hopper, :dispenser, :shulker_box]
 
   @bucket Data.item("bucket")
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
@@ -38,6 +39,7 @@ defmodule Valimc.Menus.Menu do
   def chest(rows) when rows in 1..6, do: %__MODULE__{kind: :chest, rows: rows}
   def cooking(block), do: %__MODULE__{kind: :cooking, block: block}
   def hopper, do: %__MODULE__{kind: :hopper}
+  def shulker_box, do: %__MODULE__{kind: :shulker_box}
   def merchant, do: %__MODULE__{kind: :merchant}
 
   def dispenser(kind) when kind in [:dropper, :dispenser],
@@ -47,13 +49,18 @@ defmodule Valimc.Menus.Menu do
   def machine(:hopper), do: hopper()
   def machine(kind), do: dispenser(kind)
 
-  @doc "The menu of a storage kind (VMC-032c1): a barrel's is a three-row chest's (`ChestMenu.threeRows`)."
+  @doc """
+  The menu of a storage kind (VMC-032c1): a barrel's is a three-row chest's
+  (`ChestMenu.threeRows`), a shulker box's its own (VMC-032c2).
+  """
   def storage(:barrel), do: chest(3)
+  def storage(:shulker_box), do: shulker_box()
 
   @doc "The container slots of a plain menu."
   def size(%__MODULE__{kind: :chest, rows: rows}), do: rows * 9
   def size(%__MODULE__{kind: :hopper}), do: 5
   def size(%__MODULE__{kind: :dispenser}), do: 9
+  def size(%__MODULE__{kind: :shulker_box}), do: 27
 
   @doc "The window type a menu opens with (`open_screen`)."
   def type(%__MODULE__{kind: :chest, rows: rows}), do: {:ok, rows - 1}
@@ -61,6 +68,7 @@ defmodule Valimc.Menus.Menu do
   def type(%__MODULE__{kind: :hopper}), do: {:ok, 16}
   def type(%__MODULE__{kind: :dispenser}), do: {:ok, 6}
   def type(%__MODULE__{kind: :merchant}), do: {:ok, 19}
+  def type(%__MODULE__{kind: :shulker_box}), do: {:ok, 20}
   def type(_), do: {:error, :invalid_menu}
 
   @doc "The window type of a furnace-family block's kind."
@@ -170,6 +178,10 @@ defmodule Valimc.Menus.Menu do
 
   def may_place?(%__MODULE__{kind: :inventory}, slot, stack) when slot in 5..8,
     do: equipment_slot(stack) == slot
+
+  # `ShulkerBoxSlot.mayPlace`: only what fits inside a container item.
+  def may_place?(%__MODULE__{kind: :shulker_box}, {:container, _}, stack),
+    do: not Valimc.Blocks.ShulkerBox.item?(stack)
 
   def may_place?(_menu, _address, _stack), do: true
 

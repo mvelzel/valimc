@@ -26,7 +26,7 @@ defmodule Valimc.Menus.Packets do
   end
 
   # A storage block's default name (`getDefaultName`).
-  @storage_titles %{barrel: "container.barrel"}
+  @storage_titles %{barrel: "container.barrel", shulker_box: "container.shulkerBox"}
 
   @doc "A storage block's screen (VMC-032c1): its menu's type and its title."
   def open_storage(container, kind)

@@ -269,7 +269,14 @@ defmodule Valimc.Player.Placement do
       with %{} = body <- command.body,
            {:ok, plan} <- plan(command.item, command.request),
            true <- admitted?(plan, body),
-           {:ok, _} <- Region.place_block(plan.owner, plan.revision, plan.batch, deadline()),
+           {:ok, _} <-
+             Region.place_block(
+               plan.owner,
+               plan.revision,
+               plan.batch,
+               deadline(),
+               contents(command.stack, plan.candidate)
+             ),
            do: true,
            else: (_ -> false)
 
@@ -475,6 +482,18 @@ defmodule Valimc.Player.Placement do
 
     send_packets(state, [Packets.ack(request.sequence) | updates])
     state
+  end
+
+  # A shulker box placed from an item holding contents starts with them
+  # (VMC-032c2).
+  defp contents(stack, %{position: position, state: state}) do
+    with true <- Valimc.Blocks.ShulkerBox.shulker_box?(state),
+         {:ok, slots} <- Valimc.Blocks.ShulkerBox.slots(stack),
+         true <- Valimc.Blocks.ShulkerBox.component(slots) != nil do
+      %{position => slots}
+    else
+      _ -> %{}
+    end
   end
 
   defp owner({x, _, z}),

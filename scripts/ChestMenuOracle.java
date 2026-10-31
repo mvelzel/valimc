@@ -103,6 +103,33 @@ public class ChestMenuOracle {
       }finally{buffer.release();}
       barrels.add(row);
     }
+    // A shulker box's own menu (`ShulkerBoxMenu`, VMC-032c2): its slots, which stacks they take
+    // (`ShulkerBoxSlot.mayPlace`) and its default name. Removed first, so opening counts no viewer.
+    var shulkers=new JsonArray();
+    for(var block:List.of(net.minecraft.world.level.block.Blocks.SHULKER_BOX,net.minecraft.world.level.block.Blocks.DYED_SHULKER_BOX.red())){
+      var owner=(TableMenuOracle.Owner)u.allocateInstance(TableMenuOracle.Owner.class);
+      owner.abilities=new Abilities();owner.drops=new ArrayList<>();
+      var inventory=new TableMenuOracle.Owned(owner);owner.inventory=inventory;
+      var box=new net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity(net.minecraft.core.BlockPos.ZERO,block.defaultBlockState());box.setRemoved();
+      var create=net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity.class.getDeclaredMethod("createMenu",int.class,Inventory.class);create.setAccessible(true);
+      var menu=(AbstractContainerMenu)create.invoke(box,17,inventory);
+      var row=new JsonObject();row.addProperty("type",BuiltInRegistries.MENU.getId(menu.getType()));row.addProperty("size",box.getContainerSize());
+      row.addProperty("shulker_menu",menu instanceof ShulkerBoxMenu);
+      var slots=new JsonArray();var accepts=new JsonArray();
+      var probes=List.of("stone","shulker_box","red_shulker_box","bundle");
+      for(int i=0;i<menu.slots.size();i++){
+        var slot=menu.getSlot(i);var address=new JsonArray();address.add(slot.container==box?"container":"player");
+        int index=slot.getContainerSlot();address.add(slot.container==box||index>=9?index:36+index);slots.add(address);
+        var takes=new JsonArray();for(var probe:probes)takes.add(slot.mayPlace(TableMenuOracle.item(probe,1)));accepts.add(takes);
+      }
+      row.add("slots",slots);row.add("probes",new Gson().toJsonTree(probes));row.add("accepts",accepts);
+      var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+      try{
+        ClientboundOpenScreenPacket.STREAM_CODEC.encode(buffer,new ClientboundOpenScreenPacket(17,menu.getType(),box.getDisplayName()));
+        var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);row.addProperty("open_hex",HexFormat.of().formatHex(bytes));
+      }finally{buffer.release();}
+      shulkers.add(row);
+    }
     var corrections=new JsonArray();
     for(var stack:List.of(ItemStack.EMPTY,TableMenuOracle.item("oak_planks",7))){
       var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
@@ -114,7 +141,7 @@ public class ChestMenuOracle {
       }finally{buffer.release();}
     }
     var out=new JsonObject();out.add("offhand_corrections",corrections);out.addProperty("version","26.3");out.addProperty("protocol",777);
-    out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);out.add("barrels",barrels);
+    out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);out.add("barrels",barrels);out.add("shulker_boxes",shulkers);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
     System.out.println("PASS: six native chest layouts/open/content bodies/hotbar pickup input codecs and empty-cursor close retaining storage; gameplay clicks/world/ownership/persistence excluded.");
   }

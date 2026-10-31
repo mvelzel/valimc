@@ -61,7 +61,7 @@ import net.minecraft.world.phys.Vec3;
  * with and without Fortune and Silk Touch, shears, enchantments stored instead of applied),
  * broken by an entity or not, by an explosion of some radius or not, with the blocks above and
  * below it (location checks) and, where the block has one, its block entity as placing the
- * block's plain item makes it. And per block-interaction table, every state of the blocks vanilla
+ * block's plain item makes it, a shulker box's holding a few random plain stacks. And per block-interaction table, every state of the blocks vanilla
  * uses it with (`INTERACT_TABLES`), several seeds each: the drops `dropFromBlockInteractLootTable`
  * makes for a player with an empty hand or a tool.
  */
@@ -474,6 +474,24 @@ public class LootOracle {
           // A block entity as placing the block's plain item makes it (`applyComponentsFromItemStack`).
           var blockEntity = block instanceof net.minecraft.world.level.block.EntityBlock entityBlock ? entityBlock.newBlockEntity(pos, state) : null;
           if (blockEntity != null && block.asItem() != Items.AIR) blockEntity.applyComponentsFromItemStack(new ItemStack(block.asItem()));
+          // A shulker box holds a few plain stacks (VMC-032c2), which its loot copies into the item.
+          JsonArray contents = null;
+          if (blockEntity instanceof net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity shulker) {
+            var fill = new Random(seed);
+            var pool = List.of(Items.DIAMOND, Items.DIRT, Items.ENDER_PEARL, Items.DIAMOND_SWORD, Items.DYED_SHULKER_BOX.red());
+            contents = new JsonArray();
+            for (int slot = 0; slot < shulker.getContainerSize(); slot++) {
+              if (fill.nextInt(3) != 0) continue;
+              var held = pool.get(fill.nextInt(pool.size()));
+              int count = 1 + fill.nextInt(held.getDefaultMaxStackSize());
+              shulker.setItem(slot, new ItemStack(held, count));
+              var c = new JsonArray();
+              c.add(slot);
+              c.add(BuiltInRegistries.ITEM.getKey(held).toString());
+              c.add(count);
+              contents.add(c);
+            }
+          }
           var params = new LootParams.Builder(level)
               .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(pos))
               .withParameter(LootContextParams.TOOL, context.tool())
@@ -506,6 +524,7 @@ public class LootOracle {
           row.addProperty("above", net.minecraft.world.level.block.Block.getId(above));
           row.addProperty("below", net.minecraft.world.level.block.Block.getId(below));
           row.add("drops", list);
+          if (contents != null) row.add("contents", contents);
           rows.add(row);
         }
       }

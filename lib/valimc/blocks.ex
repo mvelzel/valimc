@@ -16,6 +16,7 @@ defmodule Valimc.Blocks do
     Default,
     Machine,
     NetherPortal,
+    ShulkerBox,
     TurtleEgg
   }
 
@@ -25,6 +26,7 @@ defmodule Valimc.Blocks do
   @classes %{
     "ChestBlock" => Chest,
     "BarrelBlock" => Barrel,
+    "ShulkerBoxBlock" => ShulkerBox,
     "FurnaceBlock" => Furnace,
     "SmokerBlock" => Furnace,
     "BlastFurnaceBlock" => Furnace,
@@ -53,7 +55,7 @@ defmodule Valimc.Blocks do
             |> IO.iodata_to_binary()
 
   # Owned block entities must stay exactly the generated chest, furnace,
-  # machine (hopper, dropper, dispenser) and barrel states.
+  # machine (hopper, dropper, dispenser), barrel and shulker box states.
   unless Enum.all?(Map.keys(@classes), &Map.has_key?(Blocks.classes(), &1)) and
            byte_size(@by_state) == @count and
            Enum.all?(Valimc.Blocks.Chest.single_states(), fn state ->
@@ -68,6 +70,9 @@ defmodule Valimc.Blocks do
            end) and
            Enum.all?(Valimc.Data.Blocks.states("barrel"), fn state ->
              elem(@modules, :binary.at(@by_state, state)) == Barrel
+           end) and
+           Enum.all?(ShulkerBox.states(), fn state ->
+             elem(@modules, :binary.at(@by_state, state)) == ShulkerBox
            end),
          do: raise("Block behaviour classes do not cover the owned block entities")
 
@@ -105,7 +110,7 @@ defmodule Valimc.Blocks do
   def behaviour(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@modules, :binary.at(@by_state, state))
 
-  @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`, `:hopper`, `:dropper`, `:dispenser`, `:barrel`) or nil; any term is accepted."
+  @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`, `:hopper`, `:dropper`, `:dispenser`, `:barrel`, `:shulker_box`) or nil; any term is accepted."
   def block_entity(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@entity_kinds, :binary.at(@entities, state))
 

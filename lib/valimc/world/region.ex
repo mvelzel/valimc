@@ -338,17 +338,28 @@ defmodule Valimc.World.Region do
     :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
-  @doc "Internal creative placement commit; caller must freshly admit its player and held item."
-  def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline)
+  @doc """
+  Internal placement commit; caller must freshly admit its player and held
+  item. `fill` gives a placed shulker box's slots by position (VMC-032c2:
+  the item's `minecraft:container`).
+  """
+  def place_block(owner, revision, batch, deadline, fill \\ %{})
+
+  def place_block({pid, epoch}, revision, %BlockBatch{} = batch, deadline, fill)
       when is_pid(pid) and is_reference(epoch) and (is_map(revision) or is_integer(revision)) and
-             is_integer(deadline) do
-    call(pid, {:place_block, epoch, revision, batch, deadline}, budget(pid, 1000))
+             is_integer(deadline) and is_map(fill) and map_size(fill) <= 1 do
+    message =
+      if fill == %{},
+        do: {:place_block, epoch, revision, batch, deadline},
+        else: {:place_block, epoch, revision, batch, deadline, fill}
+
+    call(pid, message, budget(pid, 1000))
   catch
     :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
     :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
   end
 
-  def place_block(_, _, _, _), do: {:error, :invalid_placement}
+  def place_block(_, _, _, _, _), do: {:error, :invalid_placement}
 
   @doc "Place an End crystal; the hosted caller admits the player and held stack."
   def place_crystal({pid, epoch}, position, player_boxes),

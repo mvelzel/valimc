@@ -1,6 +1,7 @@
 defmodule Valimc.World.LootChests do
   @moduledoc """
-  Unrolled loot in chests (VMC-072b) and barrels (VMC-032c1). Generated
+  Unrolled loot in chests (VMC-072b), barrels (VMC-032c1) and shulker
+  boxes (VMC-032c2). Generated
   dungeon and structure chests, and imported chests nobody opened, keep a loot
   table and seed instead of items; ValiMC holds them as preserved block
   entities. `unpack/6` is `RandomizableContainer.unpackLootTable` for a chest
@@ -58,7 +59,7 @@ defmodule Valimc.World.LootChests do
   end
 
   defp unrolled_at(containers, entities, position, block) do
-    with true <- Valimc.Blocks.block_entity(block) in [:chest, :barrel],
+    with true <- Valimc.Blocks.block_entity(block) in [:chest, :barrel, :shulker_box],
          false <- Map.has_key?(containers.entries, position),
          %{nbt: nbt} <- BlockEntities.live(entities, position, block) do
       unrolled(nbt)

@@ -70,6 +70,11 @@ defmodule Valimc.Blocks.ItemTransfer do
     end
   end
 
+  # `ShulkerBoxBlockEntity.canPlaceItemThroughFace` (VMC-032c2): no shulker
+  # box goes into another.
+  def can_place?(%{kind: :shulker_box}, _slot, stack, _side),
+    do: not Valimc.Blocks.ShulkerBox.item?(stack)
+
   def can_place?(_entry, _slot, _stack, _side), do: true
 
   @doc "`canTakeItemThroughFace`: a furnace gives only buckets from its fuel below."

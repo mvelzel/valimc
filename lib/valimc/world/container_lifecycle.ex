@@ -1,5 +1,5 @@
 defmodule Valimc.World.ContainerLifecycle do
-  @moduledoc "Pure owner-local chest, empty cooking-block, machine (hopper, dropper, dispenser) and storage (barrel) metadata proposal. Every removed entry must be spilled in the same joint block/item/container commit."
+  @moduledoc "Pure owner-local chest, empty cooking-block, machine (hopper, dropper, dispenser) and storage (barrel, shulker box) metadata proposal. Every removed entry (with the block it belonged to) must be spilled, or a shulker box dropped with it, in the same joint block/item/container commit."
   alias Valimc.Data.Grid
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers, CookingEntry}
@@ -44,7 +44,7 @@ defmodule Valimc.World.ContainerLifecycle do
         {:chest, %{rows: 3, slots: slots} = entry} when tuple_size(slots) == 27 ->
           if kind(replacement) == :chest,
             do: {:cont, {:ok, current, removed}},
-            else: retire_entry(current, position, entry, removed)
+            else: retire_entry(current, position, entry, expected[position], removed)
 
         {:chest, _} ->
           {:halt, {:error, :missing_or_invalid_chest}}
@@ -54,7 +54,7 @@ defmodule Valimc.World.ContainerLifecycle do
           cond do
             kind(replacement) == original -> {:cont, {:ok, current, removed}}
             not CookingEntry.empty?(entry) -> {:halt, {:error, :occupied_cooking_entry}}
-            true -> retire_entry(current, position, entry, removed)
+            true -> retire_entry(current, position, entry, expected[position], removed)
           end
 
         {original, _} when original in [:furnace, :smoker, :blast_furnace] ->
@@ -64,7 +64,7 @@ defmodule Valimc.World.ContainerLifecycle do
         when original in [:hopper, :dropper, :dispenser] or is_map_key(@storage, original) ->
           if kind(replacement) == original,
             do: {:cont, {:ok, current, removed}},
-            else: retire_entry(current, position, entry, removed)
+            else: retire_entry(current, position, entry, expected[position], removed)
 
         # A machine or barrel without an entry (a generated one with loot,
         # preserved) retires nothing.
@@ -156,10 +156,13 @@ defmodule Valimc.World.ContainerLifecycle do
 
   defp kind(state), do: Valimc.Blocks.block_entity(state)
 
-  defp retire_entry(current, position, entry, removed) do
+  defp retire_entry(current, position, entry, block, removed) do
     case Containers.remove(current, position, entry.revision) do
-      {:ok, next, ^entry} -> {:cont, {:ok, next, [%{position: position, entry: entry} | removed]}}
-      error -> {:halt, error}
+      {:ok, next, ^entry} ->
+        {:cont, {:ok, next, [%{position: position, entry: entry, block: block} | removed]}}
+
+      error ->
+        {:halt, error}
     end
   end
 end

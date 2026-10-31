@@ -97,3 +97,39 @@ end
 IO.puts(
   "PASS: 12 native barrel open-state/sound traces (first and last of three viewers, spectator silent) and 48 barrel sound bodies"
 )
+
+# Shulker boxes (VMC-032c2): vanilla sends block event 1 with the opener count
+# for every viewer that is not a spectator; ValiMC sends the first opening and
+# the last closing (all the lid's movement reads) for the box's own block id.
+shulkers = raw["shulker_boxes"]
+true = length(shulkers) == 12
+
+for row <- shulkers do
+  state = row["state"]
+  position = {-1, 64, 15}
+  block = Valimc.Data.Blocks.block_id(state)
+  true = Valimc.Blocks.block_entity(state) == :shulker_box
+  true = row["events"] == [[block, 1, 1], [block, 1, 2], [block, 1, 1], [block, 1, 0]]
+
+  for {open, [_, b0, b1]} <- [{true, hd(row["events"])}, {false, List.last(row["events"])}] do
+    {_, ours} = Valimc.Blocks.ShulkerBox.lid_event(state, position, open)
+    {_, native} = Valimc.Protocol.Packets.block_event(position, b0, b1, block)
+    true = IO.iodata_to_binary(ours) == IO.iodata_to_binary(native)
+  end
+
+  true =
+    Enum.map(row["sounds"], &{&1["sound"], &1["after_events"]}) == [
+      {"minecraft:block.shulker_box.open", 1},
+      {"minecraft:block.shulker_box.close", 4}
+    ]
+
+  for {draw, sound} <- Enum.zip(row["draws"], row["sounds"]) do
+    {:ok, pitch} = ChestSounds.pitch(draw)
+    true = <<pitch::float-32>> == <<sound["pitch"]::float-32>>
+    true = sound["volume"] == 0.5 and sound["at"] == [-0.5, 64.5, 15.5]
+  end
+end
+
+IO.puts(
+  "PASS: 12 native shulker box lid event/sound traces (first and last of three viewers, spectator silent) for the box's own block id"
+)
