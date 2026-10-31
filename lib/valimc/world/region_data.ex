@@ -9022,14 +9022,29 @@ defmodule Valimc.World.RegionData do
   defp burn_up(state, dead) do
     store =
       Enum.reduce(dead, state.entities.store, fn step, acc ->
-        case Store.remove(acc, acc.epoch, step.id, step.revision) do
-          {:ok, next} -> next
+        entry = acc.entries[step.id]
+
+        # A burned shulker box or bundle spills where it burned, or where it
+        # was when its move left this section (VMC-004b8).
+        with {:ok, next} <- Store.remove(acc, acc.epoch, step.id, step.revision),
+             {:ok, next} <- spill_burned(next, state.key, entry, step.position) do
+          next
+        else
           _ -> acc
         end
       end)
 
     publish_item_views(%{state | entities: %{state.entities | store: store}})
   end
+
+  defp spill_burned(store, key, %{kind: :item, stack: stack, entity: e}, {x, _, z} = position) do
+    position =
+      if Grid.region_key(Grid.chunk_key(x, z)) == key, do: position, else: {e.x, e.y, e.z}
+
+    Valimc.Entity.ItemSpill.spill(store, key, stack, position)
+  end
+
+  defp spill_burned(store, _key, _entry, _position), do: {:ok, store}
 
   # Entities in portals (VMC-026c, VMC-026d): steps meeting a portal renew
   # their cooldown; one off cooldown starts this owner's single destination job.

@@ -21,7 +21,8 @@ defmodule Valimc.ItemSimulationRegionTest do
     File.mkdir_p!(base)
     {rx, rz} = key
     motion = Map.get(tags, :motion, %ItemMotionState{})
-    count = Map.get(tags, :count, 1)
+    stacks = if tags[:containers], do: containers(), else: []
+    count = max(Map.get(tags, :count, 1), length(stacks))
 
     records =
       for n <- 1..count do
@@ -32,7 +33,7 @@ defmodule Valimc.ItemSimulationRegionTest do
           x: rx * 128 + x,
           y: 68.0,
           z: rz * 128 + 4.5 + div(n - 1, 16) * 4,
-          stack: ItemStack.new("stone", 3),
+          stack: Enum.at(stacks, n - 1) || ItemStack.new("stone", 3),
           motion: motion
         }
       end
@@ -52,6 +53,19 @@ defmodule Valimc.ItemSimulationRegionTest do
     end)
 
     %{key: key, owner: owner, base: base, records: records}
+  end
+
+  # A shulker box with two filled slots, a bundle and a plain stack.
+  defp containers do
+    box = ItemStack.new("shulker_box")
+    bundle = ItemStack.new("bundle")
+    contents = [ItemStack.new("stone", 5), nil, ItemStack.new("diamond", 2)]
+
+    [
+      %{box | components: %{"minecraft:container" => contents}},
+      %{bundle | components: %{"minecraft:bundle_contents" => [ItemStack.new("dirt", 3)]}},
+      ItemStack.new("stone", 1)
+    ]
   end
 
   def state(ctx), do: Valimc.TestRegion.section(ctx.owner)
@@ -91,6 +105,28 @@ defmodule Valimc.ItemSimulationRegionTest do
     assert entry(ctx).motion.in_water
     step(ctx, 1)
     refute entry(ctx).motion.in_water
+  end
+
+  @tag containers: true, motion: %ItemMotionState{no_gravity: true, health: 1, fire_ticks: 20}
+  test "a burned shulker box or bundle spills its contents where it was (VMC-004b8)", ctx do
+    step(ctx, 1)
+    entries = Map.values(state(ctx).entities.store.entries)
+    names = &Valimc.Protocol.ItemTypes.item(&1.item_id)["name"]
+
+    assert entries |> Enum.map(&{names.(&1.stack), &1.stack.count}) |> Enum.sort() ==
+             [{"minecraft:diamond", 2}, {"minecraft:dirt", 3}, {"minecraft:stone", 5}]
+
+    [box, bundle, _] = ctx.records
+
+    for {held, from} <- [
+          {"minecraft:stone", box},
+          {"minecraft:diamond", box},
+          {"minecraft:dirt", bundle}
+        ] do
+      entry = Enum.find(entries, &(names.(&1.stack) == held))
+      assert {entry.entity.x, entry.entity.z} == {from.x, from.z}
+      assert {_, 0.2, _} = entry.motion.velocity
+    end
   end
 
   @tag count: 256

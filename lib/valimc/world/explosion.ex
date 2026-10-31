@@ -163,20 +163,28 @@ defmodule Valimc.World.Explosion do
   Apply `hits/2`'s actions to an authoritative store, resolving each change
   once and applying it at the entry's revision.
   """
-  def apply_hits(store, _key, actions) do
+  def apply_hits(store, key, actions) do
     Enum.reduce(actions, store, fn {id, action}, acc ->
       case acc.entries[id] do
         nil ->
           acc
 
         %{revision: revision} = entry ->
-          case Store.change_entry(acc, id, revision, change(entry, action)) do
-            {:ok, next} -> next
+          # A destroyed shulker box or bundle spills in the same change (VMC-004b8).
+          with {:ok, next} <- Store.change_entry(acc, id, revision, change(entry, action)),
+               {:ok, next} <- spill(next, key, entry, action) do
+            next
+          else
             _ -> acc
           end
       end
     end)
   end
+
+  defp spill(store, key, %{kind: :item, stack: stack, entity: e}, :destroy),
+    do: Valimc.Entity.ItemSpill.spill(store, key, stack, {e.x, e.y, e.z})
+
+  defp spill(store, _key, _entry, _action), do: {:ok, store}
 
   @doc "A resolved, revision-fenced store change for one authoritative explosion target."
   def change(_entry, :destroy), do: :remove
