@@ -1133,6 +1133,17 @@ pub(crate) fn hit_of(rules: &Rules, v: &Value) -> NifResult<Hit> {
         .and_then(Value::as_int)
         .map(|p| p as u8);
     hit.post_attack = field(m, "post_attack").and_then(Value::as_bool) == Some(true);
+    hit.attacker_motion = match field(m, "attacker_motion") {
+        Some(v) => {
+            let [fall, ground, flying] = v.as_tuple_n::<3>().ok_or(rustler::Error::BadArg)?;
+            Some((
+                number(fall)?,
+                ground.as_bool() == Some(true),
+                flying.as_bool() == Some(true),
+            ))
+        }
+        None => None,
+    };
     hit.punch = match field(m, "punch") {
         Some(v) => {
             let [power, along] = v.as_tuple_n::<2>().ok_or(rustler::Error::BadArg)?;

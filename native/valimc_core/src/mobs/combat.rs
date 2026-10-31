@@ -77,6 +77,9 @@ pub struct Hit {
     /// The effect a hit that lands adds (a tipped arrow's, a wither
     /// skeleton's wither): `(id, rung)`.
     pub effect: Option<(i32, super::model::Rung)>,
+    /// The attacker's fall distance, ground and flying as requirements
+    /// read them (Wind Burst's, VMC-037q).
+    pub attacker_motion: Option<(f64, bool, bool)>,
 }
 
 impl Hit {
@@ -115,6 +118,7 @@ impl Hit {
             post_attack: false,
             punch: None,
             effect: None,
+            attacker_motion: None,
         }
     }
 }
@@ -490,6 +494,7 @@ pub fn resolve(rules: &Rules, mob: &mut NativeMob, hit: &Hit) -> (Vec<Event>, Re
 /// wear as the piece's own.
 pub fn post_attack(rules: &Rules, mob: &mut NativeMob, hit: &Hit) -> Vec<enchant::Action> {
     let engine = &rules.living.enchant;
+    let motion = hit.attacker_motion.unwrap_or((0.0, false, false));
     let view = |a: &Attacker| enchant::EntityView {
         type_id: rules
             .facts
@@ -499,6 +504,9 @@ pub fn post_attack(rules: &Rules, mob: &mut NativeMob, hit: &Hit) -> Vec<enchant
             .copied()
             .unwrap_or(0),
         player: a.player.then(|| ("survival".to_owned(), 20)),
+        fall_distance: motion.0,
+        on_ground: motion.1,
+        flying: motion.2,
         ..Default::default()
     };
     let this = enchant::EntityView {
@@ -1070,6 +1078,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         position: Some(mob.position),
         post_attack: true,
         punch: None,
+        attacker_motion: None,
         direction: None,
         extra_knockback: Some((knockback, melee::facing(body.yaw))),
         lift: None,

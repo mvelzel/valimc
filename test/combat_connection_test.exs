@@ -582,4 +582,47 @@ defmodule Valimc.CombatConnectionTest do
     assert TestPlayer.state(pid).inventory.slots[6].components["minecraft:damage"] >= 2
     _ = client
   end
+
+  test "a mace swung after a two-block fall smashes for its bonus and stops the fall (VMC-037q)",
+       ctx do
+    mace = %{
+      ItemStack.new("mace")
+      | components: %{"minecraft:enchantments" => %{"minecraft:density" => 1}}
+    }
+
+    save(ctx, -90.0, %Inventory{slots: %{36 => mace}})
+    {client, pid} = TestPlayer.login(ctx)
+    uuid = <<11::128>>
+    owner = summon(ctx, uuid)
+    {id, _} = body(owner, uuid)
+    {_, client} = Client.await(client, :play, "add_entity")
+    TestPlayer.ticks(pid, 20)
+
+    # Fallen two blocks, landing (on the ground: no critical).
+    Valimc.TestConn.replace(pid, fn s ->
+      motion = %{s.player.motion | fall_distance: 2.0, on_ground: true}
+      %{s | player: %{s.player | motion: motion}}
+    end)
+
+    Client.send_packet(client, :play, "attack", Wire.varint(id))
+    Valimc.TestWait.until(fn -> TestPlayer.state(pid).player.motion.fall_distance == 0.0 end)
+
+    # At least 6 (5 + 1) at full strength, the smash's 4 a block and Density
+    # I's 0.5 a block, through the zombie's 2 armour (a critical if the
+    # player is still falling); without the smash a hit takes under 6.
+    {:ok, dealt} = Damage.armor_absorb(15.0, 2.0, 0.0)
+
+    Valimc.TestWait.until(fn ->
+      case Store.find(store(owner), uuid) do
+        {:ok, {_, id, _}} ->
+          health = Valimc.TestBodies.entry(store(owner).entries[id]).body.mob.living.health.value
+          health <= Valimc.Data.Float32.round(20.0 - dealt)
+
+        _ ->
+          true
+      end
+    end)
+
+    _ = client
+  end
 end

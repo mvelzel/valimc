@@ -21,13 +21,14 @@ defmodule Valimc.Player.Attack do
   (Strength, Weakness, Haste, Mining Fatigue) are VMC-037's.
   """
   alias Valimc.Data.{EffectTypes, EntityTypes, Float32, Grid}
-  alias Valimc.Living.{Attributes, DamageSource, Durability, Melee, Weapons}
+  alias Valimc.Living.{Attributes, DamageSource, Durability, Enchant, Melee, Weapons}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{CreativeInventory, Input, Movement, Vitals}
   alias Valimc.Protocol.{CombatPackets, EnchantmentEffects, EntityPackets, ItemStack, Wire}
   alias Valimc.World
   alias Valimc.World.Region
   import Valimc.Protocol.Codec, only: [send_packets: 2, reject: 2]
+  import Bitwise, only: [&&&: 2]
 
   defstruct ticker: 0, mainhand: nil
 
@@ -50,6 +51,7 @@ defmodule Valimc.Player.Attack do
   def publish_speed(state), do: state
 
   @player EntityTypes.id("minecraft:player")
+  @mace Valimc.Protocol.ItemTypes.id("minecraft:mace")
   @blindness Valimc.Data.EffectTypes.id("blindness")
   # `#redirectable_projectile` (VMC-037o): an attack turns it back.
   @redirectable ["minecraft:fireball", "minecraft:wind_charge", "minecraft:breeze_wind_charge"]
@@ -236,8 +238,10 @@ defmodule Valimc.Player.Attack do
     sprinting = Attributes.sprinting?(player.input.shared_flags)
     motion = player.motion
     {:ok, movement} = Attributes.movement_speed(effects, sprinting)
+    smash = smash?(state, mainhand)
 
     case Melee.attack(%{
+           bonus: if(smash, do: smash_bonus(state, mainhand, view), else: 0.0),
            damage: damage,
            enchanted:
              EnchantmentEffects.damage(enchantments, target, @player, Float32.round(damage)),
@@ -257,7 +261,11 @@ defmodule Valimc.Player.Attack do
 
       {:ok, hit} ->
         me = attacker(state, mainhand)
-        source = DamageSource.new(Weapons.damage_type(mainhand, :player_attack))
+
+        source =
+          DamageSource.new(
+            if(smash, do: :mace_smash, else: Weapons.damage_type(mainhand, :player_attack))
+          )
 
         knockback =
           Float32.round(
@@ -280,7 +288,8 @@ defmodule Valimc.Player.Attack do
           direct: me,
           position: {player.x, player.y, player.z},
           extra_knockback: {knockback, facing},
-          post_attack: true
+          post_attack: true,
+          attacker_motion: {motion.fall_distance * 1.0, motion.on_ground, player.abilities.flying}
         }
 
         request =
@@ -304,6 +313,7 @@ defmodule Valimc.Player.Attack do
                 else: Float32.round(outcome.previous - outcome.health)
 
             state
+            |> smashed(smash, view)
             |> Valimc.Player.Enchantments.attacked(outcome, view)
             |> sweep(hit, view, me, source, enchantments, strength, facing)
             |> show(effects(hit, true, actual), view)
@@ -314,6 +324,61 @@ defmodule Valimc.Player.Attack do
             show(state, effects(hit, false, 0.0), view)
         end
     end
+  end
+
+  # `MaceItem.canSmashAttack`: a mace swung after falling more than 1.5
+  # blocks, not gliding (VMC-037q).
+  defp smash?(state, %ItemStack{item_id: id}) do
+    id == @mace and state.player.motion.fall_distance > 1.5 and
+      (state.player.input.shared_flags &&& 0x80) == 0
+  end
+
+  defp smash?(_state, _mainhand), do: false
+
+  # `MaceItem.getAttackDamageBonus`: 4 a block for the first 3, 2 for the
+  # next 5, 1 after, and the mace's `smash_damage_per_fallen_block` effects
+  # (Density) for every block.
+  defp smash_bonus(state, mainhand, view) do
+    fall = state.player.motion.fall_distance
+
+    damage =
+      cond do
+        fall <= 3.0 -> 4.0 * fall
+        fall <= 8.0 -> 12.0 + 2.0 * (fall - 3.0)
+        true -> 22.0 + fall - 8.0
+      end
+
+    ctx = %{
+      this: Enchant.entity(type_id: EntityTypes.id(view.type)),
+      attacker: Valimc.Player.Enchantments.view(state),
+      direct: Valimc.Player.Enchantments.view(state),
+      damage: {Valimc.Protocol.DamageTypes.id(:mace_smash), true}
+    }
+
+    per_block = Enchant.value(:smash_damage_per_fallen_block, Enchant.levels(mainhand), ctx, 0.0)
+    Float32.round(damage + per_block * fall)
+  end
+
+  # `MaceItem.hurtEnemy` and `postHurtEnemy` after a smash: the player stops
+  # falling (barely rising, no fall damage from it), and the smash sounds.
+  defp smashed(state, false, _view), do: state
+
+  defp smashed(state, true, view) do
+    player = state.player
+    {vx, _, vz} = player.motion.velocity
+    heavy = player.motion.fall_distance > 5.0
+    motion = %{player.motion | velocity: {vx, 0.01, vz}, fall_distance: 0.0}
+    state = %{state | player: %{player | motion: motion}}
+    Movement.send_velocity(state, motion.velocity)
+
+    sound =
+      cond do
+        not Map.get(view, :on_ground, false) -> "minecraft:item.mace.smash_air"
+        heavy -> "minecraft:item.mace.smash_ground_heavy"
+        true -> "minecraft:item.mace.smash_ground"
+      end
+
+    sound(state, sound)
   end
 
   # `doSweepAttack`: the living bodies around the target, within 3 blocks of

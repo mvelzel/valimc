@@ -72,6 +72,8 @@ defmodule Valimc.Living.Melee do
     if base > 0.0 or magic > 0.0 do
       full = strength > 0.9
       knockback = attack.sprinting and full
+      # `getAttackDamageBonus` of the weapon (a mace's smash, VMC-037q).
+      base = Float32.round(base + Map.get(attack, :bonus, 0.0))
       critical = full and attack.critical
       base = if critical, do: Float32.round(base * 1.5), else: base
 

@@ -157,6 +157,7 @@ pub fn hurt(
     let armor = (
         value(facts, mob_facts, ty, mob, facts.attributes.armor),
         value(facts, mob_facts, ty, mob, facts.attributes.armor_toughness),
+        breach(facts, mob_facts, ty, hit),
     );
     let (window, selected) = health::hurt_window(
         &mob.living.health,
@@ -193,6 +194,47 @@ pub fn hurt(
         full: selected.notify,
         died,
     })
+}
+
+/// A melee weapon's `armor_effectiveness` effects on the mob's armour share
+/// (`EnchantmentHelper.modifyArmorEffectiveness` from 0: Breach, VMC-037q).
+fn breach(facts: &LivingFacts, mob_facts: &MobFacts, ty: Type, hit: &Hit) -> f64 {
+    let Some(attacker) = hit.attacker.as_ref() else {
+        return 0.0;
+    };
+    let melee = hit.post_attack && hit.direct.as_ref().is_some_and(|d| d.uuid == attacker.uuid);
+    let Some(weapon) = attacker.mainhand.as_ref().filter(|_| melee) else {
+        return 0.0;
+    };
+    let levels: Vec<(&str, i32)> = super::items::enchantments(weapon)
+        .into_iter()
+        .map(|(n, l)| (n, l as i32))
+        .collect();
+    if levels.is_empty() {
+        return 0.0;
+    }
+    let this = super::enchant::EntityView {
+        type_id: ty.id,
+        ..Default::default()
+    };
+    let ctx = super::enchant::Context {
+        this: Some(&this),
+        damage: Some((hit.source, true)),
+        ..Default::default()
+    };
+    let mut random = crate::mobs::random::LegacyRandom::new(0);
+    let mut draws = super::enchant::Legacy {
+        random: &mut random,
+        held: None,
+    };
+    facts.enchant.value(
+        mob_facts,
+        super::enchant::ValueHook::ArmorEffectiveness,
+        &levels,
+        &ctx,
+        &mut draws,
+        0.0,
+    ) as f64
 }
 
 /// `Mob.base/3`: attribute `attribute`'s base (the override's, else the

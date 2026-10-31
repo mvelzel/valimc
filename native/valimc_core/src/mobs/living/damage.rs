@@ -21,7 +21,8 @@ pub enum Resolved {
     Applied,
 }
 
-/// `Damage.resolve/5` with `infinite: true` and the wearer's armour:
+/// `Damage.resolve/5` with `infinite: true` and the wearer's armour
+/// (armour, toughness and the weapon's change to the armour's share, Breach's):
 /// `window` and `selected` are `Health.hurt_window/3`'s.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve(
@@ -32,7 +33,7 @@ pub fn resolve(
     window: Health,
     selected: Selected,
     source: u16,
-    armor: (f64, f64),
+    armor: (f64, f64, f64),
 ) -> Resolved {
     if living.health.value <= 0.0 || !selected.accepted {
         return Resolved::Ignored;
@@ -81,10 +82,10 @@ pub fn protect(
     source: u16,
     amount: f64,
     effects: &Effects,
-    armor: (f64, f64),
+    armor: (f64, f64, f64),
 ) -> f64 {
     let armored = if !facts.is(source, tag::BYPASSES_ARMOR) {
-        armor_absorb(amount, armor.0, armor.1)
+        armor_absorb_with(amount, armor.0, armor.1, armor.2)
     } else {
         f(amount)
     };
@@ -102,6 +103,25 @@ pub fn protect(
 
 /// `Damage.armor_absorb/3` (`CombatRules.getDamageAfterAbsorb`).
 pub fn armor_absorb(amount: f64, armor: f64, toughness: f64) -> f64 {
+    armor_absorb_with(amount, armor, toughness, 0.0)
+}
+
+/// `CombatRules.getDamageAfterAbsorb` with the weapon's
+/// `armor_effectiveness` effects adding `effectiveness` to the armour's
+/// share (Breach, VMC-037q), clamped to 0..1.
+pub fn armor_absorb_with(amount: f64, armor: f64, toughness: f64, effectiveness: f64) -> f64 {
+    if effectiveness != 0.0 {
+        let amount = f(amount);
+        let armor = f(armor);
+        let divisor = f(2.0 + f(f(toughness) / 4.0));
+        let effective = emin(
+            20.0,
+            emax(f(armor * f(0.2)), f(armor - f(amount / divisor))),
+        );
+        let share = f(effective / 25.0);
+        let share = f(share + effectiveness).clamp(0.0, 1.0);
+        return f(amount * f(1.0 - share));
+    }
     let amount = f(amount);
     let armor = f(armor);
     let divisor = f(2.0 + f(f(toughness) / 4.0));

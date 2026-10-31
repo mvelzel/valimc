@@ -364,6 +364,48 @@ defmodule Valimc.Player.Enchantments do
   defp on_self(state, {:exhaustion, amount}, _cause),
     do: Vitals.apply_effect_action(state, {:exhaust, amount})
 
+  # An explosion at the player (Wind Burst's, `ExplodeEffect`): without a
+  # damage type it only pushes, by its knockback multiplier, away from where
+  # it went off (at the player's feet: straight up); its sound and gust.
+  defp on_self(state, {:explode, %{damage_type: nil} = spec}, _cause) do
+    player = state.player
+    {ox, oy, oz} = spec.offset
+    center = {player.x + ox, player.y + oy, player.z + oz}
+    eye = {player.x, player.y + 1.62, player.z}
+    radius = spec.radius
+
+    state =
+      case Valimc.Living.Explosions.distance(radius, center, {player.x, player.y, player.z}) do
+        nil ->
+          state
+
+        distance ->
+          resistance =
+            state.inventory
+            |> Valimc.Living.Armor.equipment()
+            |> Valimc.Living.Armor.attributes()
+            |> Valimc.Living.Armor.enchanted_value("minecraft:explosion_knockback_resistance")
+
+          {kx, ky, kz} =
+            Valimc.Living.Explosions.knockback(center, eye, distance, 1.0, resistance)
+
+          multiplier = spec.knockback_multiplier || 1.0
+          {vx, vy, vz} = player.motion.velocity
+          velocity = {vx + kx * multiplier, vy + ky * multiplier, vz + kz * multiplier}
+          state = %{state | player: %{player | motion: %{player.motion | velocity: velocity}}}
+          Valimc.Player.Movement.send_velocity(state, velocity)
+          state
+      end
+
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    packet = Valimc.Protocol.CombatPackets.sound(spec.sound, "player", center, 4.0, 1.0, seed)
+    gust = Valimc.Protocol.Particles.moving(spec.large_particle, center, {1.0, 0.0, 0.0}, 0.0)
+    Valimc.Player.Movement.broadcast_player_packet(state, packet)
+    Valimc.Player.Movement.broadcast_player_packet(state, gust)
+    Valimc.Protocol.Codec.send_packets(state, [packet, gust])
+    state
+  end
+
   defp on_self(state, _action, _cause), do: state
 
   # An action on the mob that hurt the player (Thorns' damage), through the

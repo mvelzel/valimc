@@ -310,6 +310,41 @@ Tests: the connection test "a Loyalty trident thrown at the ground comes
 back to its thrower"; stages `projectiles`, `hostile_ai` (drowned
 tridents), `enchantment_effects` and `entity`.
 
+### q5a — The mace (October 31, 2026)
+
+- **Smash** (`MaceItem`): a mace swung after a fall of more than 1.5
+  blocks, not gliding, deals the `mace_smash` damage with its bonus added
+  before the critical (`getAttackDamageBonus`: 4 a block for three blocks, 2
+  for the next five, 1 after, plus the mace's
+  `smash_damage_per_fallen_block` effects a block: Density). After a hurt
+  the player stops falling (up at 0.01, its fall distance reset) and the
+  ground, heavy or air smash sound plays (`Melee.attack/1` takes a
+  `bonus`).
+- **Breach.** A melee hit carries its weapon; a mob's armour share takes
+  the weapon's `armor_effectiveness` effects
+  (`CombatRules.getDamageAfterAbsorb`, clamped to 0..1).
+- **Wind Burst.** A hit carries the attacker's fall distance, ground and
+  flying (`attacker_motion`) for the post-attack requirements; Wind Burst's
+  `explode` on the attacking player pushes it up by its knockback
+  multiplier, with the wind burst sound and gust.
+- Not yet: the smash's knockback of the bodies around the target, and Wind
+  Burst's push of others than the attacker.
+
+Tests: the connection test "a mace swung after a two-block fall smashes for
+its bonus and stops the fall"; stages `combat`, `hostile_ai`,
+`enchantment_effects`, `damage_protection`, `mob_ai` and `guardian_hurt`.
+
+### Left in VMC-037q
+
+- Frost Walker's ice, which needs frosted ice's aging and melting in the
+  block rules.
+- The spear's charge and jab for players (`KineticWeapon`,
+  `PiercingWeapon`) and Lunge on them.
+- The mace smash's knockback around the target and Wind Burst's push of
+  others.
+- Channeling's lightning, which waits for lightning bolts (VMC-039, after
+  M4).
+
 ## Awaiting client
 
 - **Efficiency and Mending** (q1a): an Efficiency V diamond pickaxe breaks
@@ -325,6 +360,9 @@ tridents), `enchantment_effects` and `entity`.
 - **Soul Speed and Binding** (q1b): Soul Speed III boots run fast on soul
   sand with souls trailing; a Binding chestplate cannot be taken off in
   survival but can in creative.
+- **Mace** (q5a): a mace swung after a jump off a few blocks smashes a
+  zombie with the smash sound; Density raises it; Wind Burst launches the
+  player up after the smash.
 - **Tridents** (q4): a thrown trident flies and sticks; Loyalty III brings
   it back into the hand; Impaling V kills a drowned faster; Riptide III in
   rain launches the player and its spin hits a zombie.
