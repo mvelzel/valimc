@@ -132,6 +132,39 @@ IO.puts(
   "PASS: the native ender chest menu (a three-row chest menu over the player's 27 slots, 63 slot identities) and its titled open body"
 )
 
+# Named containers (VMC-032c5): the name is the title in place of the default.
+named = facts["named"]
+true = length(named) == 9
+
+for row <- named do
+  name = {:string, row["name"]}
+
+  {_, body} =
+    case row["block"] do
+      "chest" ->
+        Valimc.Menus.Packets.open_chest(17, 3, name)
+
+      "barrel" ->
+        Valimc.Menus.Packets.open_storage(17, :barrel, name)
+
+      "shulker_box" ->
+        Valimc.Menus.Packets.open_storage(17, :shulker_box, name)
+
+      kind when kind in ~w(furnace smoker blast_furnace) ->
+        Valimc.Menus.Packets.open_cooking(17, String.to_existing_atom(kind), name)
+
+      kind ->
+        Valimc.Menus.Packets.open_machine(17, String.to_existing_atom(kind), name)
+    end
+
+  unless IO.iodata_to_binary(body) == Base.decode16!(row["open_hex"], case: :lower),
+    do: raise("Native named #{row["block"]} open body differs")
+end
+
+IO.puts(
+  "PASS: #{length(named)} named containers' open bodies titled by their names (chest, barrel, shulker box, the furnace family, hopper, dropper, dispenser)"
+)
+
 IO.puts(
   "PASS: six native chest layouts/405 slot identities, open/content bodies/hotbar pickup input and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

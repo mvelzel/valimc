@@ -67,15 +67,27 @@ defmodule Valimc.Blocks.Placement do
   Whether a held stack places. A block entity's data from a stack (a name,
   patterns, contents) needs its owned record first (VMC-032), so stacks of
   blocks with a block entity place only without component changes, but for
-  a shulker box's contents (VMC-032c2).
+  a shulker box's contents (VMC-032c2) and an owned container's name
+  (VMC-032c5).
   """
   def placeable_stack?(%Valimc.Protocol.ItemStack{item_id: item, components: components} = stack) do
+    block = Valimc.Protocol.Data.item_block(item) || 0
+
     placeable?(item) and
       (components == %{} or Valimc.Blocks.ShulkerBox.placeable_stack?(stack) or
-         not Valimc.Blocks.BlockEntityTypes.native?(Valimc.Protocol.Data.item_block(item) || 0))
+         named_container?(stack, block) or
+         not Valimc.Blocks.BlockEntityTypes.native?(block))
   end
 
   def placeable_stack?(_), do: false
+
+  @custom_name "minecraft:custom_name"
+
+  defp named_container?(%{components: components, removed: removed}, block) do
+    Valimc.Blocks.block_entity(block) != nil and MapSet.size(removed) == 0 and
+      Map.keys(components) == [@custom_name] and
+      Valimc.Text.Codec.valid?(components[@custom_name])
+  end
 
   @doc """
   The cell a click of `item` on `clicked` targets and the click's inputs for

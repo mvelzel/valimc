@@ -155,6 +155,28 @@ public class ChestMenuOracle {
       }finally{buffer.release();}
       enderChests.add(row);
     }
+    // Named containers (VMC-032c5): each placed from an item named "Ore Store"
+    // (`applyComponentsFromItemStack`), its menu titled by `getDisplayName`. The menu types are
+    // each block entity's `createMenu`'s.
+    var named=new JsonArray();
+    var menuTypes=new LinkedHashMap<String,MenuType<?>>();
+    menuTypes.put("chest",MenuType.GENERIC_9x3);menuTypes.put("barrel",MenuType.GENERIC_9x3);menuTypes.put("shulker_box",MenuType.SHULKER_BOX);
+    menuTypes.put("furnace",MenuType.FURNACE);menuTypes.put("smoker",MenuType.SMOKER);menuTypes.put("blast_furnace",MenuType.BLAST_FURNACE);
+    menuTypes.put("hopper",MenuType.HOPPER);menuTypes.put("dropper",MenuType.GENERIC_3x3);menuTypes.put("dispenser",MenuType.GENERIC_3x3);
+    for(var type:menuTypes.entrySet()){
+      var block=BuiltInRegistries.BLOCK.getValue(net.minecraft.resources.Identifier.withDefaultNamespace(type.getKey()));
+      var entity=(net.minecraft.world.level.block.entity.BaseContainerBlockEntity)((net.minecraft.world.level.block.EntityBlock)block).newBlockEntity(net.minecraft.core.BlockPos.ZERO,block.defaultBlockState());
+      var item=new ItemStack(block.asItem());item.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,Component.literal("Ore Store"));
+      entity.applyComponentsFromItemStack(item);
+      var row=new JsonObject();row.addProperty("block",type.getKey());row.addProperty("name","Ore Store");
+      row.addProperty("type",BuiltInRegistries.MENU.getId(type.getValue()));
+      var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+      try{
+        ClientboundOpenScreenPacket.STREAM_CODEC.encode(buffer,new ClientboundOpenScreenPacket(17,type.getValue(),entity.getDisplayName()));
+        var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);row.addProperty("open_hex",HexFormat.of().formatHex(bytes));
+      }finally{buffer.release();}
+      named.add(row);
+    }
     var corrections=new JsonArray();
     for(var stack:List.of(ItemStack.EMPTY,TableMenuOracle.item("oak_planks",7))){
       var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
@@ -166,7 +188,7 @@ public class ChestMenuOracle {
       }finally{buffer.release();}
     }
     var out=new JsonObject();out.add("offhand_corrections",corrections);out.addProperty("version","26.3");out.addProperty("protocol",777);
-    out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);out.add("barrels",barrels);out.add("shulker_boxes",shulkers);out.add("ender_chests",enderChests);
+    out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);out.add("barrels",barrels);out.add("shulker_boxes",shulkers);out.add("ender_chests",enderChests);out.add("named",named);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
     System.out.println("PASS: six native chest layouts/open/content bodies/hotbar pickup input codecs and empty-cursor close retaining storage; gameplay clicks/world/ownership/persistence excluded.");
   }

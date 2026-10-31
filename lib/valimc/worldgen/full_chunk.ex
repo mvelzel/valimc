@@ -173,6 +173,7 @@ defmodule Valimc.Worldgen.FullChunk do
   # block entity, which the region makes when it is used; with contents it is
   # kept as data, as an import keeps one it cannot own.
   defp preserved_type({:preserved, type}, _state), do: {:ok, type}
+  defp preserved_type({:named, _, _}, state), do: kept(state)
 
   defp preserved_type({:chest, slots}, state),
     do: if(empty?(slots), do: :fresh, else: kept(state))

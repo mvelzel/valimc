@@ -28,6 +28,12 @@ defmodule Valimc.Blocks.Loot do
         tables = read.("tables")
         {:ok, registry} = Native.loot_registry(tables, registries())
         :persistent_term.put({__MODULE__, :tables}, MapSet.new(Map.keys(tables)))
+
+        :persistent_term.put(
+          {__MODULE__, :named},
+          MapSet.new(for {name, table} <- tables, copies_name?(table), do: name)
+        )
+
         :persistent_term.put({__MODULE__, :registry}, registry)
         registry
 
@@ -65,6 +71,27 @@ defmodule Valimc.Blocks.Loot do
       Valimc.Data.Facts.read!("loot/registries.json")
       |> Map.put("smelting", Valimc.Blocks.CookingRecipes.smelting())
       |> Map.put("trades", Valimc.Data.Facts.read!("loot/trades.json"))
+
+  @doc """
+  Whether `table` copies its block entity's name onto what it drops (a
+  `copy_components` from the block entity including `minecraft:custom_name`):
+  a container's block loot (VMC-032c5).
+  """
+  def names?(table) do
+    registry()
+    MapSet.member?(:persistent_term.get({__MODULE__, :named}), table)
+  end
+
+  defp copies_name?(%{
+         "type" => "minecraft:copy_components",
+         "source" => "block_entity",
+         "include" => include
+       }),
+       do: "minecraft:custom_name" in include
+
+  defp copies_name?(%{} = json), do: Enum.any?(Map.values(json), &copies_name?/1)
+  defp copies_name?(list) when is_list(list), do: Enum.any?(list, &copies_name?/1)
+  defp copies_name?(_), do: false
 
   @doc "Whether the facts hold `table` (vanilla fills nothing from an unknown one)."
   def known?(table) do

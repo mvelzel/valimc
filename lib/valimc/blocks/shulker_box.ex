@@ -38,6 +38,7 @@ defmodule Valimc.Blocks.ShulkerBox do
     "east" => {1, 0, 0}
   }
   @container "minecraft:container"
+  @custom_name "minecraft:custom_name"
 
   @impl true
   def block_entity(state) do
@@ -141,26 +142,37 @@ defmodule Valimc.Blocks.ShulkerBox do
   end
 
   @doc """
-  Whether a stack of a box places: nothing on it but its contents. A name,
-  lock or loot table (`custom_name`, `lock`, `container_loot`) needs more
+  Whether a stack of a box places: nothing on it but its contents and a name
+  (VMC-032c5). A lock or loot table (`lock`, `container_loot`) needs more
   than the storage entry holds, so such a box does not place yet.
   """
   def placeable_stack?(%ItemStack{components: components, removed: removed} = stack) do
     item?(stack) and MapSet.size(removed) == 0 and
-      Map.keys(components) -- [@container] == [] and match?({:ok, _}, slots(stack))
+      Map.keys(components) -- [@container, @custom_name] == [] and
+      match?({:ok, _}, slots(stack)) and
+      (not Map.has_key?(components, @custom_name) or
+         Valimc.Text.Codec.valid?(components[@custom_name]))
   end
 
   @doc """
   The item a broken box drops (its block's loot, with the block entity's
-  components copied): the box of `state`'s colour holding `slots`.
+  components copied): the box of `state`'s colour holding `slots`, named
+  `name` when the box has one (VMC-032c5).
   """
-  def drop(state, slots) do
+  def drop(state, slots, name \\ nil) do
     stack = ItemStack.new(Blocks.name(Blocks.block_id(state)))
 
-    case component(slots) do
-      nil -> stack
-      contents -> ItemStack.normalize(%{stack | components: %{@container => contents}})
-    end
+    components =
+      case component(slots) do
+        nil -> %{}
+        contents -> %{@container => contents}
+      end
+
+    components = if name, do: Map.put(components, @custom_name, name), else: components
+
+    if components == %{},
+      do: stack,
+      else: ItemStack.normalize(%{stack | components: components})
   end
 
   @doc "The item of a box state's colour."

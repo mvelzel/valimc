@@ -17,6 +17,10 @@ defmodule CheckBlockLoot do
   def plain({:float, <<v::float-32>>}), do: v
   def plain({_, v}) when is_binary(v) or is_number(v), do: v
 
+  # A named container's name (VMC-032c5), a plain literal.
+  def name(%{"name" => name}), do: {:string, name}
+  def name(_), do: nil
+
   # A case's tool: its item and (stored) enchantments, all a table reads.
   def tool(nil), do: nil
 
@@ -60,7 +64,7 @@ failures =
           put_elem(acc, slot, ItemStack.new(String.replace_prefix(id, "minecraft:", ""), count))
         end)
 
-      drop = Valimc.Blocks.ShulkerBox.drop(row["state"], slots)
+      drop = Valimc.Blocks.ShulkerBox.drop(row["state"], slots, CheckBlockLoot.name(row))
 
       plain == [%ItemStack{item_id: drop.item_id}] and
         MiningLoot.table(row["state"]) == row["table"] and
@@ -79,6 +83,10 @@ failures =
           below: row["below"]
         )
 
+      # A named container's own item carries its name (VMC-032c5).
+      drops =
+        Valimc.World.ContainerSpills.name_drops(drops, row["state"], CheckBlockLoot.name(row))
+
       MiningLoot.table(row["state"]) == row["table"] and
         Enum.map(drops, &CheckBlockLoot.plain(ItemData.tag(&1))) == row["drops"]
   end)
@@ -96,5 +104,5 @@ stacks = cases |> Enum.map(&length(&1["drops"])) |> Enum.sum()
 interactions = Enum.count(cases, & &1["interact"])
 
 IO.puts(
-  "PASS: #{length(cases) - interactions} block breaks over #{states} states (#{Enum.count(cases, &Map.has_key?(&1, "contents"))} filled shulker boxes) and #{interactions} block interactions equal vanilla's drops (#{stacks} stacks)"
+  "PASS: #{length(cases) - interactions} block breaks over #{states} states (#{Enum.count(cases, &Map.has_key?(&1, "contents"))} filled shulker boxes, #{Enum.count(cases, &Map.has_key?(&1, "name"))} named containers) and #{interactions} block interactions equal vanilla's drops (#{stacks} stacks)"
 )

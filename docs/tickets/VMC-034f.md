@@ -1,7 +1,7 @@
 # VMC-034f — Empty processing-block lifecycle
 
-Status: Parked
-Resolved (VMC-079): placement, facing, empty mining and loot are live; spilling an occupied furnace's slots and its stored XP on removal, and named furnaces, remain.
+Status: Done
+Resolved (VMC-079): placement, facing, empty mining and loot are live; spilling an occupied furnace's slots and its stored XP on removal, and named furnaces, followed in VMC-032c5.
 Note: Done within empty physical lifecycle scope at `b68ca61`. No live cooking.
 
 Acceptance: placing a stock furnace, smoker or blast furnace creates one owned
@@ -79,3 +79,11 @@ shell or item loss until M1. Survival already corrected them. Raw `set_block`
 stays a fixture/admin tool. `test/unsupported_block_entity_test.exs` covers both
 modes plus unchanged chest/furnace placement; 190 affected and 1,008 fast checks
 pass. No client re-run yet.
+
+Closed by [VMC-032c5](VMC-032c5.md) (October 31): removing an occupied
+furnace, smoker or blast furnace, mined in survival or removed in creative,
+now spills its three slots and pays out its stored recipes' experience as
+orbs at the block's centre in the same joint commit as the block change,
+and a named furnace places, shows its name as the title and drops it again.
+The occupied refusal (`:occupied_cooking_entry`) is gone; raw edits still
+cannot orphan an occupied entry. Client checks ride 032c5's scenario.

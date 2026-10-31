@@ -6,23 +6,28 @@ defmodule Valimc.Menus.Packets do
     do: inventory_content(0, inventory, Valimc.Menus.Inventory.display_contents(inventory))
 
   def open_table(container) when container in 1..127 do
-    open_screen(container, 12, "container.crafting")
+    open_screen(container, 12, default("container.crafting"))
   end
 
-  def open_chest(container, rows) when container in 1..127 and rows in 1..6 do
+  @doc """
+  A chest's screen. `name` (VMC-032c5), a text component, is a named
+  container's title (`getDisplayName`) in place of its default name; the
+  other container screens take one too.
+  """
+  def open_chest(container, rows, name \\ nil) when container in 1..127 and rows in 1..6 do
     {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.chest(rows))
 
     open_screen(
       container,
       type,
-      if(rows == 6, do: "container.chestDouble", else: "container.chest")
+      name || default(if(rows == 6, do: "container.chestDouble", else: "container.chest"))
     )
   end
 
   @doc "A hopper's, dropper's or dispenser's screen (VMC-049a)."
-  def open_machine(container, kind) when container in 1..127 do
+  def open_machine(container, kind, name \\ nil) when container in 1..127 do
     {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.machine(kind))
-    open_screen(container, type, "container." <> Atom.to_string(kind))
+    open_screen(container, type, name || default("container." <> Atom.to_string(kind)))
   end
 
   # A storage block's default name (`getDefaultName`).
@@ -36,10 +41,10 @@ defmodule Valimc.Menus.Packets do
   A storage block's screen (VMC-032c1): its menu's type and its title; an
   ender chest's (VMC-032c3) as `EnderChestBlock`'s `CONTAINER_TITLE`.
   """
-  def open_storage(container, kind)
+  def open_storage(container, kind, name \\ nil)
       when container in 1..127 and is_map_key(@storage_titles, kind) do
     {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.storage(kind))
-    open_screen(container, type, Map.fetch!(@storage_titles, kind))
+    open_screen(container, type, name || default(Map.fetch!(@storage_titles, kind)))
   end
 
   def storage_inventory(container, kind, storage, inventory) when container in 1..127 do
@@ -56,9 +61,9 @@ defmodule Valimc.Menus.Packets do
     inventory_content(container, inventory, contents)
   end
 
-  def open_cooking(container, kind) when container in 1..127 do
+  def open_cooking(container, kind, name \\ nil) when container in 1..127 do
     {:ok, type} = Valimc.Menus.Menu.cooking_type(kind)
-    open_screen(container, type, "container." <> Atom.to_string(kind))
+    open_screen(container, type, name || default("container." <> Atom.to_string(kind)))
   end
 
   @doc "A merchant's screen (VMC-044b2), its title a text component (its name)."
@@ -111,11 +116,14 @@ defmodule Valimc.Menus.Packets do
     )
   end
 
+  # A default title: its translation key alone.
+  defp default(key), do: {:compound, %{"translate" => {:string, key}}}
+
   defp open_screen(container, type, title) do
     Packets.packet("open_screen", [
       Wire.varint(container),
       Wire.varint(type),
-      Valimc.Data.NBT.encode({:compound, %{"translate" => {:string, title}}})
+      Valimc.Text.Codec.encode(title)
     ])
   end
 

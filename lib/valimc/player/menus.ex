@@ -183,11 +183,11 @@ defmodule Valimc.Player.Menus do
     {open, content, properties} =
       case kind do
         :chest ->
-          {Valimc.Menus.Packets.open_chest(id, view.rows),
+          {Valimc.Menus.Packets.open_chest(id, view.rows, view[:name]),
            Valimc.Menus.Packets.chest_inventory(id, view.rows, view.slots, inventory), []}
 
         :storage ->
-          {Valimc.Menus.Packets.open_storage(id, view.kind),
+          {Valimc.Menus.Packets.open_storage(id, view.kind, view[:name]),
            Valimc.Menus.Packets.storage_inventory(id, view.kind, view.slots, inventory), []}
 
         :ender_chest ->
@@ -200,11 +200,11 @@ defmodule Valimc.Player.Menus do
            ), []}
 
         machine when machine in [:hopper, :dispenser] ->
-          {Valimc.Menus.Packets.open_machine(id, view.kind),
+          {Valimc.Menus.Packets.open_machine(id, view.kind, view[:name]),
            Valimc.Menus.Packets.machine_inventory(id, view.kind, view.slots, inventory), []}
 
         :cooking ->
-          {Valimc.Menus.Packets.open_cooking(id, view.kind),
+          {Valimc.Menus.Packets.open_cooking(id, view.kind, view[:name]),
            Valimc.Menus.Packets.cooking_inventory(id, view.cooking, inventory),
            Valimc.Menus.Packets.cooking_properties(id, view.cooking)}
       end

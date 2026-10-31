@@ -61,7 +61,7 @@ import net.minecraft.world.phys.Vec3;
  * with and without Fortune and Silk Touch, shears, enchantments stored instead of applied),
  * broken by an entity or not, by an explosion of some radius or not, with the blocks above and
  * below it (location checks) and, where the block has one, its block entity as placing the
- * block's plain item makes it, a shulker box's holding a few random plain stacks. And per block-interaction table, every state of the blocks vanilla
+ * block's plain item makes it, a shulker box's holding a few random plain stacks, half the containers named. And per block-interaction table, every state of the blocks vanilla
  * uses it with (`INTERACT_TABLES`), several seeds each: the drops `dropFromBlockInteractLootTable`
  * makes for a player with an empty hand or a tool.
  */
@@ -476,6 +476,14 @@ public class LootOracle {
           // A block entity as placing the block's plain item makes it (`applyComponentsFromItemStack`).
           var blockEntity = block instanceof net.minecraft.world.level.block.EntityBlock entityBlock ? entityBlock.newBlockEntity(pos, state) : null;
           if (blockEntity != null && block.asItem() != Items.AIR) blockEntity.applyComponentsFromItemStack(new ItemStack(block.asItem()));
+          // Every other container is placed from a named item (VMC-032c5), whose name its loot copies.
+          String name = null;
+          if (blockEntity instanceof net.minecraft.world.level.block.entity.BaseContainerBlockEntity && new Random(seed ^ 0x32C5L).nextBoolean()) {
+            name = "Named " + Long.toHexString(seed & 0xFFFF);
+            var named = new ItemStack(block.asItem());
+            named.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal(name));
+            blockEntity.applyComponentsFromItemStack(named);
+          }
           // A shulker box holds a few plain stacks (VMC-032c2), which its loot copies into the item.
           JsonArray contents = null;
           if (blockEntity instanceof net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity shulker) {
@@ -527,6 +535,7 @@ public class LootOracle {
           row.addProperty("below", net.minecraft.world.level.block.Block.getId(below));
           row.add("drops", list);
           if (contents != null) row.add("contents", contents);
+          if (name != null) row.addProperty("name", name);
           rows.add(row);
         }
       }

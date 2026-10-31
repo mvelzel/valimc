@@ -1,8 +1,8 @@
 defmodule Valimc.World.ContainerLifecycle do
-  @moduledoc "Pure owner-local chest, empty cooking-block, machine (hopper, dropper, dispenser) and storage (barrel, shulker box) metadata proposal. Every removed entry (with the block it belonged to) must be spilled, or a shulker box dropped with it, in the same joint block/item/container commit."
+  @moduledoc "Pure owner-local chest, cooking-block, machine (hopper, dropper, dispenser) and storage (barrel, shulker box) metadata proposal. Every removed entry (with the block it belonged to) must be spilled, or a shulker box dropped with it, in the same joint block/item/container commit."
   alias Valimc.Data.Grid
   alias Valimc.Protocol.Data
-  alias Valimc.World.{Chunk, Containers, CookingEntry}
+  alias Valimc.World.{Chunk, Containers}
 
   @storage Containers.storage()
 
@@ -51,11 +51,11 @@ defmodule Valimc.World.ContainerLifecycle do
 
         {original, %{kind: original, cooking: _} = entry}
         when original in [:furnace, :smoker, :blast_furnace] ->
-          cond do
-            kind(replacement) == original -> {:cont, {:ok, current, removed}}
-            not CookingEntry.empty?(entry) -> {:halt, {:error, :occupied_cooking_entry}}
-            true -> retire_entry(current, position, entry, expected[position], removed)
-          end
+          # An occupied one spills its slots and pays out its stored
+          # recipes' experience (VMC-032c5, `ContainerSpills.add/4`).
+          if kind(replacement) == original,
+            do: {:cont, {:ok, current, removed}},
+            else: retire_entry(current, position, entry, expected[position], removed)
 
         {original, _} when original in [:furnace, :smoker, :blast_furnace] ->
           {:halt, {:error, :missing_or_invalid_cooking_entry}}

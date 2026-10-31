@@ -83,6 +83,23 @@ counts =
               "#{inspect(position)}: owned slots #{inspect(slots)}, vanilla #{inspect(expected)}"
             )
 
+        # A named container (VMC-032c5) holds vanilla's CustomName.
+        name =
+          case entry do
+            %{name: name} ->
+              Base.encode16(IO.iodata_to_binary(Valimc.Text.Codec.encode(name)), case: :lower)
+
+            _ ->
+              nil
+          end
+
+        unless name == row["name"],
+          do:
+            raise(
+              "#{inspect(position)}: owned name #{inspect(name)}, vanilla #{inspect(row["name"])}"
+            )
+
+        counts = if name, do: Map.update(counts, :named, 1, &(&1 + 1)), else: counts
         Map.update(counts, :owned, 1, &(&1 + 1))
 
       {nil, %{type: type, nbt: nbt}} ->
@@ -106,9 +123,11 @@ counts =
   end)
 
 # A chest holding an item ValiMC could not hold was a locked case until every
-# component had a codec (VMC-004b7); it is owned now.
-unless counts[:owned] >= 6 and counts[:locked] >= 3 and counts[:preserved] >= 40,
-  do: raise("fixture coverage: #{inspect(counts)}")
+# component had a codec (VMC-004b7), named containers until VMC-032c5; they
+# are owned now.
+unless counts[:owned] >= 8 and counts[:named] >= 2 and counts[:locked] >= 1 and
+         counts[:preserved] >= 40,
+       do: raise("fixture coverage: #{inspect(counts)}")
 
 # Entities: dropped items ValiMC can hold become item records with vanilla's
 # UUID, position and loaded stack; every other entity is preserved unchanged.

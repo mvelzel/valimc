@@ -103,7 +103,8 @@ public class AnvilContentOracle {
       "smoker{Items:[{Slot:0b,id:\"minecraft:beef\",count:3}]}",
       "blast_furnace",
       "chest",
-      // Locked containers: a component ValiMC cannot hold, a custom name, a loot table.
+      // A written book's component (owned since VMC-004b7), named containers
+      // (owned since VMC-032c5) and a locked one: a loot table.
       "chest{Items:[{Slot:1b,id:\"minecraft:writable_book\",count:1,components:{\"minecraft:writable_book_content\":{pages:[\"hello\"]}}}]}",
       "chest{CustomName:\"Named chest\",Items:[{Slot:0b,id:\"minecraft:dirt\",count:3}]}",
       "chest{LootTable:\"minecraft:chests/village/village_plains_house\",LootTableSeed:42L}",
@@ -222,6 +223,14 @@ public class AnvilContentOracle {
               var slot = new JsonArray(); slot.add(s); slot.add(itemHex(stack)); slots.add(slot);
             }
             row.add("items", slots);
+          }
+          // A container's CustomName (VMC-032c5), as the network writes it.
+          if (entity instanceof net.minecraft.world.Nameable named && named.getCustomName() != null) {
+            var buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), access);
+            net.minecraft.network.chat.ComponentSerialization.TRUSTED_STREAM_CODEC.encode(buffer, named.getCustomName());
+            var bytes = new byte[buffer.readableBytes()];
+            buffer.getBytes(0, bytes);
+            row.addProperty("name", HEX.formatHex(bytes));
           }
           blockEntities.add(row);
         }

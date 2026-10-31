@@ -98,11 +98,46 @@ defmodule Valimc.AnvilBlockEntityTest do
     defp without_components({:compound, fields}),
       do: {:compound, Map.delete(fields, "components")}
 
-    test "names, locks and loot tables leave the chest preserved" do
+    test "a named container is owned with its name and exports it (VMC-032c5)" do
+      name = compound(%{"text" => {:string, "Ore"}, "color" => {:string, "gold"}})
+      items = NBT.list([compound(item_tag(stack("dirt", 5), 3))])
+
+      for {id, state, kind} <- [
+            {"minecraft:chest", @chest, :chest},
+            {"minecraft:furnace", @furnace, :cooking},
+            {"minecraft:barrel", BlockRegistry.default_state("barrel"), :storage},
+            {"minecraft:hopper", BlockRegistry.default_state("hopper"), :machine}
+          ] do
+        tag = be(id, {0, 64, 0}, %{"CustomName" => name, "Items" => items})
+        assert {:ok, {0, 64, 0}, {:named, ^name, {^kind, _}}} = BlockEntity.convert(tag, state)
+      end
+
+      entry = %{rows: 3, slots: put_elem(Tuple.duplicate(nil, 27), 3, stack("dirt", 5))}
+
+      assert BlockEntity.container_tag({0, 64, 0}, "minecraft:chest", Map.put(entry, :name, name)) ==
+               be("minecraft:chest", {0, 64, 0}, %{"CustomName" => name, "Items" => items})
+               |> without_components()
+
+      # A name ValiMC cannot hold (a click event) keeps the chest preserved.
+      clicked =
+        compound(%{
+          "text" => {:string, "x"},
+          "click_event" =>
+            compound(%{"action" => {:string, "run_command"}, "command" => {:string, "/say"}})
+        })
+
+      assert {:ok, _, {:preserved, _}} =
+               BlockEntity.convert(
+                 be("minecraft:chest", {0, 64, 0}, %{"CustomName" => clicked}),
+                 @chest
+               )
+    end
+
+    test "locks and loot tables leave the chest preserved" do
       chest = Types.type_id(@chest)
 
       for extra <- [
-            %{"CustomName" => {:string, "Named"}},
+            %{"lock" => compound(%{"items" => {:string, "minecraft:stick"}})},
             %{"LootTable" => {:string, "minecraft:chests/village/village_plains_house"}},
             %{"components" => compound(%{"minecraft:custom_name" => {:string, "x"}})}
           ] do

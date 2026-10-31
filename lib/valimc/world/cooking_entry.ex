@@ -18,6 +18,9 @@ defmodule Valimc.World.CookingEntry do
 
   def empty?(_), do: false
 
+  # A name (VMC-032c5) is the container snapshot's, not the cooking bytes'.
+  def encode(%{name: _} = entry), do: encode(Map.delete(entry, :name))
+
   def encode(%{kind: kind, revision: revision, cooking: cooking, recipes: recipes} = entry)
       when map_size(entry) == 4 and kind in @kinds and is_integer(revision) and
              revision in 1..18_446_744_073_709_551_615 and is_map(recipes) and

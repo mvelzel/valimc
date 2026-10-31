@@ -19,6 +19,7 @@ defmodule Valimc.World.Containers do
   @storage Valimc.Blocks.Storage.sizes()
   @storage_ids %{barrel: 0, shulker_box: 1}
   @storage_kinds Map.new(@storage_ids, fn {kind, id} -> {id, kind} end)
+  @max_name_bytes 65_536
   def max_bytes, do: @max_bytes
 
   def observe(%__MODULE__{entries: entries}, position),
@@ -29,14 +30,20 @@ defmodule Valimc.World.Containers do
     entries = Enum.map(positions, fetch)
 
     if Enum.all?(entries, &match?(%{rows: 3, slots: slots} when tuple_size(slots) == 27, &1)) do
-      {:ok,
-       %{
-         rows: 6,
-         parts: positions,
-         slots: entries |> Enum.flat_map(&Tuple.to_list(&1.slots)) |> List.to_tuple(),
-         revision:
-           Map.new(Enum.zip(positions, entries), fn {at, entry} -> {at, entry.revision} end)
-       }}
+      view = %{
+        rows: 6,
+        parts: positions,
+        slots: entries |> Enum.flat_map(&Tuple.to_list(&1.slots)) |> List.to_tuple(),
+        revision:
+          Map.new(Enum.zip(positions, entries), fn {at, entry} -> {at, entry.revision} end)
+      }
+
+      # The first half's name, else the second's (`ChestBlock`'s double
+      # chest `getDisplayName`).
+      case Enum.find_value(entries, &Map.get(&1, :name)) do
+        nil -> {:ok, view}
+        name -> {:ok, Map.put(view, :name, name)}
+      end
     else
       {:error, :missing_menu_entry}
     end
@@ -146,6 +153,31 @@ defmodule Valimc.World.Containers do
          do: create_entry(state, key, position, entry)
   end
 
+  @doc """
+  Name the entry at `position` (vanilla's `CustomName`, VMC-032c5): a text
+  component tag from a placed item's `minecraft:custom_name`, shown as its
+  menu's title and copied into its block loot. Every owned kind takes one.
+  """
+  def put_name(%__MODULE__{} = state, position, revision, name) do
+    with {:ok, %{revision: ^revision} = entry} <- observe(state, position),
+         true <- valid_name?(name) do
+      change(state, position, Map.put(entry, :name, name))
+    else
+      :error -> {:error, :missing_container}
+      {:ok, _} -> {:error, :stale_container}
+      false -> {:error, :invalid_container_name}
+    end
+  end
+
+  @doc "Whether `name` is a text component an entry can hold and send."
+  def valid_name?(name) do
+    byte_size(IO.iodata_to_binary(Valimc.Text.Codec.encode(name))) in 1..@max_name_bytes
+  rescue
+    _ -> false
+  catch
+    _, _ -> false
+  end
+
   def replace_cooking(%__MODULE__{} = state, position, revision, cooking, recipes) do
     with {:ok, %{revision: ^revision, cooking: _} = entry} <- observe(state, position),
          next = %{entry | cooking: cooking, recipes: recipes},
@@ -214,7 +246,11 @@ defmodule Valimc.World.Containers do
     # empty) count of the player transfer receipts versions 2 and 3 held
     # before VMC-077i3 stays.
     version =
-      if Enum.any?(entries, fn {_, entry} -> Map.has_key?(entry, :kind) end), do: 3, else: 1
+      if Enum.any?(entries, fn {_, entry} ->
+           Map.has_key?(entry, :kind) or Map.has_key?(entry, :name)
+         end),
+         do: 3,
+         else: 1
 
     receipt_count = if version == 1, do: <<>>, else: <<0::16>>
     revisions = Enum.map(entries, fn {_, entry} -> entry.revision end)
@@ -280,6 +316,14 @@ defmodule Valimc.World.Containers do
 
   def decode(_, _), do: invalid()
 
+  # A named entry (VMC-032c5): tag 4, its name's network NBT, then the
+  # entry's own tagged bytes.
+  defp entry_bytes(%{name: name} = entry, 3) do
+    true = valid_name?(name)
+    bytes = IO.iodata_to_binary(Valimc.Text.Codec.encode(name))
+    <<4, byte_size(bytes)::32, bytes::binary, entry_bytes(Map.delete(entry, :name), 3)::binary>>
+  end
+
   defp entry_bytes(%{rows: rows, slots: slots} = entry, version) when map_size(entry) == 3 do
     true = rows in 1..6 and tuple_size(slots) == rows * 9
     bytes = slot_bytes(slots)
@@ -326,41 +370,7 @@ defmodule Valimc.World.Containers do
        ) do
     position = {x, y, z}
     false = Map.has_key?(entries, position)
-
-    {entry, rest} =
-      case {tag, body} do
-        {0, <<rows, length::32, rest::binary>>} ->
-          take_generic(rows, length, rest, revision)
-
-        {1, <<length::32, rest::binary>>} when length in 26..@contents_bytes ->
-          <<bytes::binary-size(^length), rest::binary>> = rest
-          {:ok, entry} = CookingEntry.decode(bytes, revision)
-          {entry, rest}
-
-        {2, <<id, cooldown::signed-32, order::64, length::32, rest::binary>>} ->
-          kind = Map.fetch!(@machine_kinds, id)
-          true = order in 1..revision and length in 1..@contents_bytes
-          <<bytes::binary-size(^length), rest::binary>> = rest
-          {slots, <<>>} = take_slots(bytes, @machines[kind], [])
-
-          entry = %{
-            revision: revision,
-            kind: kind,
-            slots: List.to_tuple(Enum.reverse(slots)),
-            cooldown: cooldown,
-            order: order
-          }
-
-          {entry, rest}
-
-        {3, <<id, length::32, rest::binary>>} ->
-          kind = Map.fetch!(@storage_kinds, id)
-          true = length in 1..@contents_bytes
-          <<bytes::binary-size(^length), rest::binary>> = rest
-          {slots, <<>>} = take_slots(bytes, @storage[kind], [])
-          {%{revision: revision, kind: kind, slots: List.to_tuple(Enum.reverse(slots))}, rest}
-      end
-
+    {entry, rest} = take_entry(tag, body, revision)
     take_entries(rest, count - 1, Map.put(entries, position, entry), 3)
   end
 
@@ -376,6 +386,48 @@ defmodule Valimc.World.Containers do
     false = Map.has_key?(entries, position)
     {entry, rest} = take_generic(rows, length, rest, revision)
     take_entries(rest, count - 1, Map.put(entries, position, entry), version)
+  end
+
+  defp take_entry(tag, body, revision) do
+    case {tag, body} do
+      {0, <<rows, length::32, rest::binary>>} ->
+        take_generic(rows, length, rest, revision)
+
+      {1, <<length::32, rest::binary>>} when length in 26..@contents_bytes ->
+        <<bytes::binary-size(^length), rest::binary>> = rest
+        {:ok, entry} = CookingEntry.decode(bytes, revision)
+        {entry, rest}
+
+      {2, <<id, cooldown::signed-32, order::64, length::32, rest::binary>>} ->
+        kind = Map.fetch!(@machine_kinds, id)
+        true = order in 1..revision and length in 1..@contents_bytes
+        <<bytes::binary-size(^length), rest::binary>> = rest
+        {slots, <<>>} = take_slots(bytes, @machines[kind], [])
+
+        entry = %{
+          revision: revision,
+          kind: kind,
+          slots: List.to_tuple(Enum.reverse(slots)),
+          cooldown: cooldown,
+          order: order
+        }
+
+        {entry, rest}
+
+      {3, <<id, length::32, rest::binary>>} ->
+        kind = Map.fetch!(@storage_kinds, id)
+        true = length in 1..@contents_bytes
+        <<bytes::binary-size(^length), rest::binary>> = rest
+        {slots, <<>>} = take_slots(bytes, @storage[kind], [])
+        {%{revision: revision, kind: kind, slots: List.to_tuple(Enum.reverse(slots))}, rest}
+
+      {4, <<length::32, rest::binary>>} when length in 1..@max_name_bytes ->
+        <<bytes::binary-size(^length), tag, rest::binary>> = rest
+        {name, <<>>} = Valimc.Text.Codec.take(bytes)
+        true = tag != 4 and valid_name?(name)
+        {entry, rest} = take_entry(tag, rest, revision)
+        {Map.put(entry, :name, name), rest}
+    end
   end
 
   defp take_generic(rows, length, rest, revision) do

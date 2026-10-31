@@ -109,8 +109,15 @@ defmodule Valimc.ShulkerBoxRegionTest do
 
     assert Valimc.Blocks.Placement.placeable_stack?(stack)
 
-    named = %{stack | components: Map.put(stack.components, "minecraft:custom_name", "Box")}
-    refute Valimc.Blocks.Placement.placeable_stack?(named)
+    # A name places with the contents (VMC-032c5); a lock does not.
+    named = %{
+      stack
+      | components: Map.put(stack.components, "minecraft:custom_name", {:string, "Box"})
+    }
+
+    assert Valimc.Blocks.Placement.placeable_stack?(named)
+    locked = %{stack | components: Map.put(stack.components, "minecraft:lock", %{})}
+    refute Valimc.Blocks.Placement.placeable_stack?(locked)
 
     {:ok, slots} = ShulkerBox.slots(stack)
     {:ok, observed} = Region.observe_blocks(ctx.oa, [target])
@@ -118,11 +125,28 @@ defmodule Valimc.ShulkerBoxRegionTest do
 
     {:ok, _} =
       Region.place_block(ctx.oa, observed.fence, batch, Valimc.TestRegion.grant_expires(), %{
-        target => slots
+        target => %{slots: slots, name: {:string, "Box"}}
       })
 
-    assert %{kind: :shulker_box, slots: placed} = entry(ctx.oa, target)
+    assert %{kind: :shulker_box, slots: placed, name: {:string, "Box"}} = entry(ctx.oa, target)
     assert Enum.take(Tuple.to_list(placed), 3) == contents and tuple_size(placed) == 27
+
+    # Broken, it drops as the box holding them, named.
+    block = Valimc.TestBlocks.get(target)
+
+    assert :ok =
+             Region.mine_block(
+               ctx.oa,
+               target,
+               %{target => {block, Valimc.Blocks.after_removal(block)}},
+               [
+                 Valimc.Entity.ItemDrop.pop(target, ItemStack.new("red_shulker_box"))
+               ]
+             )
+
+    assert [dropped] = items(ctx.oa)
+    assert ItemStack.component(dropped.stack, "minecraft:custom_name") == {:string, "Box"}
+    assert Enum.take(ItemStack.component(dropped.stack, "minecraft:container"), 3) == contents
   end
 
   test "a closed box needs room for its lid, which opens and closes by block event", ctx do

@@ -486,6 +486,16 @@ defmodule Valimc.Storage.Anvil.Import do
     end
   end
 
+  defp own(key, position, {:named, name, held}, containers) do
+    with {:ok, containers} <- own(key, position, held, containers),
+         %{revision: revision} <- containers.entries[position],
+         {:ok, containers, _} <- Containers.put_name(containers, position, revision, name) do
+      {:ok, containers}
+    else
+      _ -> :preserve
+    end
+  end
+
   defp own(key, position, {:chest, slots}, containers) do
     with {:ok, containers, entry} <- Containers.create(containers, key, position, 3),
          {:ok, containers, _} <- Containers.replace(containers, position, entry.revision, slots) do

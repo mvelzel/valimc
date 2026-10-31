@@ -23,7 +23,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   alias Valimc.Protocol.{ItemData, ItemStack}
   alias Valimc.World.CookingEntry
 
-  @chest_fields ~w(id x y z keepPacked Items)
+  @chest_fields ~w(id x y z keepPacked Items CustomName)
   @cooking_fields @chest_fields ++
                     ~w(cooking_time_spent cooking_total_time lit_time_remaining lit_total_time speed_multiplier RecipesUsed)
   @hopper_fields @chest_fields ++ ~w(TransferCooldown)
@@ -56,7 +56,8 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   @doc """
   `{:ok, position, held}` for a block entity compound at a block state, where
   `held` is `{:chest, slots}`, `{:cooking, entry}`, `{:machine, entry}`,
-  `{:storage, entry}` or `{:preserved, type_id}`;
+  `{:storage, entry}`, one of those named as `{:named, name, held}`, or
+  `{:preserved, type_id}`;
   `{:drop, reason}` when vanilla would not load it.
   """
   def convert({:compound, fields} = tag, state) do
@@ -88,11 +89,19 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
         kind -> cooking(fields, kind, CookingBlocks.kind(state))
       end
 
-    case owned do
-      {:ok, held} -> held
-      :error -> {:preserved, type}
+    case {owned, name(fields["CustomName"])} do
+      {{:ok, held}, {:ok, nil}} -> held
+      {{:ok, held}, {:ok, name}} -> {:named, name, held}
+      _ -> {:preserved, type}
     end
   end
+
+  # `CustomName`, a text component (`parseCustomNameSafe`): one ValiMC cannot
+  # hold keeps the block entity preserved.
+  defp name(nil), do: {:ok, nil}
+
+  defp name(tag),
+    do: if(Valimc.World.Containers.valid_name?(tag), do: {:ok, tag}, else: :error)
 
   defp chest(fields) do
     with true <- only?(fields, @chest_fields),
@@ -263,7 +272,12 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   def holds_data?({:compound, fields}),
     do: map_size(Map.drop(without_empty_components(fields), @metadata)) > 0
 
-  @doc "An owned chest's or furnace's compound for a world file (export)."
+  @doc "An owned chest's or furnace's compound for a world file (export), with its `CustomName`."
+  def container_tag(position, type, %{name: name} = entry) do
+    {:compound, fields} = container_tag(position, type, Map.delete(entry, :name))
+    {:compound, Map.put(fields, "CustomName", name)}
+  end
+
   def container_tag({x, y, z}, type, %{slots: slots} = entry) do
     fields = %{
       "id" => {:string, type},

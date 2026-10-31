@@ -486,13 +486,26 @@ defmodule Valimc.Player.Placement do
 
   # A shulker box placed from an item holding contents starts with them
   # (VMC-032c2).
+  # What the placed container starts with (`applyImplicitComponents`): a
+  # shulker box's contents and an owned container's name (VMC-032c5).
   defp contents(stack, %{position: position, state: state}) do
-    with true <- Valimc.Blocks.ShulkerBox.shulker_box?(state),
-         {:ok, slots} <- Valimc.Blocks.ShulkerBox.slots(stack),
-         true <- Valimc.Blocks.ShulkerBox.component(slots) != nil do
-      %{position => slots}
-    else
-      _ -> %{}
+    slots =
+      with true <- Valimc.Blocks.ShulkerBox.shulker_box?(state),
+           {:ok, slots} <- Valimc.Blocks.ShulkerBox.slots(stack),
+           true <- Valimc.Blocks.ShulkerBox.component(slots) != nil do
+        slots
+      else
+        _ -> nil
+      end
+
+    name =
+      if Valimc.Blocks.block_entity(state) != nil,
+        do: Valimc.Protocol.ItemStack.component(stack, "minecraft:custom_name")
+
+    case {slots, name} do
+      {nil, nil} -> %{}
+      {slots, nil} -> %{position => slots}
+      _ -> %{position => %{slots: slots, name: name}}
     end
   end
 

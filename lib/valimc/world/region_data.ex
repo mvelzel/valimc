@@ -4233,7 +4233,8 @@ defmodule Valimc.World.RegionData do
       state = %{state | containers: Map.get(plan, :containers, state.containers)}
       state = publish_item_views(state)
       # A shulker box drops with its contents from its entry's retirement.
-      records = ContainerSpills.without_boxes(records, Map.get(plan, :removed, []))
+      # A named container's own item carries its name (VMC-032c5).
+      records = ContainerSpills.loot(records, Map.get(plan, :removed, []))
       {:reply, :ok, adopt_drops(state, records)}
     else
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
@@ -5345,14 +5346,30 @@ defmodule Valimc.World.RegionData do
     end
   end
 
-  # A placed shulker box's slots: 27 stacks or nil at one of the placed cells.
+  # What a placed container starts with, at one of the placed cells: a
+  # shulker box's slots (27 stacks or nil), and a name (VMC-032c5) for any
+  # owned container. A bare tuple is a box's slots.
   defp valid_fill?(fill, batch) do
-    Enum.all?(fill, fn {position, slots} ->
-      Valimc.Blocks.ShulkerBox.shulker_box?(batch.edits[position]) and is_tuple(slots) and
-        tuple_size(slots) == 27 and
-        Enum.all?(Tuple.to_list(slots), &(is_nil(&1) or is_struct(&1, Valimc.Protocol.ItemStack)))
+    Enum.all?(fill, fn {position, value} ->
+      {slots, name} = fill_parts(value)
+
+      (slots == nil or
+         (Valimc.Blocks.ShulkerBox.shulker_box?(batch.edits[position]) and is_tuple(slots) and
+            tuple_size(slots) == 27 and
+            Enum.all?(
+              Tuple.to_list(slots),
+              &(is_nil(&1) or is_struct(&1, Valimc.Protocol.ItemStack))
+            ))) and
+        (name == nil or
+           (Valimc.Blocks.block_entity(batch.edits[position]) != nil and
+              Containers.valid_name?(name))) and
+        (slots != nil or name != nil)
     end)
   end
+
+  defp fill_parts(slots) when is_tuple(slots), do: {slots, nil}
+  defp fill_parts(%{} = fill), do: {Map.get(fill, :slots), Map.get(fill, :name)}
+  defp fill_parts(_), do: {:invalid, nil}
 
   # A placed tripwire hook calculates its line, a diode checks its input
   # (`setPlacedBy`, VMC-047a, VMC-048a).
@@ -8468,16 +8485,21 @@ defmodule Valimc.World.RegionData do
     job_done(:plan, Map.put(pending, :from, from), result, state)
   end
 
-  # A shulker box placed from an item holding contents starts with them
+  # A shulker box placed from an item holding contents starts with them, and
+  # a container placed from a named item takes its name (VMC-032c5)
   # (`BaseContainerBlockEntity.applyImplicitComponents`), in the commit that
   # creates its entry.
   defp fill_placed(change, _key, _batch, fill) when map_size(fill) == 0, do: {:ok, change}
 
   defp fill_placed(change, key, batch, fill) do
-    Enum.reduce_while(fill, {:ok, change}, fn {position, slots}, {:ok, acc} ->
-      with true <- Valimc.Blocks.ShulkerBox.shulker_box?(batch.edits[position]),
-           %{kind: :shulker_box, revision: revision} <- acc.containers.entries[position],
-           {:ok, containers, _} <- Containers.replace(acc.containers, position, revision, slots),
+    Enum.reduce_while(fill, {:ok, change}, fn {position, value}, {:ok, acc} ->
+      {slots, name} = fill_parts(value)
+      block = batch.edits[position]
+
+      with %{revision: _} = entry <- acc.containers.entries[position],
+           true <- Valimc.Blocks.block_entity(block) != nil,
+           {:ok, containers, entry} <- fill_slots(acc.containers, position, entry, block, slots),
+           {:ok, containers, _} <- fill_name(containers, position, entry.revision, name),
            {:ok, _} <- Containers.encode(key, containers) do
         {:cont, {:ok, %{acc | containers: containers}}}
       else
@@ -8485,6 +8507,21 @@ defmodule Valimc.World.RegionData do
       end
     end)
   end
+
+  defp fill_slots(containers, _position, entry, _block, nil), do: {:ok, containers, entry}
+
+  defp fill_slots(containers, position, %{kind: :shulker_box} = entry, block, slots) do
+    if Valimc.Blocks.ShulkerBox.shulker_box?(block),
+      do: Containers.replace(containers, position, entry.revision, slots),
+      else: {:error, :invalid_container_contents}
+  end
+
+  defp fill_slots(_, _, _, _, _), do: {:error, :invalid_container_contents}
+
+  defp fill_name(containers, _position, _revision, nil), do: {:ok, containers, nil}
+
+  defp fill_name(containers, position, revision, name),
+    do: Containers.put_name(containers, position, revision, name)
 
   defp block_container_metadata(plan, containers, key) do
     expected = Map.take(plan.expected, Map.keys(plan.batch.edits))
@@ -8761,9 +8798,10 @@ defmodule Valimc.World.RegionData do
           original = Blocks.get(state.blocks, position)
 
           # Like an empty chest, an empty cooking block may be replaced by
-          # another kind of block; its entry goes with it.
+          # another kind of block; its entry goes with it. An occupied one
+          # only with the spill that retires it (VMC-032c5).
           block != original and
-            not (Valimc.World.CookingEntry.empty?(entry) and
+            not ((Valimc.World.CookingEntry.empty?(entry) or retired[position] == entry) and
                    Valimc.Blocks.CookingBlocks.kind(original) == entry.kind and
                    Valimc.Blocks.CookingBlocks.kind(block) != entry.kind)
 

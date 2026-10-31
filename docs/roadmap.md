@@ -66,7 +66,7 @@ books, advancements, commands/admin, certification.
 
 ## Paused
 
-A furnace holding items stays until its spill and stored experience exist ([VMC-034f](tickets/VMC-034f.md)).
+None.
 
 ## Pending client gates
 
@@ -74,6 +74,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 [044b](tickets/VMC-044b.md): trading with a librarian and a wandering trader, and a restock.
 [037q](tickets/VMC-037q.md), [038a–c](tickets/VMC-038a.md): enchantments in play, the table, anvils, grindstones, smithing.
 [004b](tickets/VMC-004b.md): components on creative items, a burning shulker box and bundle spilling.
+[032c5](tickets/VMC-032c5.md): breaking a furnace mid-smelt for its items and experience, and a renamed chest's title.
 [037p](tickets/VMC-037p.md): Health Boost, Glowing, Invisibility, swirls, omen sounds, death effects, Infested and Haste.
 
 ## Retrieve and update
