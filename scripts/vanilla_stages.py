@@ -987,6 +987,14 @@ STAGES = [
         ('java', 'HostileOracle', 'effects', '@mob-effects.json'),
         ('check', 'check_mob_effects.exs', '@mob-effects.json'),
     ]),
+    ('brewing_tick', [
+        ('java', 'BrewingOracle', 'tick', '@brewing-ticks.json'),
+        ('check', 'check_brewing_tick.exs', '@brewing-ticks.json'),
+    ]),
+    ('brewing_facts', [
+        ('regen', 'BrewingOracle', 'facts', '@brewing.json'),
+        ('same', '@brewing.json', 'priv/crafting/brewing.json'),
+    ]),
     ('effect_metadata', [
         ('regen', 'EffectMetadata', '@effect-facts.json'),
         ('same', '@effect-facts.json', 'priv/protocol/effect_facts.json'),
