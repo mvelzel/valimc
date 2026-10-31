@@ -99,7 +99,11 @@ defmodule Valimc.Entity.Projectile do
         damage: 8.0,
         item: item(@trident),
         sound: "minecraft:item.trident.hit_ground",
-        dealt: false
+        dealt: false,
+        # Loyalty (VMC-037q): its return acceleration, and whether it is on
+        # its way back (`isNoPhysics`).
+        loyalty: 0,
+        returning: false
       })
 
   defp own_data(@eye), do: %{item: item(@eye), target: nil, life: 0, survive: true}
@@ -297,7 +301,7 @@ defmodule Valimc.Entity.Projectile do
     foil = map_size(Map.get(d.item.components, "minecraft:enchantments", %{})) > 0
 
     values(%{body | type: @arrow}) ++
-      [{:trident_loyalty, 0, 0}, {:trident_foil, foil, false}]
+      [{:trident_loyalty, Map.get(d, :loyalty, 0), 0}, {:trident_foil, foil, false}]
   end
 
   # Thrown items and eyes are given their stack when made, which vanilla
@@ -337,6 +341,30 @@ defmodule Valimc.Entity.Projectile do
       end)
 
     %{body | data: %{d | weapon: weapon, pierce: min(pierce, 127), fire: fire}}
+  end
+
+  @doc """
+  A thrown trident of `item` (`ThrownTrident(level, owner, item)`,
+  VMC-037q): its item and its loyalty (`trident_return_acceleration`).
+  """
+  def trident(owner, %ItemStack{} = item) do
+    body = new(@trident, owner, item)
+    levels = Valimc.Living.Enchant.levels(item)
+
+    loyalty =
+      Valimc.Living.Enchant.value(
+        :trident_return_acceleration,
+        levels,
+        %{
+          this: Valimc.Living.Enchant.entity(type_id: EntityTypes.id(@trident))
+        },
+        0.0
+      )
+      |> trunc()
+      |> max(0)
+      |> min(127)
+
+    %{body | data: %{body.data | item: item, loyalty: loyalty}}
   end
 
   @doc "The on-fire flag (shared flag bit 0) of a burning projectile."

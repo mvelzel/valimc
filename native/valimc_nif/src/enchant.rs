@@ -653,3 +653,16 @@ fn enchant_charging_sounds(enchantments: Vec<(String, i32)>) -> NifResult<(Atom,
             .cloned(),
     ))
 }
+
+/// The trident sound of the enchantments (`trident_sound`), or nil.
+#[rustler::nif]
+fn enchant_trident_sound(enchantments: Vec<(String, i32)>) -> NifResult<(Atom, Option<String>)> {
+    let facts = crate::mob_living::facts()?;
+    Ok((
+        crate::atoms::ok(),
+        facts
+            .enchant
+            .trident_sound(&levels(&enchantments))
+            .map(str::to_owned),
+    ))
+}

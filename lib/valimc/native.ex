@@ -508,6 +508,7 @@ defmodule Valimc.Native do
   def enchant_flags(_enchantments), do: :erlang.nif_error(:nif_not_loaded)
   def enchant_count_with(_hook, _enchantments, _slot), do: :erlang.nif_error(:nif_not_loaded)
   def enchant_charging_sounds(_enchantments), do: :erlang.nif_error(:nif_not_loaded)
+  def enchant_trident_sound(_enchantments), do: :erlang.nif_error(:nif_not_loaded)
 
   def enchant_disk_positions(_position, _offset, _radius, _height),
     do: :erlang.nif_error(:nif_not_loaded)

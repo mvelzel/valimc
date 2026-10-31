@@ -156,6 +156,12 @@ defmodule Valimc.Living.Enchant do
     sounds
   end
 
+  @doc "The trident sound of the highest-levelled enchantment with one (`trident_sound`), or nil."
+  def trident_sound(enchantments) do
+    {:ok, sound} = Native.enchant_trident_sound(enchantments)
+    sound
+  end
+
   @doc "Curse of Binding's `prevent_armor_change`."
   def prevents_armor_change?(enchantments) do
     {:ok, {armor, _drop}} = Native.enchant_flags(enchantments)

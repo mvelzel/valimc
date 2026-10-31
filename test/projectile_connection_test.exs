@@ -261,6 +261,51 @@ defmodule Valimc.ProjectileConnectionTest do
     _ = client
   end
 
+  test "a Loyalty trident thrown at the ground comes back to its thrower (VMC-037q)", ctx do
+    trident = %{
+      ItemStack.new("trident")
+      | components: %{"minecraft:enchantments" => %{"minecraft:loyalty" => 3}}
+    }
+
+    save(ctx, %Inventory{slots: %{36 => trident}})
+    {client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+
+    # Raised for half a second, looking almost straight down, then thrown.
+    use =
+      IO.iodata_to_binary([Wire.varint(0), Wire.varint(1), <<-90.0::float-32, 80.0::float-32>>])
+
+    Client.send_packet(client, :play, "use_item", use)
+    Valimc.TestWait.until(fn -> match?(%{kind: :trident}, TestPlayer.state(pid).active_use) end)
+    TestPlayer.ticks(pid, 11)
+
+    release =
+      IO.iodata_to_binary([
+        Wire.varint(ItemTypes.action_id("release_use_item")),
+        Wire.position({0, 0, 0}),
+        <<0>>,
+        Wire.varint(2)
+      ])
+
+    Client.send_packet(client, :play, "player_action", release)
+
+    tridents = fn ->
+      for {_, %{body: %Body{type: "minecraft:trident"} = body}} <- store(owner).entries, do: body
+    end
+
+    Valimc.TestWait.until(fn -> tridents.() != [] end)
+    [thrown] = tridents.()
+    assert thrown.data.loyalty == 3
+    assert TestPlayer.state(pid).inventory.slots[36] == nil
+
+    # Stuck, it turns back after four ticks and its thrower takes it.
+    Valimc.TestWait.until(fn -> match?(%{}, TestPlayer.state(pid).inventory.slots[36]) end, 20_000)
+    returned = TestPlayer.state(pid).inventory.slots[36]
+    assert returned.components["minecraft:damage"] == 1
+    assert tridents.() == []
+    _ = client
+  end
+
   test "an arrow shot into the ground is picked up again", ctx do
     save(ctx, %Inventory{slots: %{36 => ItemStack.new("bow"), 9 => ItemStack.new("arrow", 2)}})
     {client, pid} = TestPlayer.login(ctx)

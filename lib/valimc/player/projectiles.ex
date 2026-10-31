@@ -65,6 +65,7 @@ defmodule Valimc.Player.Projectiles do
     case name(stack) do
       "minecraft:bow" -> :bow
       "minecraft:crossbow" -> :crossbow
+      "minecraft:trident" -> :trident
       _ -> nil
     end
   end
@@ -75,6 +76,7 @@ defmodule Valimc.Player.Projectiles do
       {{:ok, throw}, _} -> throw(state, hand, stack, throw)
       {:error, :bow} -> draw(state, hand, stack, :bow)
       {:error, :crossbow} -> crossbow(state, hand, stack)
+      {:error, :trident} -> raise_trident(state, hand, stack)
       {:error, nil} -> eye(state, hand)
     end
   end
@@ -284,7 +286,206 @@ defmodule Valimc.Player.Projectiles do
     ItemUse.stop_item_use(state)
   end
 
+  # `TridentItem.releaseUsing` after ten ticks: a throw, or with Riptide in
+  # water or rain a launch (VMC-037q).
+  def release(%{active_use: %Use{kind: :trident} = use} = state) do
+    trident = Inventory.held(state.inventory, use.hand)
+
+    state =
+      with true <- Use.elapsed(use) >= 10,
+           %ItemStack{} <- trident,
+           false <- breaks_next?(trident) do
+        riptide = riptide(trident)
+
+        cond do
+          riptide <= 0.0 -> throw_trident(state, use.hand, trident)
+          wet?(state) -> riptide(state, use.hand, trident, riptide)
+          true -> state
+        end
+      else
+        _ -> state
+      end
+
+    ItemUse.stop_item_use(state)
+  end
+
   def release(state), do: ItemUse.stop_item_use(state)
+
+  @doc """
+  One tick of a Riptide spin (`LivingEntity.checkAutoSpinAttack`, VMC-037q):
+  the first living body the player's box meets is attacked with the spin's
+  8 and the trident's enchantments, and the spin ends with the player
+  thrown back a fifth of its motion.
+  """
+  def spin(%{spin_attack: %{ticks: ticks} = spin} = state) when ticks > 0 do
+    player = state.player
+
+    with {:ok, actor} <- Items.actor(player),
+         {_, view} <- spin_target(state, actor.box),
+         {:ok, owner} <- Items.owner_of(state, view) do
+      levels = Enchant.levels(spin.item)
+
+      me = %{
+        uuid: player.uuid,
+        entity_id: player.entity_id,
+        player: true,
+        type: "minecraft:player",
+        mainhand: spin.item
+      }
+
+      ctx = %{
+        this: Enchant.entity(type_id: Valimc.Data.EntityTypes.id(view.type)),
+        attacker: Valimc.Player.Enchantments.view(state),
+        direct: Valimc.Player.Enchantments.view(state),
+        damage: {Valimc.Protocol.DamageTypes.id(:player_attack), true}
+      }
+
+      Region.hurt_entity(owner, view.uuid, %{
+        source: DamageSource.new(:player_attack),
+        amount: Enchant.value(:damage, levels, ctx, spin.damage),
+        attacker: me,
+        direct: me,
+        position: {player.x, player.y, player.z},
+        post_attack: true
+      })
+
+      {vx, vy, vz} = player.motion.velocity
+      motion = %{player.motion | velocity: {vx * -0.2, vy * -0.2, vz * -0.2}}
+      %{state | player: %{player | motion: motion}} |> Map.put(:spin_attack, %{spin | ticks: 0})
+    else
+      _ -> Map.put(state, :spin_attack, %{spin | ticks: ticks - 1})
+    end
+  end
+
+  def spin(state), do: state
+
+  defp spin_target(state, {x0, y0, z0, x1, y1, z1}) do
+    %{x: x, z: z, dimension: dimension} = state.player
+    {cx, cz} = Grid.chunk_key(x, z)
+    chunks = for dx <- -1..1, dz <- -1..1, do: {cx + dx, cz + dz}
+
+    {views, _} =
+      Valimc.World.visible_entities(MapSet.new(chunks, &Grid.section(dimension, &1)), chunks)
+
+    Enum.find(views, fn
+      {_, %{kind: :mob, alive: true, at: {mx, my, mz}, type: type}} ->
+        %{width: w, height: h} = Valimc.Data.EntityTypes.fetch(type)
+
+        mx + w / 2 > x0 and mx - w / 2 < x1 and my + h > y0 and my < y1 and mz + w / 2 > z0 and
+          mz - w / 2 < z1
+
+      _ ->
+        false
+    end)
+  end
+
+  # `TridentItem.use`: raised unless its next wear breaks it, or with Riptide
+  # out of water and rain.
+  defp raise_trident(state, hand, stack) do
+    if breaks_next?(stack) or (riptide(stack) > 0.0 and not wet?(state)) do
+      state
+    else
+      state = %{state | active_use: Use.drawing(stack, hand, :trident)}
+      ItemUse.publish_item_use(state, Use.start_flags(state.player.use_flags, hand))
+    end
+  end
+
+  defp riptide(stack),
+    do: Enchant.unconditioned(:trident_spin_attack_strength, Enchant.levels(stack), 0.0)
+
+  # `ItemStack.nextDamageWillBreak`.
+  defp breaks_next?(stack) do
+    case {ItemStack.component(stack, "minecraft:max_damage"),
+          ItemStack.component(stack, "minecraft:damage")} do
+      {max, damage} when is_integer(max) and is_integer(damage) ->
+        not Map.has_key?(stack.components, "minecraft:unbreakable") and damage >= max - 1
+
+      _ ->
+        false
+    end
+  end
+
+  # `isInWaterOrRain`: in water, or in the rain where it stands.
+  defp wet?(state) do
+    case Valimc.Player.PoseQuery.run(state.player) do
+      {:ok, %{kinetics: kinetics}} -> Map.get(kinetics, :water, false) or kinetics.rain == true
+      _ -> false
+    end
+  end
+
+  # The trident sound of its highest-levelled enchantment that has one, by
+  # its level, else the throw's (`TRIDENT_SOUND`).
+  defp trident_sound(stack, default) do
+    Enchant.trident_sound(Enchant.levels(stack)) || default
+  end
+
+  # A throw (`ThrownTrident` from the rotation at 2.5): the trident wears a
+  # point and leaves the hand, the thrown one carrying it.
+  defp throw_trident(state, hand, trident) do
+    player = state.player
+    infinite = state.inventory.infinite_materials
+    {worn, _} = Durability.hurt_and_break(trident, 1, infinite)
+    worn = worn || trident
+    slot = slot(state, hand)
+    left = if infinite, do: worn, else: nil
+    inventory = state.inventory |> Inventory.put(slot, left) |> Inventory.advance()
+    state = %{state | inventory: inventory}
+
+    body =
+      Projectile.trident(owner(player), %{worn | count: 1})
+      |> then(fn body ->
+        if infinite, do: %{body | data: %{body.data | pickup: :creative_only}}, else: body
+      end)
+      |> Projectile.from_rotation({player.pitch, player.yaw}, 0.0, 2.5, 1.0, movement(player))
+
+    at = launch_point(player)
+
+    case launch(state, body, at) do
+      {:ok, state} ->
+        world_sound(
+          state,
+          trident_sound(trident, "minecraft:item.trident.throw"),
+          "player",
+          at,
+          1.0,
+          1.0
+        )
+
+        CreativeInventory.resync_inventory(state)
+
+      :error ->
+        state
+    end
+  end
+
+  # Riptide: the player launches along its look at the enchantment's
+  # strength and spins for 20 ticks, hitting what it meets for 8
+  # (`startAutoSpinAttack`). Its client launches itself; the server keeps its
+  # own motion and the spin.
+  defp riptide(state, hand, trident, strength) do
+    player = state.player
+    infinite = state.inventory.infinite_materials
+    {worn, _} = Durability.hurt_and_break(trident, 1, infinite)
+    slot = slot(state, hand)
+    inventory = state.inventory |> Inventory.put(slot, worn || trident) |> Inventory.advance()
+    {lx, ly, lz} = view(player)
+    length = :math.sqrt(lx * lx + ly * ly + lz * lz)
+    scale = strength / length
+    {vx, vy, vz} = player.motion.velocity
+    velocity = {vx + lx * scale, vy + ly * scale, vz + lz * scale}
+
+    state =
+      %{
+        state
+        | inventory: inventory,
+          player: %{player | motion: %{player.motion | velocity: velocity}}
+      }
+      |> Map.put(:spin_attack, %{ticks: 20, damage: 8.0, item: worn || trident})
+
+    sound = trident_sound(trident, "minecraft:item.trident.riptide_1")
+    state = play(state, sound, "player", 1.0, 1.0)
+    CreativeInventory.resync_inventory(state)
+  end
 
   @doc "`BowItem.getPowerForTime`."
   def power(ticks) do
@@ -795,6 +996,12 @@ defmodule Valimc.Player.Projectiles do
       {:ok, next, nil, _} -> {:ok, next}
       _ -> :refused
     end
+  end
+
+  def try_pickup(%{data: %{pickup: :creative_only, returning: true, item: item}}, inventory) do
+    if inventory.infinite_materials,
+      do: {:ok, inventory},
+      else: try_pickup(%{data: %{pickup: :allowed, item: item}}, inventory)
   end
 
   def try_pickup(%{data: %{pickup: :creative_only}}, inventory),

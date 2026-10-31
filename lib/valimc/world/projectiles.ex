@@ -64,22 +64,72 @@ defmodule Valimc.World.Projectiles do
           other
       end)
 
+    # A loyal trident on its way back flies without the kernel (VMC-037q).
+    {loyal, bodies} = Enum.split_with(bodies, fn {_, entry} -> returns?(entry.body) end)
+
     inputs =
       Enum.map(bodies, fn {_, %{entity: e, body: body}} ->
         Projectile.input(body, {e.x * 1.0, e.y * 1.0, e.z * 1.0}, {float(), float(), float()})
       end)
 
-    targets =
+    kernel_targets =
       for %{id: id, position: {x, y, z}, box: box} <- targets,
           do:
             {id, {x * 1.0, y * 1.0, z * 1.0},
              box |> Tuple.to_list() |> Enum.map(&(&1 * 1.0)) |> List.to_tuple()}
 
     {:ok, results} =
-      Kernel.projectiles(Valimc.World.View.new(), inputs, targets, border, fast_lava)
+      Kernel.projectiles(Valimc.World.View.new(), inputs, kernel_targets, border, fast_lava)
 
-    for {{id, entry}, result} <- Enum.zip(bodies, results), do: {id, entry, result}
+    for({{id, entry}, result} <- Enum.zip(bodies, results), do: {id, entry, result}) ++
+      for {id, entry} <- loyal, do: {id, entry, return_step(entry, targets)}
   end
+
+  # `ThrownTrident.tick`: a trident with Loyalty that has dealt its damage (or
+  # is already on its way) and has an owner turns back to it.
+  defp returns?(%Body{type: @trident, data: d}),
+    do: Map.get(d, :loyalty, 0) > 0 and (d.dealt or d.returning) and d.owner != nil
+
+  defp returns?(_body), do: false
+
+  # Its tick on the way back: toward the owner's eyes at 0.05 per level of
+  # loyalty, without physics (`setNoPhysics`), with the air's or water's drag
+  # and no gravity; `{:returning, :lost}` when the owner is not here to
+  # return to (`isAcceptibleReturnOwner`).
+  defp return_step(%{entity: e, body: %Body{data: d} = body}, targets) do
+    case Enum.find(targets, &(&1.id == d.owner.id)) do
+      %{position: {ox, oy, oz}} = owner ->
+        loyalty = d.loyalty
+        eye = oy + eye_height(owner)
+        {vx, vy, vz} = {ox - e.x, eye - e.y, oz - e.z}
+        length = :math.sqrt(vx * vx + vy * vy + vz * vz)
+
+        {nx, ny, nz} =
+          if length < 1.0e-4, do: {0.0, 0.0, 0.0}, else: {vx / length, vy / length, vz / length}
+
+        y = e.y + vy * 0.015 * loyalty
+        accel = 0.05 * loyalty
+        {mx, my, mz} = body.velocity
+        {mx, my, mz} = {mx * 0.95 + nx * accel, my * 0.95 + ny * accel, mz * 0.95 + nz * accel}
+        position = {e.x + mx, y + my, e.z + mz}
+        drag = Float32.round(0.99)
+        velocity = {mx * drag, my * drag, mz * drag}
+        yaw = :math.atan2(-mx, -mz) * 180.0 / :math.pi()
+        pitch = :math.atan2(my, :math.sqrt(mx * mx + mz * mz)) * 180.0 / :math.pi()
+
+        state =
+          {position, velocity, {Float32.round(yaw), Float32.round(pitch)}, d.age + 1,
+           {false, false, true}, -1}
+
+        {:returning, state, not d.returning}
+
+      nil ->
+        {:returning, :lost}
+    end
+  end
+
+  defp eye_height(%{box: {_, y0, _, _, y1, _}}), do: (y1 - y0) * 0.9
+  defp eye_height(_target), do: 1.62
 
   @doc "The target of shulker bullet `body` among `targets` (by uuid), or nil."
   def bullet_target(%Body{data: %{target: {_, uuid}}}, targets),
@@ -95,6 +145,28 @@ defmodule Valimc.World.Projectiles do
   position, type, uuid}`; `context` holds `mob_griefing`, `difficulty`,
   the target list (`targets`) and a block reader (`read`).
   """
+  def plan(%{entity: e, body: %Body{data: d}}, {:returning, :lost}, _targets, _context) do
+    drop =
+      if d.pickup == :allowed,
+        do: [{:spawn, item_record(d.item, {e.x, e.y, e.z}, 0.1)}],
+        else: []
+
+    {:remove, drop}
+  end
+
+  def plan(%{entity: e, body: body}, {:returning, state, started}, _targets, _context) do
+    {position, _, _, _, _, _} = state
+    body = Projectile.advance(body, state)
+    body = %{body | data: %{body.data | returning: true, dealt: true}}
+
+    sound =
+      if started,
+        do: [{:sound, "minecraft:item.trident.return", "neutral", {e.x, e.y, e.z}, 10.0, 1.0}],
+        else: []
+
+    {:keep, Projectile.impulse(body), position, sound}
+  end
+
   def plan(%{entity: e, body: body}, result, targets, context) do
     old = {e.x, e.y, e.z}
     # The projectile itself, the direct entity of its hits.
@@ -130,7 +202,10 @@ defmodule Valimc.World.Projectiles do
         # A trident stuck for more than four ticks has dealt its damage.
         d = if type == @trident and d.life > 4, do: %{d | dealt: true}, else: d
 
-        if life >= @despawn,
+        # `ThrownTrident.tickDespawn`: a loyal trident one may pick up stays.
+        stays = type == @trident and Map.get(d, :loyalty, 0) > 0 and d.pickup == :allowed
+
+        if life >= @despawn and not stays,
           do: {:remove, []},
           else: {:keep, %{body | data: %{d | life: life}}, position, []}
 
@@ -448,7 +523,8 @@ defmodule Valimc.World.Projectiles do
       this: Valimc.Living.Enchant.entity(type_id: EntityTypes.id(target.type)),
       attacker: owner && Valimc.Living.Enchant.entity(type_id: owner),
       direct: Valimc.Living.Enchant.entity(type_id: EntityTypes.id(type)),
-      damage: {Valimc.Protocol.DamageTypes.id(:arrow), false}
+      damage:
+        {Valimc.Protocol.DamageTypes.id(if type == @trident, do: :trident, else: :arrow), false}
     }
 
     {Valimc.Living.Enchant.value(:damage, levels, ctx, d.damage),
@@ -464,7 +540,15 @@ defmodule Valimc.World.Projectiles do
   # its tick.
   defp trident_hit(body, at, target, context) do
     d = body.data
-    hit = projectile_hit(body, context.me, at, :trident, 8.0)
+    # Its item is its weapon (`getWeaponItem`): Impaling (VMC-037q).
+    {damage, _knockback} = enchanted(%{d | weapon: d.item}, target, body.type)
+
+    hit =
+      body
+      |> projectile_hit(context.me, at, :trident, damage)
+      |> then(&%{&1 | attacker: %{&1.attacker | mainhand: d.item}})
+      |> Map.put(:post_attack, true)
+
     body = %{body | data: %{d | dealt: true}}
 
     {:hurt, target, hit,

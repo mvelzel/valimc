@@ -438,6 +438,23 @@ impl Engine {
         })
     }
 
+    /// `pickHighestLevel(stack, TRIDENT_SOUND)`: the sound of the
+    /// highest-levelled enchantment that has trident sounds, by its level.
+    pub fn trident_sound(&self, enchantments: &[(&str, i32)]) -> Option<&str> {
+        let mut best: Option<(i32, &Definition)> = None;
+        for (name, level) in enchantments {
+            if let Some(def) = self.get(name) {
+                if !def.trident_sounds.is_empty() && best.is_none_or(|(l, _)| *level > l) {
+                    best = Some((*level, def));
+                }
+            }
+        }
+        best.map(|(level, def)| {
+            let i = (level - 1).clamp(0, def.trident_sounds.len() as i32 - 1) as usize;
+            def.trident_sounds[i].as_str()
+        })
+    }
+
     /// Whether any of `enchantments` has the flag component.
     pub fn prevents_armor_change(&self, enchantments: &[(&str, i32)]) -> bool {
         enchantments

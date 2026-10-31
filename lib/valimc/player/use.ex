@@ -11,9 +11,12 @@ defmodule Valimc.Player.Use do
   def blocking(%ItemStack{item_id: id}, hand) when hand in [:main, :off],
     do: %__MODULE__{hand: hand, item_id: id, remaining: @blocking_ticks, blocking: true}
 
-  @doc "A drawn bow or charging crossbow (`kind` `:bow` or `:crossbow`, VMC-037o): 72000 ticks."
+  @doc """
+  A drawn bow, charging crossbow or raised trident (`kind` `:bow`,
+  `:crossbow` or `:trident`, VMC-037o, VMC-037q): 72000 ticks.
+  """
   def drawing(%ItemStack{item_id: id}, hand, kind)
-      when hand in [:main, :off] and kind in [:bow, :crossbow],
+      when hand in [:main, :off] and kind in [:bow, :crossbow, :trident],
       do: %__MODULE__{hand: hand, item_id: id, remaining: @blocking_ticks, kind: kind}
 
   @doc "Ticks a blocking or drawing use has lasted (`getUseDuration - useItemRemaining`)."

@@ -50,6 +50,7 @@ defmodule Valimc.Player.Enchantments do
   (`enchant_location`).
   """
   def tick(%{life_stage: :alive, phase: :play} = state) do
+    state = Valimc.Player.Projectiles.spin(state)
     player = state.player
     block = {floor(player.x), floor(player.y), floor(player.z)}
 

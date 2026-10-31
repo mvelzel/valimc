@@ -624,6 +624,17 @@ defmodule Valimc.Entity.Tracking do
     )
   end
 
+  # A trident too, and one with Loyalty on its way back (`ThrownTrident.tryPickup`:
+  # its owner only, which the owner checks).
+  defp takeable(fields, %{type: "minecraft:trident", body: %{data: data}}) do
+    Map.put(
+      fields,
+      :takeable,
+      (data.in_ground and data.shake <= 0 and data.pickup != :disallowed) or
+        Map.get(data, :returning, false)
+    )
+  end
+
   defp takeable(fields, _view), do: fields
 
   # Vanilla's `needsSync` for an item: its motion changed sharply this tick.

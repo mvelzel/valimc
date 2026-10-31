@@ -277,6 +277,39 @@ keeps its arrow and shoots it burning"; stages `projectiles`,
 Not shot yet: firework rockets from crossbows, and pillagers' and piglins'
 crossbows (VMC-044d's illagers).
 
+### q4 — Tridents (October 31, 2026)
+
+- **The player's trident** (`TridentItem`): raised unless its next wear
+  breaks it (or with Riptide out of water and rain); after ten ticks a
+  release throws it (`Entity.Projectile.trident/2`, from the rotation at
+  2.5 with the player's motion): it wears a point, leaves the hand (a
+  creative player keeps it and its trident is creative-only) and plays the
+  highest-levelled `trident_sound` or the throw.
+- **Impaling.** A trident's hit (a player's or a drowned's) takes its item's
+  `damage` effects on its 8, with the `trident` source, and runs the
+  post-attack effects with the item as the weapon.
+- **Loyalty.** A thrown trident holds its item's
+  `trident_return_acceleration` (sent as its loyalty). Once it has dealt
+  its damage, or stuck for more than four ticks, it turns back to its owner
+  in the group (`ThrownTrident.tick`): toward the owner's eyes at 0.05 per
+  level, without physics, with the return sound once; with no owner here
+  its item drops where it is. It never despawns while one may pick it up.
+  A stuck trident is taken like an arrow; one on its way back only by its
+  owner, into the inventory.
+- **Riptide.** In water or rain, a release launches the player along its
+  look at the enchantment's `trident_spin_attack_strength` and spins it for
+  20 ticks: the first living body its box meets is attacked for 8 with the
+  trident's enchantments, and the spin ends with the player thrown back
+  (`checkAutoSpinAttack`). The client launches itself, as vanilla's does.
+- **Channeling waits for lightning.** Its `hit_block` and `post_attack`
+  effects summon a lightning bolt in a thunderstorm; ValiMC has neither
+  lightning bolts nor thunderstorm strikes (weather effects, VMC-039, are
+  after M4), so a summon does nothing yet.
+
+Tests: the connection test "a Loyalty trident thrown at the ground comes
+back to its thrower"; stages `projectiles`, `hostile_ai` (drowned
+tridents), `enchantment_effects` and `entity`.
+
 ## Awaiting client
 
 - **Efficiency and Mending** (q1a): an Efficiency V diamond pickaxe breaks
@@ -292,6 +325,9 @@ crossbows (VMC-044d's illagers).
 - **Soul Speed and Binding** (q1b): Soul Speed III boots run fast on soul
   sand with souls trailing; a Binding chestplate cannot be taken off in
   survival but can in creative.
+- **Tridents** (q4): a thrown trident flies and sticks; Loyalty III brings
+  it back into the hand; Impaling V kills a drowned faster; Riptide III in
+  rain launches the player and its spin hits a zombie.
 - **Fire Aspect and Thorns** (q2): a Fire Aspect sword sets a zombie
   burning; a zombie hitting a player in Thorns III armour is hurt now and
   then, with the thorns sound and the armour wearing.

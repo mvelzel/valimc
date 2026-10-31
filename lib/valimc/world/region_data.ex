@@ -1009,7 +1009,10 @@ defmodule Valimc.World.RegionData do
           run_projectile(acc, id, entry, Projectiles.plan(entry, result, by_id, context), moves)
         end)
 
-      moved = for {id, _, {:ok, _, _, _, _}} <- steps, do: id
+      moved =
+        for {id, _, result} <- steps,
+            match?({:ok, _, _, _, _}, result) or match?({:returning, _, _}, result),
+            do: id
 
       state =
         put_in(
@@ -4174,8 +4177,8 @@ defmodule Valimc.World.RegionData do
     with true <- epoch == state.epoch or Error.retry(:stale_owner),
          nil <- write_busy(state),
          {:ok, {epoch, id, revision}} <- Store.find(store, uuid),
-         %{body: %Body{type: "minecraft:arrow", data: %{in_ground: true, shake: 0}} = body} <-
-           store.entries[id],
+         %{body: %Body{} = body} <- store.entries[id],
+         true <- takeable?(body, actor),
          {:ok, inventory} <- Valimc.Player.Projectiles.try_pickup(body, inventory),
          {:ok, store} <- Store.remove(store, epoch, id, revision) do
       state = put_entities(state, store)
@@ -9891,4 +9894,15 @@ defmodule Valimc.World.RegionData do
 
     :ok
   end
+
+  # A stuck arrow or trident, or a loyal trident returning to `actor`
+  # (VMC-037q).
+  defp takeable?(%Body{type: type, data: %{in_ground: true, shake: 0}}, _actor)
+       when type in ["minecraft:arrow", "minecraft:trident"],
+       do: true
+
+  defp takeable?(%Body{type: "minecraft:trident", data: %{returning: true, owner: owner}}, actor),
+    do: owner != nil and owner.uuid == actor.uuid
+
+  defp takeable?(_body, _actor), do: false
 end
