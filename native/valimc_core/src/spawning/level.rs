@@ -16,7 +16,8 @@ pub trait Level {
     /// The state at a position, `None` where it cannot be read (outside the
     /// held chunks or the build height).
     fn state(&self, p: [i32; 3]) -> Option<u16>;
-    /// Sky and block light at a position (0, 0 where unknown).
+    /// Sky and block light at a position (unknown light: 0, 0 at generation,
+    /// fully lit in a live group).
     fn light(&self, p: [i32; 3]) -> (u8, u8);
     /// `getHeight(type, x, z)`: one above the highest matching block, MIN_Y
     /// for none.

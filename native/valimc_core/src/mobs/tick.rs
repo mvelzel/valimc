@@ -1065,9 +1065,14 @@ impl Tick {
         if mob.body.velocity != t.mob.velocity {
             ticker.current[i].velocity = mob.body.velocity;
         }
-        let vital = vitals::apply(rules, mob, &Moved::from(&t));
-        // The sun on undead mobs and rain on burning ones (VMC-043b).
         let position = mob.position;
+        let mut moved = Moved::from(&t);
+        if !moved.water && vitals::water_sensitive(rules, ty) {
+            let [_, height, _] = super::living::body::dimensions(rules, ty, &mob.body);
+            moved.rain = ai.level.rain(position, position[1] + height);
+        }
+        let vital = vitals::apply(rules, mob, &moved);
+        // The sun on undead mobs and rain on burning ones (VMC-043b).
         let sunned = vitals::daylight(rules, mob, position, ai.level);
         // A family's own tick after the move (a zombie drowning).
         let own = match tw.kinds.kind(ty.id) {

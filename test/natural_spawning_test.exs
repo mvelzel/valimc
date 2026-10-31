@@ -152,6 +152,25 @@ defmodule Valimc.NaturalSpawningTest do
            end)
   end
 
+  test "at noon nothing spawns on a lit sky platform, only in its shadow", %{
+    owners: [{key, owner} | _]
+  } do
+    {x, _, z} = centre(key, 64, 64)
+    {bx, bz} = {trunc(x), trunc(z)}
+    stone = Valimc.Data.Blocks.default_state("stone")
+    edits = for dx <- -20..20, dz <- -20..20, into: %{}, do: {{bx + dx, 149, bz + dz}, stone}
+    {:ok, observed} = Region.observe_blocks(owner, [{bx, 149, bz}])
+    {:ok, _} = Region.set_blocks(owner, observed.fence, edits)
+    noon = %{@night | darken: 0}
+
+    Enum.reduce(1..400, Spawning.new(), fn t, spawning ->
+      elem(tick(owner, [{x, 150.0, z, false, false}], noon, spawning, t), 0)
+    end)
+
+    assert monsters_near(mobs(owner), {x, 64, z}) > 0
+    assert Enum.all?(mobs(owner), fn {_, {_, y, _}} -> y < 149 end)
+  end
+
   test "two players of one group each hold their own local cap", %{
     owners: [{a_key, a}, {b_key, b}]
   } do

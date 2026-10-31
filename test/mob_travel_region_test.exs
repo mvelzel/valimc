@@ -117,6 +117,33 @@ defmodule Valimc.MobTravelRegionTest do
     assert Process.alive?(pid)
   end
 
+  # The M3 gate's vanishing mobs: a death in a mob's own tick (a fall, the
+  # sun, rain) left no drops.
+  test "a sheep that dies of its fall drops its loot", ctx do
+    {x, z} = ctx.at
+    {:ok, sheep} = Body.new("minecraft:sheep")
+    :ok = Region.drop_items(ctx.owner, [Store.body_record(sheep, <<1::128>>, {x, 100.0, z})])
+    step(ctx, 80)
+    store = Valimc.TestRegion.section(ctx.owner).entities.store
+    mutton = Valimc.Protocol.ItemTypes.id("mutton")
+    assert {:error, _} = Store.find(store, <<1::128>>)
+    assert Enum.any?(store.entries, &match?({_, %{kind: :item, stack: %{item_id: ^mutton}}}, &1))
+  end
+
+  # The M3 gate's trader stayed invisible by day (VMC-083).
+  @tag goals: true
+  test "an invisible wandering trader drinks milk by day", ctx do
+    {x, z} = ctx.at
+    {:ok, trader} = Body.new("minecraft:wandering_trader")
+    id = Valimc.Data.EffectTypes.id("invisibility")
+    living = %{trader.mob.living | effects: %{id => [{9600, 0, false, true, true}]}}
+    trader = %{trader | mob: %{trader.mob | living: living}, data: %{trader.data | invisible: true}}
+    :ok = Region.drop_items(ctx.owner, [Store.body_record(trader, <<1::128>>, {x, 64.0, z})])
+    step(ctx, 60)
+    e = entry(ctx, <<1::128>>)
+    assert e.body.mob.living.effects == %{} and not e.body.data.invisible
+  end
+
   test "two overlapping zombies push each other apart", ctx do
     {x, z} = ctx.at
     summon(ctx, <<1::128>>, {x, 64.0, z})

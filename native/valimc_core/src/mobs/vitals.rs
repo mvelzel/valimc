@@ -111,6 +111,8 @@ pub struct Moved<'a> {
     pub touched: &'a Touched,
     /// In water after the move.
     pub water: bool,
+    /// In rain after the move (read only for a water-sensitive type).
+    pub rain: bool,
 }
 
 impl<'a> From<&'a Ticked> for Moved<'a> {
@@ -121,13 +123,14 @@ impl<'a> From<&'a Ticked> for Moved<'a> {
             landing: t.landing,
             touched: &t.touched,
             water: t.water,
+            rain: false,
         }
     }
 }
 
 /// `MobVitals.apply/3`: air (a type that does not keep its own), the
-/// landing's fall damage, the move's contacts in order and water's hurt to a
-/// type sensitive to it.
+/// landing's fall damage, the move's contacts in order and water's or rain's
+/// hurt to a type sensitive to it (`isInWaterOrRain`).
 pub fn apply(rules: &Rules, mob: &mut NativeMob, moved: &Moved) -> Vec<Event> {
     let mut events = Vec::new();
     let Some(ty) = rules.of(&mob.body.entity_type) else {
@@ -141,14 +144,17 @@ pub fn apply(rules: &Rules, mob: &mut NativeMob, moved: &Moved) -> Vec<Event> {
         landing(rules, ty, mob, &mut events, state, distance);
     }
     contacts(rules, ty, mob, &mut events, moved.touched);
-    if moved.water
-        && rules.facts.hostile.water_sensitive.contains(&ty.id)
-        && living_mob::alive(&mob.body.mob)
+    if (moved.water || moved.rain) && water_sensitive(rules, ty) && living_mob::alive(&mob.body.mob)
     {
         hurt(rules, mob, &mut events, rules.living.damage.drown, 1.0);
     }
     actually_hurt(rules, ty, mob, &before);
     events
+}
+
+/// `isSensitiveToWater`.
+pub fn water_sensitive(rules: &Rules, ty: Type) -> bool {
+    rules.facts.hostile.water_sensitive.contains(&ty.id)
 }
 
 /// `MobVitals.set_air/4`: a family's own air and the drowning it takes.

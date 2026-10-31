@@ -346,7 +346,7 @@ defmodule Valimc.World.RegionData do
 
     state =
       if Tickets.simulating?(state.tickets),
-        do: state |> simulate_items(now) |> redstone_contacts(),
+        do: state |> simulate_items(now) |> drop_deaths() |> redstone_contacts(),
         else: state
 
     track_entities(state)
@@ -7038,7 +7038,16 @@ defmodule Valimc.World.RegionData do
 
   # Every hurt path's deaths drop here, as `LivingEntity.die` drops them.
   defp put_entities(state, store) do
-    {store, deaths} = Store.take_deaths(store)
+    state = %{state | entities: %{state.entities | store: store}}
+    if store.deaths == [], do: publish_item_views(state), else: drop_deaths(state)
+  end
+
+  # The deaths of the mobs' own ticks and timers (burning, drowning, a
+  # fall) drop at the end of the entity phase.
+  defp drop_deaths(%{entities: %{store: %{deaths: []}}} = state), do: state
+
+  defp drop_deaths(state) do
+    {store, deaths} = Store.take_deaths(state.entities.store)
     store = Enum.reduce(deaths, store, &drop_death(&2, state.key, &1))
     publish_item_views(%{state | entities: %{state.entities | store: store}})
   end

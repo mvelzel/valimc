@@ -324,10 +324,13 @@ impl Level for Stores<'_, '_> {
         })
     }
 
+    // Where the light is not known yet it reads fully lit, so no monster
+    // spawns in the dark it would otherwise read (vanilla spawns only in lit
+    // chunks).
     fn light(&self, p: [i32; 3]) -> (u8, u8) {
         self.store((p[0] >> 4, p[2] >> 4))
             .and_then(|s| s.light_at(p[0], p[1], p[2]))
-            .unwrap_or((0, 0))
+            .unwrap_or((15, 15))
     }
 
     fn height(&self, map: usize, x: i32, z: i32) -> i32 {

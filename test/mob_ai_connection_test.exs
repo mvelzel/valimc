@@ -123,6 +123,15 @@ defmodule Valimc.MobAiConnectionTest do
     assert distance(owner, uuid, ctx) < 2.0
   end
 
+  test "a bare-handed husk's hit makes the player hungry", ctx do
+    save(ctx, %Inventory{})
+    {_client, pid} = TestPlayer.login(ctx)
+    summon(ctx, "minecraft:husk", <<12::128>>, 3.0)
+    hunger = Valimc.Data.EffectTypes.id("hunger")
+    Valimc.TestWait.until(fn -> TestPlayer.living(pid).health.value < 20.0 end, 30_000)
+    Valimc.TestWait.until(fn -> Map.has_key?(TestPlayer.living(pid).effects, hunger) end, 2_000)
+  end
+
   test "a pig follows a player holding a carrot and panics when hit", ctx do
     save(ctx, %Inventory{slots: %{36 => ItemStack.new("carrot")}})
     {_client, _pid} = TestPlayer.login(ctx)

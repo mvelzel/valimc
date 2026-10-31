@@ -1694,8 +1694,7 @@ defmodule Valimc.Entity.Store do
   def change_body(state, id, %NativeBody{} = row, events) do
     case state.entries[id] do
       %{kind: :mob, native: _} = entry ->
-        state = put_body(state, id, NativeBody.merge(row, entry.body), events)
-        if row.death, do: %{state | deaths: [id | state.deaths]}, else: state
+        put_body(state, id, NativeBody.merge(row, entry.body), events)
 
       _ ->
         state
@@ -1705,12 +1704,7 @@ defmodule Valimc.Entity.Store do
   def change_body(state, id, %Body{} = body, events) do
     case state.entries[id] do
       %{kind: kind} when kind in @bodies ->
-        state = put_body(state, id, body, events)
-
-        case body do
-          %Body{mob: %{death: death}} when death != nil -> %{state | deaths: [id | state.deaths]}
-          _ -> state
-        end
+        put_body(state, id, body, events)
 
       _ ->
         state
@@ -1847,8 +1841,14 @@ defmodule Valimc.Entity.Store do
         revision: entry.revision + 1
     }
 
-    put_entry(state, id, entry)
+    state = put_entry(state, id, entry)
+    # Every path a body dies by (a hit, its own tick, its timers) drops it.
+    if died?(body), do: %{state | deaths: [id | state.deaths]}, else: state
   end
+
+  defp died?(%NativeBody{death: death}), do: death
+  defp died?(%Body{mob: %{death: death}}), do: death != nil
+  defp died?(_), do: false
 
   defp put_entry(state, id, entry) do
     view = body_view(state.epoch, entry, state.views[id])

@@ -85,6 +85,16 @@ defmodule Valimc.AnimalRegionTest do
     assert Enum.any?(store(ctx).entries, fn {_, e} -> e.kind == :orb end)
   end
 
+  # The M3 gate's turtles never bred.
+  test "two turtles in love breed: one carries an egg", ctx do
+    summon(ctx, "minecraft:turtle", <<6::128>>, {0.0, 0.0}, %{in_love: 600})
+    summon(ctx, "minecraft:turtle", <<7::128>>, {1.5, 0.0}, %{in_love: 600})
+    step(ctx, 200)
+
+    bodies = for {_, %{kind: :mob, body: body}} <- store(ctx).entries, do: body
+    assert Enum.count(bodies, & &1.data.has_egg) == 1
+  end
+
   test "shears shear a sheep's wool onto the ground and turn a mooshroom into a cow", ctx do
     summon(ctx, "minecraft:sheep", <<3::128>>, {0.0, 0.0}, %{color: 4})
     summon(ctx, "minecraft:mooshroom", <<4::128>>, {3.0, 0.0})

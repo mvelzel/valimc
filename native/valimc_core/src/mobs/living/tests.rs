@@ -687,6 +687,7 @@ fn vitals_burn_fall_drown_and_extinguish() {
         landing,
         touched: &none,
         water: false,
+        rain: false,
     };
     let mut cow = fx.mob("minecraft:cow");
     vitals::apply(&rules, &mut cow, &moved(Some((1, 7.5))));
@@ -707,6 +708,7 @@ fn vitals_burn_fall_drown_and_extinguish() {
         landing: None,
         touched: &none,
         water: true,
+        rain: false,
     };
     let mut cow = fx.mob("minecraft:cow");
     let mut zombie = fx.mob("minecraft:zombie");
@@ -728,6 +730,17 @@ fn vitals_burn_fall_drown_and_extinguish() {
         },
     );
     assert_eq!(blaze.body.mob.living.health.value, 19.0);
+    // And so does one in rain (`isInWaterOrRain`); a zombie in rain does not.
+    let rained = Moved {
+        rain: true,
+        ..moved(None)
+    };
+    let mut blaze = fx.mob("minecraft:blaze");
+    vitals::apply(&rules, &mut blaze, &rained);
+    assert_eq!(blaze.body.mob.living.health.value, 19.0);
+    let mut zombie = fx.mob("minecraft:zombie");
+    vitals::apply(&rules, &mut zombie, &rained);
+    assert_eq!(zombie.body.mob.living.health.value, 20.0);
 
     // Water puts a burning cow out with the hiss.
     let water = Touched {
