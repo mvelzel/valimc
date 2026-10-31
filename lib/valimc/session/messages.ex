@@ -225,6 +225,7 @@ defmodule Valimc.Session.Messages do
            |> Vitals.apply_border_damage()
            |> ItemUse.tick_item_use()
            |> Valimc.Player.Attack.tick()
+           |> Valimc.Player.Enchantments.tick()
            |> Vitals.tick_food()
            |> Vitals.reset_effect_fall()
            |> Mining.tick_mining()

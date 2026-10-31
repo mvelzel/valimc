@@ -59,4 +59,27 @@ defmodule Valimc.EnchantmentEffectsTest do
 
     assert {^inventory, 3} = Items.mend(inventory, 3)
   end
+
+  test "Curse of Binding keeps worn armour out of a survival player's hands" do
+    alias Valimc.Menus.{Click, Menu}
+    cursed = enchanted("iron_chestplate", [{"minecraft:binding_curse", 1}])
+    inventory = %{Inventory.new() | slots: %{6 => cursed}}
+
+    for action <- [:pickup, :quick_move, :throw] do
+      assert {:ok, nil, %{slots: %{6 => ^cursed}}, []} =
+               Click.plan(Menu.inventory(), nil, inventory, action, 6, 0)
+    end
+
+    assert {:ok, nil, %{slots: slots, carried: ^cursed}, []} =
+             Click.plan(
+               Menu.inventory(),
+               nil,
+               %{inventory | infinite_materials: true},
+               :pickup,
+               6,
+               0
+             )
+
+    refute Map.has_key?(slots, 6)
+  end
 end

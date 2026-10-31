@@ -173,6 +173,19 @@ defmodule Valimc.Menus.Menu do
 
   def may_place?(_menu, _address, _stack), do: true
 
+  @doc """
+  Whether the player may take `stack` from `address` (vanilla's
+  `Slot.mayPickup`): an armour slot keeps a piece whose enchantments
+  prevent armour changes (Curse of Binding, VMC-037q) unless the player is
+  creative (`infinite`).
+  """
+  def may_pickup?(_menu, _address, nil, _infinite), do: true
+
+  def may_pickup?(%__MODULE__{kind: :inventory}, slot, stack, false) when slot in 5..8,
+    do: not Valimc.Living.Enchant.prevents_armor_change?(Valimc.Living.Enchant.levels(stack))
+
+  def may_pickup?(_menu, _address, _stack, _infinite), do: true
+
   @doc "The most of `stack` `address` holds (vanilla's `Slot.getMaxStackSize(stack)`)."
   def limit(%__MODULE__{kind: :inventory}, slot, _stack) when slot in 5..8, do: 1
   def limit(_menu, {:cooking, 1}, %{item_id: @bucket}), do: 1

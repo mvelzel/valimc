@@ -96,40 +96,57 @@ defmodule Valimc.Menus.Click do
               action in [:throw, :pickup, :quick_move, :swap, :clone, :pickup_all],
        do: {:ok, state, []}
 
-  defp gesture(_menu, {_, inventory} = state, :throw, address, button) when button in -128..127 do
+  defp gesture(menu, {_, inventory} = state, :throw, address, button) when button in -128..127 do
     case if(inventory.carried == nil, do: get(state, address)) do
       nil ->
         {:ok, state, []}
 
       stack ->
-        count = if button == 0, do: 1, else: stack.count
-        {:ok, put(state, address, sized(stack, stack.count - count)), [sized(stack, count)]}
+        if Menu.may_pickup?(menu, address, stack, inventory.infinite_materials),
+          do: throw_stack(state, address, stack, button),
+          else: {:ok, state, []}
     end
   end
 
   defp gesture(menu, {_, inventory} = state, :pickup, address, button) when button in [0, 1] do
     present = get(state, address)
 
-    if special?(present) or special?(inventory.carried),
-      do: {:error, :unsupported_click},
-      else: {:ok, pickup(menu, state, address, present, inventory.carried, button), []}
-  end
+    cond do
+      special?(present) or special?(inventory.carried) ->
+        {:error, :unsupported_click}
 
-  defp gesture(menu, state, :quick_move, address, button) when button in [0, 1] do
-    case get(state, address) do
-      nil -> {:ok, state, []}
-      stack -> {:ok, quick_move(menu, state, address, stack), []}
+      not Menu.may_pickup?(menu, address, present, inventory.infinite_materials) ->
+        {:ok, state, []}
+
+      true ->
+        {:ok, pickup(menu, state, address, present, inventory.carried, button), []}
     end
   end
 
-  defp gesture(menu, state, :swap, address, button) when button in 0..8 or button == 40 do
+  defp gesture(menu, {_, inventory} = state, :quick_move, address, button)
+       when button in [0, 1] do
+    case get(state, address) do
+      nil ->
+        {:ok, state, []}
+
+      stack ->
+        if Menu.may_pickup?(menu, address, stack, inventory.infinite_materials),
+          do: {:ok, quick_move(menu, state, address, stack), []},
+          else: {:ok, state, []}
+    end
+  end
+
+  defp gesture(menu, {_, inventory} = state, :swap, address, button)
+       when button in 0..8 or button == 40 do
     target = if button == 40, do: 45, else: 36 + button
     source = get(state, address)
     other = get(state, target)
 
     cond do
-      # Vanilla leaves a slot that does not take the hotbar's stack as it is.
-      not Menu.may_place?(menu, address, other) ->
+      # Vanilla leaves a slot that does not take the hotbar's stack as it is,
+      # or keeps what it may not give up.
+      not Menu.may_place?(menu, address, other) or
+          not Menu.may_pickup?(menu, address, source, inventory.infinite_materials) ->
         {:ok, state, []}
 
       # Past a slot's limit vanilla splits and may drop: not planned here.
@@ -153,6 +170,11 @@ defmodule Valimc.Menus.Click do
     do: {:ok, collect(menu, state, address, button), []}
 
   defp gesture(_menu, _state, _action, _address, _button), do: {:error, :unsupported_click}
+
+  defp throw_stack(state, address, stack, button) do
+    count = if button == 0, do: 1, else: stack.count
+    {:ok, put(state, address, sized(stack, stack.count - count)), [sized(stack, count)]}
+  end
 
   ## Pick up and put down
 
@@ -253,7 +275,8 @@ defmodule Valimc.Menus.Click do
     maximum = ItemStack.max_stack_size(cursor)
 
     if present != nil and cursor.count < maximum and same?(present, cursor) and
-         (pass == :all or present.count != ItemStack.max_stack_size(present)) do
+         (pass == :all or present.count != ItemStack.max_stack_size(present)) and
+         Menu.may_pickup?(menu, address, present, inventory.infinite_materials) do
       moved = min(present.count, maximum - cursor.count)
 
       # A slot that takes nothing gives its stack only whole (`safeTake`).

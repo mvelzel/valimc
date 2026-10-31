@@ -30,13 +30,20 @@ defmodule Valimc.Player.Movement do
   def publish_movement_speed(state) do
     effects = state.player.living.effects
     sprint = Attributes.sprinting?(state.player.input.shared_flags)
-    signature = Attributes.movement_signature(effects, sprint)
+    # Soul Speed's while on soul blocks (VMC-037q).
+    enchanted = Valimc.Player.Enchantments.location_modifiers(state, "minecraft:movement_speed")
+    signature = {Attributes.movement_signature(effects, sprint), enchanted}
 
     if signature == state.movement_speed_view do
       state
     else
       {:ok, derived} = Attributes.movement_speed(effects, sprint)
-      send_packets(state, [Packets.attribute(state.player.entity_id, derived.attribute)])
+      {id, base, modifiers} = derived.attribute
+
+      send_packets(state, [
+        Packets.attribute(state.player.entity_id, {id, base, modifiers ++ enchanted})
+      ])
+
       %{state | movement_speed_view: signature}
     end
   end

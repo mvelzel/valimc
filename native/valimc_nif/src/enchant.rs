@@ -481,12 +481,14 @@ fn enchant_post_attack<'a>(
     Ok((crate::atoms::ok(), (terms, r.seed)))
 }
 
-/// An entity hook over one item: `{:ok, {actions, random}}`.
+/// An entity hook over one item in `slot` (none: every enchantment):
+/// `{:ok, {actions, random}}`.
 #[rustler::nif]
 fn enchant_entity<'a>(
     env: Env<'a>,
     hook: String,
     enchantments: Vec<(String, i32)>,
+    slot_name: Option<String>,
     ctx: Ctx,
     state: u64,
 ) -> NifResult<(Atom, (Vec<Term<'a>>, u64))> {
@@ -498,10 +500,15 @@ fn enchant_entity<'a>(
         random: &mut r,
         held: None,
     };
+    let mut levels = levels(&enchantments);
+    if let Some(name) = slot_name {
+        let slot = slot(&name)?;
+        levels.retain(|(n, _)| facts.enchant.in_slot(n, slot));
+    }
     let out = facts.enchant.entity(
         mob,
         entity_hook(&hook)?,
-        &levels(&enchantments),
+        &levels,
         &ctx.context(&views),
         &mut draws,
     );

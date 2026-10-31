@@ -41,6 +41,230 @@ defmodule Valimc.Player.Enchantments do
 
   defp attacker_view(%{type: type}), do: Enchant.entity(type_id: EntityTypes.id(type))
 
+  @doc """
+  The enchantments' per-tick effects on the player (VMC-037q,
+  `LivingEntity.baseTick`): `runLocationChangedEffects` when its block
+  position changes (Soul Speed's speed and wear on soul blocks), and each
+  equipped piece's `tick` effects (Soul Speed's particles and sound). The
+  active location effects and their modifiers are the session's
+  (`enchant_location`).
+  """
+  def tick(%{life_stage: :alive, phase: :play} = state) do
+    player = state.player
+    block = {floor(player.x), floor(player.y), floor(player.z)}
+
+    location =
+      Map.get(state, :enchant_location, %{block: nil, active: [], modifiers: %{}, items: %{}})
+
+    view = moving_view(state)
+    before = location.modifiers
+    items = Map.new(@slots, fn {slot, _} -> {slot, Enchant.levels(piece(state, slot))} end)
+
+    # A changed piece stops its location effects and the new one starts
+    # (`collectEquipmentChanges`); a new block runs them all.
+    {state, location} =
+      Enum.reduce(@slots, {state, location}, fn {slot, _}, {state, location} ->
+        old = Map.get(location.items, slot, [])
+
+        if items[slot] == old do
+          {state, location}
+        else
+          {actions, active} = Enchant.stop_location(slot, old, location.active)
+
+          acc =
+            Enum.reduce(
+              actions,
+              {state, %{location | active: active}},
+              &location_action(&2, &1, slot)
+            )
+
+          if block == location.block, do: changed_in(acc, slot, items[slot], view), else: acc
+        end
+      end)
+
+    location = %{location | items: items}
+
+    {state, location} =
+      if block != location.block do
+        Enum.reduce(@slots, {state, %{location | block: block}}, fn {slot, _}, acc ->
+          changed_in(acc, slot, items[slot], view)
+        end)
+      else
+        {state, location}
+      end
+
+    state =
+      state
+      |> Map.put(:enchant_location, location)
+      |> publish(before, location.modifiers)
+
+    Enum.reduce(@slots, state, fn {slot, index}, state ->
+      case Inventory.get(state.inventory, index || 36 + state.inventory.selected) do
+        nil ->
+          state
+
+        stack ->
+          case Enchant.levels(stack) do
+            [] ->
+              state
+
+            levels ->
+              :tick
+              |> Enchant.entity_hook(levels, %{this: view}, slot)
+              |> Enum.reduce(state, &tick_action(&2, &1))
+          end
+      end
+    end)
+  end
+
+  def tick(state), do: state
+
+  # The player as location and tick requirements read it: the block below
+  # that affects its movement, its flying, its speed in blocks a second.
+  defp moving_view(state) do
+    player = state.player
+    below = {floor(player.x), floor(player.y - 0.500001), floor(player.z)}
+
+    affected =
+      case World.View.block(World.View.new(player.dimension), below) do
+        nil -> nil
+        block_state -> Valimc.Data.Blocks.block_id(block_state)
+      end
+
+    {mx, _, mz} = player.motion.known_movement
+
+    %{
+      view(state)
+      | affected_by: affected,
+        flying: player.abilities.flying,
+        horizontal_speed: :math.sqrt(mx * mx + mz * mz) * 20.0,
+        tick_count: Valimc.World.GameTick.current(),
+        can_see_sky: false
+    }
+  end
+
+  defp piece(state, slot) do
+    index = Keyword.fetch!(@slots, slot) || 36 + state.inventory.selected
+    Inventory.get(state.inventory, index)
+  end
+
+  # `runLocationChangedEffects` of the piece in `slot`.
+  defp changed_in(acc, _slot, [], _view), do: acc
+
+  defp changed_in({state, location}, slot, levels, view) do
+    {actions, active} = Enchant.location_changed(slot, levels, location.active, %{this: view})
+    Enum.reduce(actions, {state, %{location | active: active}}, &location_action(&2, &1, slot))
+  end
+
+  defp location_action({state, location}, {:add_modifier, attribute, id, amount, op}, _slot) do
+    modifiers =
+      Map.update(
+        location.modifiers,
+        attribute,
+        [{id, amount, op}],
+        &(List.keydelete(&1, id, 0) ++ [{id, amount, op}])
+      )
+
+    {state, %{location | modifiers: modifiers}}
+  end
+
+  defp location_action({state, location}, {:remove_modifier, attribute, id}, _slot) do
+    modifiers = Map.update(location.modifiers, attribute, [], &List.keydelete(&1, id, 0))
+    {state, %{location | modifiers: modifiers}}
+  end
+
+  defp location_action({state, location}, {:item_damage, n}, slot) do
+    index = Keyword.fetch!(@slots, slot) || 36 + state.inventory.selected
+    {wear(state, index, n), location}
+  end
+
+  # Frost Walker's ice waits for frosted ice's melting (VMC-037q, q1b).
+  defp location_action(acc, _action, _slot), do: acc
+
+  @doc "The modifiers the active location effects add to `attribute` (Soul Speed's speed)."
+  def location_modifiers(state, attribute),
+    do:
+      state
+      |> Map.get(:enchant_location, %{modifiers: %{}})
+      |> Map.get(:modifiers)
+      |> Map.get(attribute, [])
+
+  # The attributes whose location modifiers changed reach the client:
+  # movement speed with the effects' (`Movement.publish_movement_speed/1`
+  # reads `location_modifiers/2`), the others alone.
+  defp publish(state, before, modifiers) when before == modifiers, do: state
+
+  defp publish(state, before, modifiers) do
+    changed =
+      for attribute <- Enum.uniq(Map.keys(before) ++ Map.keys(modifiers)),
+          Map.get(before, attribute, []) != Map.get(modifiers, attribute, []),
+          do: attribute
+
+    Enum.reduce(changed, state, fn
+      "minecraft:movement_speed", state ->
+        Valimc.Player.Movement.publish_movement_speed(state)
+
+      "minecraft:" <> name = attribute, state ->
+        fact = Valimc.Living.Attributes.fetch(name)
+
+        Valimc.Protocol.Codec.send_packets(state, [
+          Valimc.Protocol.Packets.attribute(
+            state.player.entity_id,
+            {fact["id"], Valimc.Living.Weapons.player_base(attribute),
+             Map.get(modifiers, attribute, [])}
+          )
+        ])
+
+        state
+    end)
+  end
+
+  defp tick_action(state, {:particles, spec}) do
+    player = state.player
+    {width, height} = {0.6, 1.8}
+    {mx, my, mz} = player.motion.known_movement
+
+    coordinate = fn {in_box, offset, scale}, position, center, span ->
+      base = if in_box, do: center + (:rand.uniform() - 0.5) * span * scale, else: position
+      base + offset
+    end
+
+    velocity = fn {scale, provider}, movement -> movement * scale + sample(provider) end
+    {hx, hy} = {spec.horizontal, spec.vertical}
+
+    position =
+      {coordinate.(hx, player.x, player.x, width),
+       coordinate.(hy, player.y, player.y + height / 2.0, height),
+       coordinate.(hx, player.z, player.z, width)}
+
+    packet =
+      Valimc.Protocol.Particles.moving(
+        spec.particle,
+        position,
+        {velocity.(spec.horizontal_velocity, mx), velocity.(spec.vertical_velocity, my),
+         velocity.(spec.horizontal_velocity, mz)},
+        sample(spec.speed)
+      )
+
+    Valimc.Player.Movement.broadcast_player_packet(state, packet)
+    Valimc.Protocol.Codec.send_packets(state, [packet])
+    state
+  end
+
+  defp tick_action(state, {:sound, name, volume, pitch}) do
+    %{x: x, y: y, z: z} = state.player
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    packet = Valimc.Protocol.CombatPackets.sound(name, "player", {x, y, z}, volume, pitch, seed)
+    Valimc.Player.Movement.broadcast_player_packet(state, packet)
+    Valimc.Protocol.Codec.send_packets(state, [packet])
+    state
+  end
+
+  defp tick_action(state, _action), do: state
+
+  defp sample({min, max}), do: min + :rand.uniform() * (max - min)
+  defp sample(value), do: value
+
   @doc "The post-attack effects of `hit` (`Player.Hurt`'s) after it hurt the player."
   def struck(state, %{attacker: %{player: false} = attacker} = hit, result)
       when result in [:hurt, :dead] do

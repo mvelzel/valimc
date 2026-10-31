@@ -190,8 +190,28 @@ stages `enchantment_effects`, `player_mining`, `player_armor`, `player_air`,
 `player_kinetics`, `server_movement`, `block_loot`, `combat`,
 `hostile_ai`, `mob_ai`, `enchantments` and `equipment` pass.
 
-Left in q1: Frost Walker's ice (needs frosted ice's aging), Soul Speed and
-the Curse of Binding.
+### q1b — Soul Speed and the Curse of Binding (October 31, 2026)
+
+- **Location and tick effects.** `Player.Enchantments.tick/1`, in the
+  player tick: when its block changes, each piece's `location_changed`
+  effects run with the player's view (the block below that affects its
+  movement, its flying, its speed in blocks a second); a changed piece first
+  stops the old one's (`stopLocationBasedEffects`). Attribute modifiers they
+  add are kept in the session (`enchant_location`) and sent when they change:
+  movement speed with the effects' modifiers, the rest alone. Each piece's
+  `tick` effects send their particles and sounds. Soul Speed thus speeds the
+  player on soul blocks, keeps the speed in the air after, wears the boots
+  one in 25 block changes, and leaves souls behind.
+- **Curse of Binding.** `Menu.may_pickup?/4` (`ArmorSlot.mayPickup`): an
+  armour slot keeps a piece with `prevent_armor_change` from a survival
+  player's pickup, shift-click, swap, throw and collect.
+- **Frost Walker's ice is not placed yet.** Its `replace_disk` plan is
+  computed, but frosted ice does not age and melt (`FrostedIceBlock`'s
+  random and scheduled ticks are not in the block rules), so placing it
+  would leave lasting ice. It is the one effect left in q1.
+
+Tests: the connection test "Soul Speed boots on soul sand speed the player
+up until it steps off"; the Binding test in `enchantment_effects_test.exs`.
 
 ### q2 — Melee and Thorns (October 31, 2026)
 
@@ -269,6 +289,9 @@ crossbows (VMC-044d's illagers).
   Flame bow's arrows burn; Infinity keeps the last arrow; a Piercing IV
   crossbow's arrow passes through a line of zombies; Punch II knocks one
   back further.
+- **Soul Speed and Binding** (q1b): Soul Speed III boots run fast on soul
+  sand with souls trailing; a Binding chestplate cannot be taken off in
+  survival but can in creative.
 - **Fire Aspect and Thorns** (q2): a Fire Aspect sword sets a zombie
   burning; a zombie hitting a player in Thorns III armour is hurt now and
   then, with the thorns sound and the armour wearing.

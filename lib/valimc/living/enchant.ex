@@ -107,10 +107,20 @@ defmodule Valimc.Living.Enchant do
     out
   end
 
-  @doc "An entity hook (`:tick`, `:projectile_spawned`, `:hit_block`, `:post_piercing_attack`)."
-  def entity_hook(hook, enchantments, ctx) do
+  @doc """
+  An entity hook (`:tick`, `:projectile_spawned`, `:hit_block`,
+  `:post_piercing_attack`) of one item in `slot` (nil: all its
+  enchantments).
+  """
+  def entity_hook(hook, enchantments, ctx, slot \\ nil) do
     {:ok, {out, _}} =
-      Native.enchant_entity(Atom.to_string(hook), enchantments, context(ctx), seed())
+      Native.enchant_entity(
+        Atom.to_string(hook),
+        enchantments,
+        slot && Atom.to_string(slot),
+        context(ctx),
+        seed()
+      )
 
     out
   end
