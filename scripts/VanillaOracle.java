@@ -406,14 +406,17 @@ public class VanillaOracle implements AutoCloseable {
         if(instance.getValue()!=5.0)throw new AssertionError("Incorrect creative interaction range");
       }
       System.out.println("PASS: native TCP player interaction attribute holders/bases/modifiers initialize both creative ranges to five.");
-      if(first.armorAttributes==null||first.armorAttributes.getValues().size()!=3)throw new AssertionError("Missing equipped armor attributes");
+      // Armor and toughness, and the eight attributes equipment enchantments
+      // modify (VMC-037q), each at the player's own value with no gear.
+      if(first.armorAttributes==null||first.armorAttributes.getValues().size()!=10)throw new AssertionError("Missing equipped armor attributes");
+      var playerDefaults=new net.minecraft.world.entity.ai.attributes.AttributeMap(
+        net.minecraft.world.entity.player.Player.createAttributes().build());
       for(var a:first.armorAttributes.getValues()){
         var instance=new net.minecraft.world.entity.ai.attributes.AttributeInstance(a.attribute(),v->{});
         instance.setBaseValue(a.base());for(var modifier:a.modifiers())instance.addTransientModifier(modifier);
-        double expected=a.attribute().equals(net.minecraft.world.entity.ai.attributes.Attributes.BURNING_TIME)?1:0;
-        if(instance.getValue()!=expected)throw new AssertionError("Unexpected empty-gear armor attributes");
+        if(instance.getValue()!=playerDefaults.getValue(a.attribute()))throw new AssertionError("Unexpected empty-gear armor attribute "+a.attribute().getRegisteredName());
       }
-      System.out.println("PASS: native TCP armor/toughness/burning-time holders and values initialize empty equipment.");
+      System.out.println("PASS: native TCP armor, toughness and enchanted-equipment attribute holders and values initialize empty equipment.");
       double nativeMovementBase = new net.minecraft.world.entity.ai.attributes.AttributeMap(
         net.minecraft.world.entity.player.Player.createAttributes().build()).getValue(
           net.minecraft.world.entity.ai.attributes.Attributes.MOVEMENT_SPEED);
