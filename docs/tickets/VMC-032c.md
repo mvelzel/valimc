@@ -29,3 +29,22 @@ barrels, shulker boxes, ender chests and copper chests cannot be placed.
 
 The M4 gate ([VMC-084](VMC-084.md)) needs 032c1–032c3; the rest follow in
 this lane.
+
+## Status (October 31, 2026)
+
+The lane stopped here at the user's request. On `main`: 032c1 (barrels),
+032c2 (shulker boxes), 032c3 (ender chests) and 032c5 (occupied furnaces,
+named containers; VMC-034f closed), each awaiting M4's batched client run.
+`mix test.fast` passed except one swamp-hut spawning test that fails only
+under host load.
+
+Remaining, to resume in this order:
+- 032c4, copper chests: started and stopped before any change was kept;
+  begin from its ticket.
+- 032c6, the other item-holding blocks: not started.
+- Known gaps the landed slices recorded: explosions leave every block-entity
+  cell standing (so they never break a shulker box or furnace); pistons do
+  not break a filled shulker box; the shulker lid check ignores block-like
+  entities and closes at once; pick-block drops a container's name;
+  `/item … enderchest.N` does not reach ender slots; only the first and last
+  opener send the lid count event.

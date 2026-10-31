@@ -48,7 +48,7 @@ session per lane runs at once; a lane's slices run in order.
 | Rules and commands | Game rules, command gaps | 085 → 006a |
 | Effects and brewing | Status effects, potions, the brewing stand | [037p](tickets/VMC-037p.md) (client) → [034o](tickets/VMC-034o.md) (client) |
 | Enchanting | Enchantment effects, the table, anvils, smithing | 037q (rest: Frost Walker, spears, the mace's knockback) · 038a–c (client) |
-| Containers | Item components, remaining containers | 004b, 032c1–3, 032c5 (client) → 032c4, 032c6, 004b9 |
+| Containers | Item components, remaining containers | 004b, 032c1–3, 032c5 (client); stopped: 032c4, 032c6, 004b9 next |
 | Villages | Trades, villager life, illagers, raids | 044b (awaiting client) → 044c → 044d → 044e |
 | Finale | The gate | 084 |
 
