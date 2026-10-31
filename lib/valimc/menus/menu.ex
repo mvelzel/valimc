@@ -11,7 +11,9 @@ defmodule Valimc.Menus.Menu do
   45 the offhand; -1 and -999 outside the slots), `{:table, i}` a crafting
   table input, `{:container, i}` a chest's, a hopper's or a dispenser's slot
   and `{:cooking, i}` a furnace
-  slot (0 input, 1 fuel, 2 result). The 2×2 grid and a table's grid share
+  slot (0 input, 1 fuel, 2 result), `{:payment, i}` a merchant's payment
+  slot (VMC-044b2), whose result is address 0 as a grid's is (only drags
+  and collects reach the engine there; `Valimc.Player.Merchant` takes it). The 2×2 grid and a table's grid share
   the result address 0: `Inventory.crafting_result/1` reads the open one.
   """
   alias Valimc.Blocks.{Cooking, CookingBlocks, CookingRecipes}
@@ -36,6 +38,7 @@ defmodule Valimc.Menus.Menu do
   def chest(rows) when rows in 1..6, do: %__MODULE__{kind: :chest, rows: rows}
   def cooking(block), do: %__MODULE__{kind: :cooking, block: block}
   def hopper, do: %__MODULE__{kind: :hopper}
+  def merchant, do: %__MODULE__{kind: :merchant}
 
   def dispenser(kind) when kind in [:dropper, :dispenser],
     do: %__MODULE__{kind: :dispenser, block: kind}
@@ -54,6 +57,7 @@ defmodule Valimc.Menus.Menu do
   def type(%__MODULE__{kind: :cooking, block: block}), do: cooking_type(CookingBlocks.kind(block))
   def type(%__MODULE__{kind: :hopper}), do: {:ok, 16}
   def type(%__MODULE__{kind: :dispenser}), do: {:ok, 6}
+  def type(%__MODULE__{kind: :merchant}), do: {:ok, 19}
   def type(_), do: {:error, :invalid_menu}
 
   @doc "The window type of a furnace-family block's kind."
@@ -86,6 +90,10 @@ defmodule Valimc.Menus.Menu do
       when kind in [:cooking | @plain] and slot in [-1, -999],
       do: {:ok, slot}
 
+  def address(%__MODULE__{kind: :merchant}, slot) when slot in 0..1, do: {:ok, {:payment, slot}}
+  def address(%__MODULE__{kind: :merchant}, 2), do: {:ok, 0}
+  def address(%__MODULE__{kind: :merchant}, slot) when slot in 3..38, do: {:ok, slot + 6}
+  def address(%__MODULE__{kind: :merchant}, slot) when slot in [-1, -999], do: {:ok, slot}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 0..2, do: {:ok, {:cooking, slot}}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 3..38, do: {:ok, slot + 6}
   def address(_, _), do: {:error, :invalid_menu_slot}
@@ -114,6 +122,9 @@ defmodule Valimc.Menus.Menu do
       do: {:ok, Tuple.to_list(storage) ++ Enum.map(9..44, &Inventory.get(inventory, &1))},
       else: {:error, :invalid_menu_contents}
   end
+
+  def contents(%__MODULE__{kind: :merchant}, nil, %Inventory{payments: {a, b}} = inventory),
+    do: {:ok, [a, b, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
 
   def contents(_, _, _), do: {:error, :invalid_menu_contents}
 
@@ -144,6 +155,9 @@ defmodule Valimc.Menus.Menu do
 
   def visible(%__MODULE__{kind: :cooking}),
     do: Enum.map(0..2, &{:cooking, &1}) ++ Enum.to_list(9..44)
+
+  # `MerchantMenu.canTakeItemForPickAll` refuses every slot.
+  def visible(%__MODULE__{kind: :merchant}), do: []
 
   @doc "Whether `address` accepts `stack` (vanilla's `Slot.mayPlace`)."
   def may_place?(_menu, _address, nil), do: true
@@ -199,6 +213,17 @@ defmodule Valimc.Menus.Menu do
 
   def routes(%__MODULE__{kind: kind} = menu, _inventory, _slot, _stack) when kind in @plain,
     do: [Enum.map(0..(size(menu) - 1), &{:container, &1})]
+
+  # `MerchantMenu.quickMoveStack`: payments to the inventory; the inventory
+  # and hotbar to each other, never to the payments.
+  def routes(%__MODULE__{kind: :merchant}, _inventory, {:payment, _}, _stack),
+    do: [Enum.to_list(9..44)]
+
+  def routes(%__MODULE__{kind: :merchant}, _inventory, slot, _stack) when slot in 9..35,
+    do: [Enum.to_list(36..44)]
+
+  def routes(%__MODULE__{kind: :merchant}, _inventory, _slot, _stack),
+    do: [Enum.to_list(9..35)]
 
   def routes(%__MODULE__{kind: :cooking}, _inventory, {:cooking, 2}, _stack),
     do: [Enum.to_list(44..9//-1)]

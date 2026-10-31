@@ -1257,6 +1257,11 @@ STAGES = [
         ('java', 'TradeOracle', 'cases', '@trades.json'),
         ('check', 'check_trades.exs', '@trades.json'),
     ]),
+    # VMC-044b2: the merchant menu's clicks and selections, and its packets' bytes.
+    ('merchant_menu', [
+        ('java', 'MerchantMenuOracle', '@merchant-menu.json'),
+        ('check', 'check_merchant_menu.exs', '@merchant-menu.json'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

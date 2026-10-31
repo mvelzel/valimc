@@ -2448,3 +2448,76 @@ mod oracle {
             .collect()
     }
 }
+
+mod merchant_atoms {
+    rustler::atoms! { view, start, stop, unhappy, updated, trade, offers }
+}
+
+/// A merchant's trading, for its owner (VMC-044b2, `village::merchant`):
+/// `:view` (its trading state), `{:start, uuid}` and `:stop` (its trading
+/// player; false before its mind first thought), `:unhappy`, `{:updated,
+/// valid}` (`notifyTradeUpdated`'s sound; whether it played), `{:trade,
+/// index, uuid}` (the result map, or `{:error, reason}`) and `{:offers,
+/// list}` (its offers made). `{:ok, {result, events, {position, row}}}`.
+#[rustler::nif]
+fn mob_section_merchant<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    action: Term<'a>,
+) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::village::merchant;
+    let encode =
+        |v: &Value| mob_term::encode(env, v).unwrap_or_else(|_| atoms::invalid().encode(env));
+    if let Ok(tag) = action.decode::<Atom>() {
+        return if tag == merchant_atoms::view() {
+            act(env, &res, id, |_, mob, _| encode(&merchant::view(mob)))
+        } else if tag == merchant_atoms::stop() {
+            act(env, &res, id, |_, mob, _| merchant::set_trading(mob, None))
+        } else if tag == merchant_atoms::unhappy() {
+            act(env, &res, id, |rules, mob, events| {
+                merchant::unhappy(rules, mob, events)
+            })
+        } else {
+            Err(rustler::Error::BadArg)
+        };
+    }
+    let t = get_tuple(action)?;
+    let tag: Atom = t.first().ok_or(rustler::Error::BadArg)?.decode()?;
+    let arg = |i: usize| t.get(i).copied().ok_or(rustler::Error::BadArg);
+    let uuid = |term: Term| -> NifResult<[u8; 16]> {
+        let b: rustler::Binary = term.decode()?;
+        b.as_slice().try_into().map_err(|_| rustler::Error::BadArg)
+    };
+    if tag == merchant_atoms::start() {
+        let player = uuid(arg(1)?)?;
+        act(env, &res, id, |_, mob, _| {
+            merchant::set_trading(mob, Some(player))
+        })
+    } else if tag == merchant_atoms::updated() {
+        let valid: bool = arg(1)?.decode()?;
+        act(env, &res, id, |rules, mob, events| {
+            merchant::updated(rules, mob, valid, events)
+        })
+    } else if tag == merchant_atoms::trade() {
+        let index: usize = arg(1)?.decode()?;
+        let player = uuid(arg(2)?)?;
+        act(env, &res, id, |rules, mob, _| {
+            match merchant::trade(rules, mob, index, player) {
+                Ok(v) => encode(&v),
+                Err(reason) => (
+                    atoms::error(),
+                    rustler::types::atom::Atom::from_str(env, reason).unwrap_or(atoms::invalid()),
+                )
+                    .encode(env),
+            }
+        })
+    } else if tag == merchant_atoms::offers() {
+        let offers = mob_term::decode(arg(1)?)?;
+        act(env, &res, id, |_, mob, _| {
+            mob.body.data.set("offers", offers)
+        })
+    } else {
+        Err(rustler::Error::BadArg)
+    }
+}

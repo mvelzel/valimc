@@ -114,7 +114,8 @@ defmodule Valimc.Player.State do
       |> Map.merge(%{
         selected: inventory.selected,
         carried: inventory.carried,
-        table_inputs: inventory.table_inputs
+        table_inputs: inventory.table_inputs,
+        payments: inventory.payments
       })
 
     for({field, value} <- fields, into: %{}, do: {{:player, field}, value})
@@ -130,12 +131,14 @@ defmodule Valimc.Player.State do
         _, _ -> throw(:invalid_player_file)
       end)
 
-    {inventory_fields, fields} = Map.split(fields, [:selected, :carried, :table_inputs])
+    {inventory_fields, fields} =
+      Map.split(fields, [:selected, :carried, :table_inputs, :payments])
+
     {id, fields} = Map.pop(fields, :uuid)
     keys = Map.keys(Map.from_struct(%__MODULE__{})) -- [:inventory]
 
     with true <- id == uuid and Enum.sort(Map.keys(fields)) == Enum.sort(keys),
-         true <- map_size(inventory_fields) == 3 do
+         true <- map_size(inventory_fields) == 4 do
       inventory = struct(%Inventory{slots: slots}, inventory_fields)
       state = struct(%__MODULE__{inventory: inventory}, fields)
       with :ok <- validate(uuid, state), do: {:ok, state}
@@ -210,11 +213,15 @@ defmodule Valimc.Player.State do
   # the bytes a player's inventory may take.
   defp inventory?(%Inventory{slots: slots, selected: selected, table_inputs: table} = inventory)
        when is_map(slots) do
-    table_ok = table == nil or (is_tuple(table) and tuple_size(table) == 9)
+    table_ok =
+      (table == nil or (is_tuple(table) and tuple_size(table) == 9)) and
+        (inventory.payments == nil or match?({_, _}, inventory.payments))
 
     stacks =
       Map.values(slots) ++
-        [inventory.carried] ++ if(table_ok and table, do: Tuple.to_list(table), else: [])
+        [inventory.carried] ++
+        if(table_ok and table, do: Tuple.to_list(table), else: []) ++
+        if(table_ok, do: Inventory.payment_contents(inventory), else: [])
 
     is_integer(selected) and selected in 0..8 and table_ok and
       Enum.all?(Map.keys(slots), &(is_integer(&1) and &1 in 1..45)) and

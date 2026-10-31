@@ -4,6 +4,7 @@
 //! map. Villagers think with a brain and move with the brain families.
 
 pub mod iron_golem;
+pub mod merchant;
 pub mod wandering_trader;
 
 use crate::mobs::facts::MobFacts;

@@ -216,6 +216,28 @@ defmodule Valimc.Protocol.ItemStack do
     ]
   end
 
+  @doc """
+  A merchant offer's cost (`ItemCost.STREAM_CODEC`, VMC-044b2): the item,
+  its count and the components it asks for exactly
+  (`DataComponentExactPredicate`).
+  """
+  def encode_cost(%__MODULE__{} = stack) do
+    validate!(stack)
+    components = Enum.sort_by(stack.components, fn {name, _} -> ItemTypes.component_id(name) end)
+
+    [
+      Wire.varint(stack.item_id),
+      Wire.varint(stack.count),
+      Wire.varint(length(components)),
+      Enum.map(components, fn {name, value} ->
+        [
+          Wire.varint(ItemTypes.component_id(name)),
+          encode_component(Map.fetch!(@codecs, name), value)
+        ]
+      end)
+    ]
+  end
+
   @doc "Whether the stack has component `name`, by default or patch (VMC-053 item predicates)."
   def has_component?(%__MODULE__{} = stack, name),
     do:

@@ -37,6 +37,56 @@ defmodule Valimc.Menus.Packets do
     open_screen(container, type, "container." <> Atom.to_string(kind))
   end
 
+  @doc "A merchant's screen (VMC-044b2), its title a text component (its name)."
+  def open_merchant(container, title) when container in 1..127 do
+    {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.merchant())
+
+    Packets.packet("open_screen", [
+      Wire.varint(container),
+      Wire.varint(type),
+      Valimc.Text.Codec.encode(title)
+    ])
+  end
+
+  @doc """
+  `ClientboundMerchantOffersPacket`: each offer's costs, result, stock,
+  uses, experience, special price, price multiplier and demand, with the
+  merchant's level and experience and whether it shows progress and
+  restocks.
+  """
+  def merchant_offers(container, offers, level, xp, progress, restock) when container in 1..127 do
+    Packets.packet("merchant_offers", [
+      Wire.varint(container),
+      Wire.varint(length(offers)),
+      Enum.map(offers, fn offer ->
+        [
+          ItemStack.encode_cost(offer.buy),
+          ItemStack.encode(offer.sell),
+          if(offer.buy_b, do: [<<1>>, ItemStack.encode_cost(offer.buy_b)], else: <<0>>),
+          Wire.bool(offer.uses >= offer.max_uses),
+          <<offer.uses::signed-32, offer.max_uses::signed-32, offer.xp::signed-32,
+            offer.special_price::signed-32, offer.price_multiplier::float-32,
+            offer.demand::signed-32>>
+        ]
+      end),
+      Wire.varint(level),
+      Wire.varint(xp),
+      Wire.bool(progress),
+      Wire.bool(restock)
+    ])
+  end
+
+  @doc "A merchant menu's slots: the payments, the result and the inventory."
+  def merchant_inventory(container, inventory, result) when container in 1..127 do
+    {a, b} = inventory.payments
+
+    inventory_content(
+      container,
+      inventory,
+      [a, b, result | Enum.map(9..44, &Valimc.Menus.Inventory.get(inventory, &1))]
+    )
+  end
+
   defp open_screen(container, type, title) do
     Packets.packet("open_screen", [
       Wire.varint(container),

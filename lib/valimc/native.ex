@@ -621,6 +621,9 @@ defmodule Valimc.Native do
   def loot_enchant(_registry, _item, _enchantments, _min, _span, _special, _tag, _random),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  # A merchant's trading (VMC-044b2).
+  def mob_section_merchant(_ref, _id, _action), do: :erlang.nif_error(:nif_not_loaded)
+
   # Villager trades (VMC-044b1).
   def loot_sequence(_seed, _salt, _id), do: :erlang.nif_error(:nif_not_loaded)
 

@@ -888,6 +888,18 @@ fn restore_data(entity_type: &str, data: &Value, facts: &TypeFacts) -> Result<Fa
         fields.iter().map(|(k, _)| k).eq(facts.data_keys.iter()),
         "data keys",
     )?;
+    // VMC-044b2: a merchant restored trades with nobody (vanilla never
+    // saves its trading players).
+    if matches!(
+        entity_type,
+        "minecraft:villager" | "minecraft:wandering_trader"
+    ) {
+        for (key, value) in fields.iter_mut() {
+            if matches!(key.as_str(), "trading" | "last_traded") {
+                *value = Value::atom("nil");
+            }
+        }
+    }
     let data = FamilyData::new(fields).ok_or(RecordError::Invalid("data keys"))?;
     if WATER_AGEABLE.contains(&entity_type) {
         check(

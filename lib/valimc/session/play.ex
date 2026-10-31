@@ -77,6 +77,7 @@ defmodule Valimc.Session.Play do
                "set_creative_mode_slot",
                "container_click",
                "container_close",
+               "select_trade",
                "use_item",
                "use_item_on"
              ] ->
@@ -242,6 +243,9 @@ defmodule Valimc.Session.Play do
 
       "container_click" ->
         CreativeInventory.inventory_click(state, payload)
+
+      "select_trade" ->
+        Valimc.Player.Merchant.select(state, payload)
 
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)

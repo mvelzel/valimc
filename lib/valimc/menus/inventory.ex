@@ -1,7 +1,8 @@
 defmodule Valimc.Menus.Inventory do
   @moduledoc """
-  A player's inventory: slots, the open table's grid, the cursor, the selected
-  hotbar slot, the menu state id and an active drag. Clicks are planned by the
+  A player's inventory: slots, the open table's grid, an open merchant's two
+  payment slots (VMC-044b2), the cursor, the selected hotbar slot, the menu
+  state id and an active drag. Clicks are planned by the
   one menu engine (`Valimc.Menus.Click`); this module holds the slots and the
   inventory's own plans (eating, drops, cleanup).
   """
@@ -10,6 +11,7 @@ defmodule Valimc.Menus.Inventory do
 
   defstruct slots: %{},
             table_inputs: nil,
+            payments: nil,
             selected: 0,
             carried: nil,
             state_id: 0,
@@ -23,10 +25,18 @@ defmodule Valimc.Menus.Inventory do
       when is_tuple(cells) and tuple_size(cells) == 9 and index in 0..8,
       do: elem(cells, index)
 
+  def get(%{payments: {a, b}}, {:payment, index}) when index in 0..1,
+    do: if(index == 0, do: a, else: b)
+
   def get(inventory, slot), do: inventory.slots[slot]
   @doc "All owned physical slots; a table's nine transient inputs follow player slots."
   def contents(inventory),
-    do: Enum.map(0..45, &get(inventory, &1)) ++ table_contents(inventory)
+    do:
+      Enum.map(0..45, &get(inventory, &1)) ++
+        table_contents(inventory) ++ payment_contents(inventory)
+
+  def payment_contents(%{payments: {a, b}}), do: [a, b]
+  def payment_contents(_), do: []
 
   def table_contents(%{table_inputs: nil}), do: []
 
@@ -113,7 +123,8 @@ defmodule Valimc.Menus.Inventory do
   defp transient_slots(inventory),
     do:
       [:carried, 1, 2, 3, 4] ++
-        if(inventory.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: [])
+        if(inventory.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: []) ++
+        if(inventory.payments, do: [{:payment, 0}, {:payment, 1}], else: [])
 
   defp owned_stack(inventory, :carried), do: inventory.carried
   defp owned_stack(inventory, slot), do: get(inventory, slot)
@@ -141,7 +152,8 @@ defmodule Valimc.Menus.Inventory do
         if remainder, do: {next, [remainder | drops]}, else: {next, drops}
       end)
 
-    with {:ok, next} <- next |> put(0, nil) |> clear_empty_table() |> finish(),
+    with {:ok, next} <-
+           next |> put(0, nil) |> clear_empty_table() |> Map.put(:payments, nil) |> finish(),
          do: {:ok, next, Enum.reverse(drops)}
   end
 
@@ -169,7 +181,9 @@ defmodule Valimc.Menus.Inventory do
       end)
 
     drops =
-      (@death_slots ++ if(next.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: []))
+      (@death_slots ++
+         if(next.table_inputs, do: Enum.map(0..8, &{:table, &1}), else: []) ++
+         if(next.payments, do: [{:payment, 0}, {:payment, 1}], else: []))
       |> Enum.map(fn slot ->
         {slot, owned_stack(next, slot)}
       end)
@@ -178,6 +192,7 @@ defmodule Valimc.Menus.Inventory do
     next =
       Enum.reduce(drops, next, fn {slot, _}, next -> put_owned(next, slot, nil) end)
       |> clear_empty_table()
+      |> Map.put(:payments, nil)
 
     if drops == [] and destroyed == [] do
       {:ok, next, [], []}
@@ -283,6 +298,9 @@ defmodule Valimc.Menus.Inventory do
   defp sized(_, count) when count <= 0, do: nil
   defp sized(stack, count), do: %{stack | count: count}
   @doc "Put `stack` (nil to empty it) in slot `slot` or table input `{:table, i}`."
+  def put(%{payments: {a, b}} = inventory, {:payment, index}, stack) when index in 0..1,
+    do: %{inventory | payments: if(index == 0, do: {stack, b}, else: {a, stack})}
+
   def put(%{table_inputs: cells} = inventory, {:table, index}, stack)
       when is_tuple(cells) and tuple_size(cells) == 9 and index in 0..8,
       do: %{inventory | table_inputs: put_elem(cells, index, stack)}

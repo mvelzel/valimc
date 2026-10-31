@@ -19,9 +19,12 @@
 //!   bed, a roofed walk or a village; **idle**, **play** and **panic** as
 //!   vanilla's, with looks and walks shuffled by their own randoms.
 //!
-//! Trading with players, breeding, bells' raids and hiding, and farming
-//! wait in the Elixir (their behaviours keep their places and never start),
-//! so they do here. A villager's POI memories and when it last slept, woke
+//! - **Trading** (VMC-044b2): it follows and looks at its trading player
+//!   and holds up the results of the offers whose costs a player near it
+//!   holds; its owner applies the trades (`village::merchant`).
+//!
+//! Breeding, bells' raids and hiding, and farming keep their places and
+//! never start. A villager's POI memories and when it last slept, woke
 //! and worked are saved with it; other villagers and golems read its job
 //! site, gossip, golem sighting and last sleep.
 
@@ -47,6 +50,7 @@ use crate::mobs::monsters::{entity, fields, int, value};
 use crate::mobs::random::LegacyRandom;
 use crate::mobs::sensing::{self, Entity, Ref, Uuid};
 use crate::mobs::term::{Atom, Map, Value, NIL};
+use crate::mobs::village::merchant;
 use crate::physics::Aabb;
 use std::any::Any;
 
@@ -214,8 +218,11 @@ impl Villager {
             ("age", Value::Int(0)),
             ("xp", Value::Int(0)),
             ("sleeping", NIL),
-            // `MerchantOffers`, made when first asked (VMC-044b1).
+            // `MerchantOffers`, made when first asked (VMC-044b1), and its
+            // trading player and last one (VMC-044b2, never restored).
             ("offers", NIL),
+            ("trading", NIL),
+            ("last_traded", NIL),
         ])
     }
 }
@@ -390,7 +397,18 @@ impl Villager {
             (0, poi::validate(Types::Acquirable, Mem::PotentialJobSite)),
             (1, bs::move_sink(150, 250)),
             (2, b::one_shot(CompetitorScan)),
-            (3, b::inert("LookAndFollowTradingPlayerSink")),
+            (
+                3,
+                b::timed(
+                    Conds::new(&[
+                        (Mem::WalkTarget, Cond::Registered),
+                        (Mem::LookTarget, Cond::Registered),
+                    ]),
+                    i32::MAX,
+                    i32::MAX,
+                    FollowTradingPlayer,
+                ),
+            ),
             (5, bs::go_to_wanted_item(Test::Always, SPEED, false, 4)),
             (
                 6,
@@ -476,7 +494,7 @@ impl Villager {
                     Conds::NONE,
                 ),
             ),
-            (10, b::inert("ShowTradesToPlayer")),
+            (10, show_trades()),
             (10, bs::look_and_interact(Pick::Player, 4)),
             (2, poi::walk_to_memory(Mem::JobSite, SPEED, 9, 100, 1200)),
             (3, b::inert("GiveGiftToHero")),
@@ -577,7 +595,7 @@ impl Villager {
                     g("2:meet:0:0"),
                 ),
             ),
-            (10, b::inert("ShowTradesToPlayer")),
+            (10, show_trades()),
             (10, bs::look_and_interact(Pick::Player, 4)),
             (
                 2,
@@ -636,7 +654,7 @@ impl Villager {
             ),
             (3, b::inert("GiveGiftToHero")),
             (3, bs::look_and_interact(Pick::Player, 4)),
-            (3, b::inert("ShowTradesToPlayer")),
+            (3, show_trades()),
             (
                 3,
                 b::gate(
@@ -1111,16 +1129,42 @@ impl BrainFamily for Villager {
         schedule(t);
     }
 
-    /// `Villager.customServerAiStep` after the brain: one in a hundred ticks
-    /// it looks for a raid (none yet), drawn from its random.
+    /// `Villager.customServerAiStep` after the brain: a trade last tick
+    /// shows (event 14); one in a hundred ticks it looks for a raid (none
+    /// yet), drawn from its random; without offers, or once its trading
+    /// player is gone from its level (a ValiMC guard: vanilla's player
+    /// closes the menu as it leaves), it stops trading.
     fn update_activity(&self, t: &mut Turn) {
+        if !t.data().get("last_traded").is_none_or(Value::is_nil) {
+            t.mob.body.data.set("last_traded", NIL);
+            t.effect(Effect::Event(14));
+        }
         t.int(100);
+        if let Some(player) = merchant::trading(t.mob) {
+            let offers = t
+                .data()
+                .get("offers")
+                .and_then(Value::as_list)
+                .is_some_and(|o| !o.is_empty());
+            let present = t
+                .sensing
+                .entity(&Ref {
+                    kind: sensing::Kind::Player,
+                    uuid: player,
+                })
+                .is_some_and(|e| e.alive());
+            if !offers || !present {
+                t.mob.body.data.set("trading", NIL);
+            }
+        }
     }
 
-    /// `Villager.getAmbientSound`: none asleep.
+    /// `Villager.getAmbientSound`: none asleep, the trade sound trading.
     fn ambient_sound(&self, t: &mut Turn) -> Option<i32> {
         if sleeping(t.data()).is_some() {
             None
+        } else if merchant::trading(t.mob).is_some() {
+            t.level.facts.sounds.id("minecraft:entity.villager.trade")
         } else {
             t.level.facts.sounds.id("minecraft:entity.villager.ambient")
         }
@@ -1659,6 +1703,221 @@ impl Trigger for ResetProfession {
         } else {
             false
         }
+    }
+}
+
+/// `LookAndFollowTradingPlayerSink(0.5)`: alive, dry, not just hurt and
+/// within 4 blocks of its trading player, it walks (within 2) and looks to
+/// it; stopping forgets both.
+#[derive(Clone, Debug, PartialEq)]
+struct FollowTradingPlayer;
+
+fn trading_player(t: &Turn) -> Option<Seen> {
+    let uuid = merchant::trading(t.mob)?;
+    let r = Ref {
+        kind: sensing::Kind::Player,
+        uuid,
+    };
+    t.entity(Some(&r))
+}
+
+fn alive(t: &Turn) -> bool {
+    crate::mobs::living::mob::alive(&t.mob.body.mob)
+}
+
+fn following(t: &mut Turn) -> bool {
+    match trading_player(t) {
+        Some(p) => {
+            alive(t)
+                && !t.in_water()
+                && t.mob.body.mob.living.health.hurt_ticks <= 0
+                && t.distance_sq(p.position) <= 16.0
+        }
+        None => false,
+    }
+}
+
+fn follow(t: &mut Turn) {
+    if let Some(p) = trading_player(t) {
+        t.remember(
+            Mem::WalkTarget,
+            bs::walk(Tracker::entity(p.reference, false), f(SPEED), 2),
+        );
+        t.remember(
+            Mem::LookTarget,
+            MemValue::Tracker(Tracker::entity(p.reference, true)),
+        );
+    }
+}
+
+impl Timer for FollowTradingPlayer {
+    fn extra(&mut self, t: &mut Turn) -> bool {
+        following(t)
+    }
+
+    fn still(&mut self, t: &mut Turn) -> bool {
+        following(t)
+    }
+
+    fn start(&mut self, t: &mut Turn) {
+        follow(t);
+    }
+
+    fn tick(&mut self, t: &mut Turn) {
+        follow(t);
+    }
+
+    fn stop(&mut self, t: &mut Turn) {
+        t.forget(Mem::WalkTarget);
+        t.forget(Mem::LookTarget);
+    }
+}
+
+/// `ShowTradesToPlayer(400, 1600)`: to a player it means to interact with
+/// within √17 blocks, it holds up the results of the offers whose costs are
+/// the item in the player's main hand, one after another every 40 ticks,
+/// looking for up to 900 ticks while it has some (40 otherwise).
+#[derive(Clone, Debug, PartialEq)]
+struct ShowTrades {
+    /// The player's main-hand item it last read (`Some(None)`: empty hand).
+    shown_for: Option<Option<i32>>,
+    display: Vec<Value>,
+    cycle: i32,
+    index: usize,
+    look: i32,
+}
+
+fn show_trades() -> Box<dyn Behavior> {
+    b::timed(
+        Conds::new(&[(Mem::InteractionTarget, Cond::Present)]),
+        400,
+        1600,
+        ShowTrades {
+            shown_for: None,
+            display: Vec::new(),
+            cycle: 0,
+            index: 0,
+            look: 0,
+        },
+    )
+}
+
+fn show_target(t: &Turn) -> Option<Seen> {
+    t.remembered(Mem::InteractionTarget)
+        .filter(|e| e.reference.kind == sensing::Kind::Player)
+}
+
+fn hold(t: &mut Turn, stack: Option<Value>) {
+    let chance = if stack.is_some() { Some(0.0) } else { None };
+    let mob = &mut t.mob.body.mob;
+    mob.equipment.set(crate::mobs::model::Slot::Mainhand, stack);
+    mob.drop_chances.0[crate::mobs::model::Slot::Mainhand as usize] = chance;
+}
+
+impl ShowTrades {
+    fn look_at(t: &mut Turn) -> Option<Seen> {
+        let target = show_target(t)?;
+        t.remember(
+            Mem::LookTarget,
+            MemValue::Tracker(Tracker::entity(target.reference, true)),
+        );
+        Some(target)
+    }
+
+    /// `findItemsToDisplay`.
+    fn find(&mut self, t: &mut Turn, target: &Seen) {
+        let held = match t.sensing.entity(&target.reference) {
+            Some(Entity::Player(p)) => p.equipment[0],
+            _ => None,
+        };
+        if self.shown_for == Some(held) {
+            return;
+        }
+        self.shown_for = Some(held);
+        self.display.clear();
+        let Some(item) = held else { return };
+        let offers = t
+            .data()
+            .get("offers")
+            .and_then(Value::as_list)
+            .unwrap_or(&[]);
+        let cost = |o: &Value, key: &str| {
+            o.as_map()
+                .and_then(|m| m.get_atom(key))
+                .and_then(crate::mobs::ai::hooks::item_id)
+        };
+        let display: Vec<Value> = offers
+            .iter()
+            .filter(|o| {
+                let m = o.as_map();
+                let int = |k: &str| {
+                    m.and_then(|m| m.get_atom(k))
+                        .and_then(Value::as_int)
+                        .unwrap_or(0)
+                };
+                int("uses") < int("max_uses")
+                    && (cost(o, "buy") == Some(item) || cost(o, "buy_b") == Some(item))
+            })
+            .filter_map(|o| o.as_map().and_then(|m| m.get_atom("sell")).cloned())
+            .collect();
+        self.display = display;
+        if let Some(first) = self.display.first().cloned() {
+            self.look = 900;
+            hold(t, Some(first));
+        }
+    }
+}
+
+impl Timer for ShowTrades {
+    fn extra(&mut self, t: &mut Turn) -> bool {
+        match show_target(t) {
+            Some(target) => {
+                alive(t)
+                    && target.alive
+                    && !baby(t.data())
+                    && t.distance_sq(target.position) <= 17.0
+            }
+            None => false,
+        }
+    }
+
+    fn still(&mut self, t: &mut Turn) -> bool {
+        self.extra(t) && self.look > 0 && t.has(Mem::InteractionTarget)
+    }
+
+    fn start(&mut self, t: &mut Turn) {
+        ShowTrades::look_at(t);
+        self.cycle = 0;
+        self.index = 0;
+        self.look = 40;
+    }
+
+    fn tick(&mut self, t: &mut Turn) {
+        if let Some(target) = ShowTrades::look_at(t) {
+            self.find(t, &target);
+        }
+        if self.display.is_empty() {
+            hold(t, None);
+            self.look = self.look.min(40);
+        } else if self.display.len() >= 2 {
+            self.cycle += 1;
+            if self.cycle >= 40 {
+                self.index += 1;
+                self.cycle = 0;
+                if self.index > self.display.len() - 1 {
+                    self.index = 0;
+                }
+                let stack = self.display[self.index].clone();
+                hold(t, Some(stack));
+            }
+        }
+        self.look -= 1;
+    }
+
+    fn stop(&mut self, t: &mut Turn) {
+        t.forget(Mem::InteractionTarget);
+        hold(t, None);
+        self.shown_for = None;
     }
 }
 

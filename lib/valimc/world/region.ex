@@ -505,6 +505,13 @@ defmodule Valimc.World.Region do
   def interact_knot({pid, epoch}, uuid, request),
     do: call(pid, {:interact_knot, epoch, uuid, request}, budget(pid, 1000))
 
+  @doc """
+  A merchant's trading (VMC-044b2): `:view`, `:stop`, `{:updated, valid}`
+  or `{:trade, index, player}`, `{:ok, result}` or `{:error, reason}`.
+  """
+  def merchant({pid, epoch}, uuid, action),
+    do: call(pid, {:merchant, epoch, uuid, action}, budget(pid, 1000))
+
   @doc "A name tag's `name` (a text component) on the mob `uuid`: `:ok` (VMC-042a)."
   def name_entity({pid, epoch}, uuid, name),
     do: call(pid, {:name_entity, epoch, uuid, name}, budget(pid, 1000))

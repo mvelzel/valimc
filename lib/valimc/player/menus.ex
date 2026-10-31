@@ -241,6 +241,9 @@ defmodule Valimc.Player.Menus do
   """
   def check_table_menu(%{table_menu: nil} = state), do: state
 
+  def check_table_menu(%{table_menu: %{kind: :merchant}} = state),
+    do: Valimc.Player.Merchant.check(state)
+
   def check_table_menu(%{table_menu: %{kind: kind} = menu} = state)
       when kind in [:chest, :cooking, :hopper, :dispenser] do
     opener = kind == :chest and state.player.game_mode.current != :spectator
@@ -329,6 +332,9 @@ defmodule Valimc.Player.Menus do
   @doc "A click in the open menu (`container_click` for its window)."
   def click(%{player: %{game_mode: %{current: :spectator}}} = state, _click),
     do: CreativeInventory.resync_inventory(state)
+
+  def click(%{table_menu: %{kind: :merchant}} = state, click),
+    do: Valimc.Player.Merchant.click(state, click)
 
   def click(state, click) do
     if table_player_valid?(state) and current_owner?(state, state.table_menu),
@@ -478,6 +484,7 @@ defmodule Valimc.Player.Menus do
 
   @doc "The client closed its own inventory screen or the menu (after `close/1`)."
   def closed(state) do
+    state = Valimc.Player.Merchant.stop(state)
     retire_container_view(state)
     return(%{state | table_menu: nil})
   end

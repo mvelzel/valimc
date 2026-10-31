@@ -569,6 +569,9 @@ impl valimc_core::loot::LootWorld for TradeAnswers {
     }
 }
 
+/// Structure searches answered by tag: `[{tag, {x, y, z} | nil}]`.
+type StructureAnswers = Vec<(String, Option<(i32, i32, i32)>)>;
+
 /// An offer's cost as an item tag.
 fn cost_tag<'a>(env: Env<'a>, cost: &valimc_core::loot::trades::Cost) -> Term<'a> {
     let mut fields = vec![
@@ -613,7 +616,7 @@ fn loot_trades<'a>(
     state: (i64, i64),
     villager_type: String,
     origin: (f64, f64, f64),
-    structures: Vec<(String, Option<(i32, i32, i32)>)>,
+    structures: StructureAnswers,
     next_map: i32,
 ) -> NifResult<(Atom, Term<'a>)> {
     let mut world = TradeAnswers {

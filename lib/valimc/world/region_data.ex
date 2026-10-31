@@ -132,6 +132,10 @@ defmodule Valimc.World.RegionData do
     {:poi_claims, %{}},
     # One completed structure search, consumed at the next accepted mob tick.
     {:mob_located, nil},
+    # Merchants whose offers wait for an exploration map's structure search
+    # (VMC-044b2): `[%{uuid, merchant, answers, append}]`, at most 64, the
+    # first searching.
+    {:trade_waiting, []},
     # Explosions whose craters wait for the crater job (VMC-050a):
     # `[{explosion, cells}]`, at most 64.
     {:explosions, []},
@@ -2083,6 +2087,225 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  ## Merchants (VMC-044b2)
+
+  @villager "minecraft:villager"
+  @trader "minecraft:wandering_trader"
+  @spawn_egg Valimc.Protocol.ItemTypes.id("villager_spawn_egg")
+
+  # `Villager.mobInteract` and `WanderingTrader.mobInteract`: a busy,
+  # sleeping or dead merchant (or a spawn egg) passes; a baby villager is
+  # unhappy; offers are made when first asked; without offers a villager
+  # is unhappy (main hand) and the use is taken; otherwise it trades with
+  # the player, whose session opens the menu (`merchant` in the reply).
+  defp merchant_interact(state, %{native: ref, body: %{type: type}, entity: e}, id, request)
+       when type in [@villager, @trader] do
+    villager = type == @villager
+    {view, state} = merchant_act(state, ref, id, :view)
+    taken = {:ok, %{hand: :keep, swing: false, others: nil}}
+
+    cond do
+      match?(%{item_id: @spawn_egg}, request.item) or not view.alive or view.trading != nil or
+        (villager and view.sleeping) or (not villager and view.baby) ->
+        :pass
+
+      villager and view.baby ->
+        {_, state} = merchant_act(state, ref, id, :unhappy)
+        {:merchant, taken, state}
+
+      true ->
+        case ensure_offers(state, ref, id, e, view) do
+          {:pending, state} ->
+            {:merchant, taken, state}
+
+          {[], state} ->
+            state =
+              if villager and Map.get(request, :hand, :main) == :main,
+                do: elem(merchant_act(state, ref, id, :unhappy), 1),
+                else: state
+
+            {:merchant, taken, state}
+
+          {offers, state} ->
+            {_, state} = merchant_act(state, ref, id, {:start, request.player})
+
+            trade = %{
+              uuid: e.uuid,
+              villager: villager,
+              offers: offers,
+              level: if(villager, do: view.level, else: 1),
+              xp: if(villager, do: view.xp, else: 0),
+              title: merchant_title(view)
+            }
+
+            {:merchant, {:ok, %{hand: :keep, swing: not villager, others: nil, merchant: trade}},
+             state}
+        end
+    end
+  end
+
+  defp merchant_interact(_state, _entry, _id, _request), do: :pass
+
+  # `getDisplayName`: its name, else its profession's or the trader's.
+  defp merchant_title(%{custom_name: name}) when name != nil, do: name
+
+  defp merchant_title(%{type: @villager, profession: "minecraft:" <> profession}),
+    do: Valimc.Text.translatable("entity.minecraft.villager." <> profession)
+
+  defp merchant_title(_view), do: Valimc.Text.translatable("entity.minecraft.wandering_trader")
+
+  defp merchant_act(state, ref, id, action) do
+    case Native.mob_section_merchant(ref, id, action) do
+      {:ok, {result, events, {position, row}}} ->
+        {result,
+         put_entities(state, Store.native_change(state.entities.store, id, position, row, events))}
+
+      _ ->
+        {{:error, :missing}, state}
+    end
+  end
+
+  defp merchant_of(view, {x, y, z}, level) do
+    %{
+      profession: if(view.type == @villager, do: view.profession),
+      level: level,
+      # A wandering trader has no villager variant: no predicate holds.
+      villager_type: view.villager_type || "",
+      position: {x, y, z}
+    }
+  end
+
+  # `getOffers`: made at its level the first time (`updateTrades`).
+  defp ensure_offers(state, _ref, _id, _e, %{offers: offers}) when is_list(offers),
+    do: {offers, state}
+
+  defp ensure_offers(state, ref, id, e, view) do
+    level = if view.type == @villager, do: view.level, else: 0
+    merchant = merchant_of(view, {e.x, e.y, e.z}, level)
+
+    case draw_offers(state, %{uuid: e.uuid, merchant: merchant, answers: [], append: false}) do
+      {:ok, offers, state} ->
+        {_, state} = merchant_act(state, ref, id, {:offers, offers})
+        {offers, state}
+
+      {:pending, state} ->
+        {:pending, state}
+    end
+  end
+
+  # `increaseMerchantCareer`'s `updateTrades`: the new level's offers join.
+  defp level_up_offers(state, ref, id, uuid, at, traded) do
+    {view, state} = merchant_act(state, ref, id, :view)
+    merchant = merchant_of(view, at, traded.level)
+
+    case draw_offers(state, %{uuid: uuid, merchant: merchant, answers: [], append: true}) do
+      {:ok, more, state} ->
+        offers = traded.offers ++ more
+        {_, state} = merchant_act(state, ref, id, {:offers, offers})
+        {offers, state}
+
+      {:pending, state} ->
+        {traded.offers, state}
+    end
+  end
+
+  # A draw, or a structure search queued for its exploration map.
+  defp draw_offers(state, waiting) do
+    case Valimc.World.Trades.draw(waiting.merchant, waiting.answers) do
+      {:ok, offers} ->
+        {:ok, offers, state}
+
+      {:locate, tag, radius} ->
+        {:pending, queue_trade_locate(state, Map.put(waiting, :tag, {tag, radius}))}
+
+      {:error, reason} ->
+        require Logger
+        Logger.warning("Merchant offers not drawn: #{inspect(reason)}")
+        {:pending, state}
+    end
+  end
+
+  defp queue_trade_locate(state, waiting) do
+    waiting = %{waiting | tag: elem(waiting.tag, 0)} |> Map.put(:radius, elem(waiting.tag, 1))
+
+    if length(state.trade_waiting) >= 64 do
+      state
+    else
+      start_trade_locate(%{state | trade_waiting: state.trade_waiting ++ [waiting]})
+    end
+  end
+
+  # The first waiting merchant's search, one at a time.
+  defp start_trade_locate(%{trade_waiting: [waiting | _]} = state) do
+    if Jobs.running?(state.jobs, :trade_locate) do
+      state
+    else
+      dimension = state.dimension
+      members = Valimc.Blocks.Loot.structure_tag(waiting.tag)
+      {x, y, z} = waiting.merchant.position
+      origin = {floor(x), floor(y), floor(z)}
+      radius = min(waiting.radius, 100)
+
+      work = fn ->
+        case Valimc.Worldgen.Locate.nearest(dimension, members, origin, radius) do
+          {:ok, {x, y, z, _id}} -> {:ok, {x, y, z}}
+          result -> result
+        end
+      end
+
+      case start_job(state, :trade_locate, work,
+             supervisor: Valimc.TransferWorkers,
+             deadline: 60_000,
+             data: %{uuid: waiting.uuid}
+           ) do
+        {:ok, state} -> state
+        {:error, _} -> state
+      end
+    end
+  end
+
+  defp start_trade_locate(state), do: state
+
+  # The draw again with the answers so far; offers made join the merchant,
+  # if it is still here and still wants them.
+  defp waiting_draw(state, waiting) do
+    state =
+      case draw_offers(state, Map.delete(waiting, :tag) |> Map.delete(:radius)) do
+        {:ok, offers, state} -> place_offers(state, waiting, offers)
+        {:pending, state} -> state
+      end
+
+    start_trade_locate(state)
+  end
+
+  defp place_offers(state, waiting, offers) do
+    store = state.entities.store
+
+    with {:ok, {_, id, _}} <- Store.find(store, waiting.uuid),
+         %{native: ref} when ref != nil <- store.entries[id] do
+      {view, state} = merchant_act(state, ref, id, :view)
+
+      cond do
+        waiting.append and is_list(view.offers) ->
+          elem(merchant_act(state, ref, id, {:offers, view.offers ++ offers}), 1)
+
+        not waiting.append and view.offers == nil ->
+          elem(merchant_act(state, ref, id, {:offers, offers}), 1)
+
+        true ->
+          state
+      end
+    else
+      _ -> state
+    end
+  end
+
+  # `rewardTradeXp`'s orb, half a block up.
+  defp traded_orb(state, _at, nil), do: state
+
+  defp traded_orb(state, {x, y, z}, pop),
+    do: create_group_body(state, ExperienceOrbs.single({x, y + 0.5, z}, pop))
+
   defp native_interaction(%{native: ref, body: row}, id, request) do
     holder = request[:holder]
 
@@ -4001,12 +4224,17 @@ defmodule Valimc.World.RegionData do
            store.entries[id] || {:error, :missing_item} do
       at = {e.x, e.y, e.z}
 
-      # A bucket takes a mob over its body as its record holds it.
+      # A merchant trades (VMC-044b2); a bucket takes a mob over its body as
+      # its record holds it.
       result =
-        with :pass <- bucket(entry, request),
+        with :pass <- merchant_interact(state, entry, id, request),
+             :pass <- bucket(entry, request),
              do: native_interaction(entry, id, request)
 
       case result do
+        {:merchant, reply, state} ->
+          {:reply, reply, state}
+
         {:ok, next, outcome} ->
           state = interacted(state, id, revision, at, next, outcome)
           state = free_knots(state, outcome.free)
@@ -4020,6 +4248,53 @@ defmodule Valimc.World.RegionData do
       {:error, _} = error -> {:reply, error, state}
       :pass -> {:reply, :pass, state}
       _ -> {:reply, {:error, :not_living}, state}
+    end
+  end
+
+  # A merchant's trading, asked by its trading player's session (VMC-044b2,
+  # `Region.merchant/3`): `:view`, `:stop`, `{:updated, valid}` and
+  # `{:trade, index, player}`. A trade's level-up draws the next level's
+  # offers; its orb drops at the merchant.
+  def handle_call({:merchant, epoch, uuid, action}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{kind: :mob, native: ref, entity: e} when ref != nil <-
+           store.entries[id] || {:error, :missing_item} do
+      at = {e.x, e.y, e.z}
+
+      case action do
+        :view ->
+          {result, state} = merchant_act(state, ref, id, :view)
+          box = Valimc.Entity.NativeBody.box(store.entries[id].body, at)
+          {:reply, {:ok, Map.merge(result, %{position: at, box: box})}, state}
+
+        {:trade, index, player} ->
+          case merchant_act(state, ref, id, {:trade, index, player}) do
+            {%{} = traded, state} ->
+              state = traded_orb(state, at, traded.pop)
+
+              {offers, state} =
+                if traded.leveled,
+                  do: level_up_offers(state, ref, id, uuid, at, traded),
+                  else: {traded.offers, state}
+
+              {:reply, {:ok, %{traded | offers: offers}}, state}
+
+            {{:error, reason}, state} ->
+              {:reply, {:error, {:invalid, reason}}, state}
+          end
+
+        action when action == :stop or (is_tuple(action) and elem(action, 0) == :updated) ->
+          {result, state} = merchant_act(state, ref, id, action)
+          {:reply, {:ok, result}, state}
+      end
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+      _ -> {:reply, {:error, :not_merchant}, state}
     end
   end
 
@@ -9274,6 +9549,26 @@ defmodule Valimc.World.RegionData do
   # A crater job ended (VMC-050a): the next waiting craters start.
   defp job_done(:explosion, _job, _result, state), do: {:noreply, start_craters(state)}
 
+  # A merchant's exploration map found (or not) its structure: its draw runs
+  # again with the answer (VMC-044b2).
+  defp job_done(:trade_locate, _job, result, state) do
+    found =
+      case result do
+        {:ok, {x, y, z}} -> {x, y, z}
+        _ -> nil
+      end
+
+    case state.trade_waiting do
+      [waiting | rest] ->
+        tag = waiting.tag
+        waiting = %{waiting | answers: [{tag, found} | waiting.answers]}
+        {:noreply, waiting_draw(%{state | trade_waiting: rest}, waiting)}
+
+      [] ->
+        {:noreply, state}
+    end
+  end
+
   defp job_done(:mob_locate, job, result, state),
     do: {:noreply, %{state | mob_located: {{job.uuid, job.request}, result}}}
 
@@ -9411,6 +9706,9 @@ defmodule Valimc.World.RegionData do
   end
 
   # Its mobs' pending paths give up on their own (`Navigation.receive/1`).
+
+  defp job_failed(:trade_locate, job, reason, state),
+    do: job_done(:trade_locate, job, {:error, reason}, state)
 
   defp job_failed(:mob_locate, job, reason, state),
     do: job_done(:mob_locate, job, {:error, reason}, state)

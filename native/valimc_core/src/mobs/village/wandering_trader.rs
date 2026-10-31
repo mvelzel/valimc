@@ -4,8 +4,9 @@
 //! (`UseItemGoal` with their sounds; the drink itself is `ai::consume`'s),
 //! flees zombies and illagers, panics when hurt, walks to its wander target
 //! and back toward its home, strolls and looks at players and mobs. Its
-//! despawn delay counts down and it goes when it runs out. It offers no
-//! trades yet (VMC-044), so its trading goals never start.
+//! despawn delay counts down and it goes when it runs out. It trades
+//! with players (VMC-044b2): it stands still and looks at its
+//! trading player, and its despawn delay waits while it trades.
 //!
 //! Its own data: the despawn delay, the wander target, whether it shows as
 //! invisible (`isInvisible`, which vanilla updates as its data syncs after
@@ -16,7 +17,7 @@ use crate::mobs::ai::fmath::f;
 use crate::mobs::ai::goal::{Goal, JUMP, LOOK, MOVE};
 use crate::mobs::ai::goals::random_stroll::StrollOptions;
 use crate::mobs::ai::goals::{
-    AvoidEntity, EntityTest, Float, Idle, LookAtPlayer, MobTypes, MoveTowardsRestriction, Panic,
+    AvoidEntity, EntityTest, Float, LookAtPlayer, MobTypes, MoveTowardsRestriction, Panic,
     RandomStroll, UseItem,
 };
 use crate::mobs::ai::hooks::{Hooks, Tag};
@@ -28,6 +29,7 @@ use crate::mobs::kinds::{Kind, Registered, Registration};
 use crate::mobs::living::items;
 use crate::mobs::model::{Body, FamilyData};
 use crate::mobs::monsters::{entity, fields, flag, int, item, value};
+use crate::mobs::sensing::{self, Ref};
 use crate::mobs::term::{Atom, Map, Value, NIL};
 
 pub const WANDERING_TRADER: &str = "minecraft:wandering_trader";
@@ -112,8 +114,10 @@ impl WanderingTrader {
             ("invisible", Value::bool(false)),
             ("unhappy", Value::Int(0)),
             ("age", Value::Int(0)),
-            // `MerchantOffers`, made when first asked (VMC-044b1).
+            // `MerchantOffers`, made when first asked (VMC-044b1), and its
+            // trading player (VMC-044b2, never restored).
             ("offers", NIL),
+            ("trading", NIL),
         ])
     }
 }
@@ -184,12 +188,7 @@ impl Kind for WanderingTrader {
                     BRIGHT_UNSEEN,
                 ),
             ),
-            Registration::new(
-                1,
-                "TradeWithPlayerGoal",
-                MOVE | JUMP,
-                Idle::new("TradeWithPlayerGoal"),
-            ),
+            Registration::new(1, "TradeWithPlayerGoal", MOVE | JUMP, TradeWithPlayer),
         ];
         for (types, distance) in &self.flees {
             goals.push(Registration::new(
@@ -205,7 +204,7 @@ impl Kind for WanderingTrader {
                 1,
                 "LookAtTradingPlayerGoal",
                 LOOK,
-                Idle::new("LookAtTradingPlayerGoal"),
+                LookAtTradingPlayer(LookAtPlayer::new(8.0, 0.02, false, None)),
             ),
             Registration::new(
                 2,
@@ -253,6 +252,16 @@ impl Kind for WanderingTrader {
         }
     }
 
+    /// `WanderingTrader.getAmbientSound`: the trade sound while trading.
+    fn ambient_sound(&self, t: &mut Turn) -> Option<i32> {
+        let name = if super::merchant::trading(t.mob).is_some() {
+            "minecraft:entity.wandering_trader.trade"
+        } else {
+            t.facts.ambient_sound.as_deref()?
+        };
+        t.level.facts.sounds.id(name)
+    }
+
     /// `getConsumeSound`: its own drinking sounds.
     fn consume_sound(&self, item: i32) -> Option<i32> {
         Some(if item == self.milk_id {
@@ -266,7 +275,7 @@ impl Kind for WanderingTrader {
     /// despawn delay counts down, and it goes as it reaches 0.
     fn after_ai(&self, t: &mut Turn) {
         let delay = int(t.data(), "despawn_delay");
-        if delay > 0 {
+        if delay > 0 && super::merchant::trading(t.mob).is_none() {
             t.mob.body.data.set("despawn_delay", Value::Int(delay - 1));
             if delay - 1 == 0 {
                 t.effect(Effect::Discard);
@@ -289,6 +298,86 @@ impl Kind for WanderingTrader {
 
     fn fresh_data(&self, _type_id: u16) -> Vec<(Atom, Value)> {
         WanderingTrader::data_of()
+    }
+}
+
+/// Its trading player, while sensed.
+fn trading_player(t: &Turn) -> Option<crate::mobs::ai::turn::Seen> {
+    let uuid = super::merchant::trading(t.mob)?;
+    t.entity(Some(&Ref {
+        kind: sensing::Kind::Player,
+        uuid,
+    }))
+}
+
+/// `TradeWithPlayerGoal`: alive, dry, on the ground, not just hurt and
+/// within 4 blocks of its trading player, it stands still; stopping ends
+/// the trade (VMC-044b2).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TradeWithPlayer;
+
+impl Goal for TradeWithPlayer {
+    fn can_use(&mut self, t: &mut Turn) -> bool {
+        if !crate::mobs::living::mob::alive(&t.mob.body.mob)
+            || t.in_water()
+            || !t.on_ground()
+            || t.mob.body.mob.living.health.hurt_ticks > 0
+        {
+            return false;
+        }
+        trading_player(t).is_some_and(|p| t.distance_sq(p.position) <= 16.0)
+    }
+
+    fn start(&mut self, t: &mut Turn) {
+        navigation::stop(t);
+    }
+
+    fn stop(&mut self, t: &mut Turn) {
+        t.mob.body.data.set("trading", NIL);
+    }
+
+    fn name(&self) -> &'static str {
+        "Valimc.AI.Goals.TradeWithPlayer"
+    }
+}
+
+/// `LookAtTradingPlayerGoal`: a `LookAtPlayerGoal(8)` at its trading
+/// player whenever it trades.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LookAtTradingPlayer(LookAtPlayer);
+
+impl Goal for LookAtTradingPlayer {
+    fn can_use(&mut self, t: &mut Turn) -> bool {
+        match super::merchant::trading(t.mob) {
+            Some(uuid) => {
+                self.0.look_at = Some(Ref {
+                    kind: sensing::Kind::Player,
+                    uuid,
+                });
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn can_continue(&mut self, t: &mut Turn) -> bool {
+        self.0.can_continue(t)
+    }
+
+    fn start(&mut self, t: &mut Turn) {
+        self.0.start(t)
+    }
+
+    fn stop(&mut self, t: &mut Turn) {
+        self.0.stop(t)
+    }
+
+    fn tick(&mut self, t: &mut Turn) {
+        self.0.tick(t)
+    }
+
+    fn name(&self) -> &'static str {
+        "Valimc.AI.Goals.LookAtTradingPlayer"
     }
 }
 

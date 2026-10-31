@@ -134,6 +134,8 @@ defmodule Valimc.Session.Messages do
         else: state
 
     Menus.retire_container_view(state)
+    # A merchant trading with the player stops (VMC-044b2).
+    Valimc.Player.Merchant.stop(state)
     Jobs.cancel_all(state.jobs)
     if state.phase == :play, do: return_items(%{state | mining: nil}), else: state
   end

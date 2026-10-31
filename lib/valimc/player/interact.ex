@@ -71,13 +71,18 @@ defmodule Valimc.Player.Interact do
   end
 
   defp use(state, hand, stack, view, owner, sneaking) do
-    answer(
-      state,
-      hand,
-      stack,
-      view,
-      Region.interact_entity(owner, view.uuid, request(state, stack, sneaking))
-    )
+    request = Map.put(request(state, stack, sneaking), :hand, hand)
+
+    case Region.interact_entity(owner, view.uuid, request) do
+      # A merchant trades (VMC-044b2): its menu opens.
+      {:ok, %{merchant: trade} = reply} ->
+        state
+        |> answer(hand, stack, view, {:ok, Map.delete(reply, :merchant)})
+        |> Valimc.Player.Merchant.open(owner, trade)
+
+      reply ->
+        answer(state, hand, stack, view, reply)
+    end
   end
 
   # A fence knot (VMC-043c3): the player's mobs move to it or from it.
