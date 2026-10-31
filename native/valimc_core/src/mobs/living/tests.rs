@@ -478,7 +478,7 @@ fn armour_resistance_and_protection() {
         player,
         10.0,
         &Effects::default(),
-        (0.0, 0.0),
+        (0.0, 0.0, 0.0),
     );
     assert_eq!(protected, f(10.0 * f(1.0 - f(4.0 / 25.0))));
 }
