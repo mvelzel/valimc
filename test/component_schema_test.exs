@@ -27,6 +27,42 @@ defmodule Valimc.ComponentSchemaTest do
     assert error("minecraft:custom_model_data", <<0, 0, 0, 1, 1, 2>>) == :malformed
   end
 
+  test "block predicates refuse NBT tests and partial component predicates" do
+    # One predicate: no blocks, no state, an NBT test.
+    assert error("minecraft:can_break", <<1, 0, 0, 1, 10, 0>>) == :unsupported_predicate
+    # No NBT test, no exact components, one partial predicate.
+    assert error("minecraft:can_break", <<1, 0, 0, 0, 0, 1>>) == :unsupported_predicate
+    assert {[%{"components" => []}], <<>>} = take("minecraft:can_break", <<1, 0, 0, 0, 0, 0>>)
+  end
+
+  test "a status effect's icon follows its particles unless written" do
+    schema = ComponentSchemas.schema("minecraft:death_protection")
+
+    effect = fn fields ->
+      {:compound,
+       %{
+         "death_effects" =>
+           {:list,
+            {:compound,
+             [
+               %{
+                 "type" => {:string, "apply_effects"},
+                 "effects" => {:list, {:compound, [Map.put(fields, "id", {:string, "speed"})]}}
+               }
+             ]}}
+       }}
+    end
+
+    icon = fn tag ->
+      %{"death_effects" => [%{"effects" => [details]}]} = ComponentSchema.from_tag(schema, tag)
+      details["show_icon"]
+    end
+
+    refute icon.(effect.(%{"show_particles" => {:byte, 0}}))
+    assert icon.(effect.(%{"show_particles" => {:byte, 0}, "show_icon" => {:byte, 1}}))
+    assert icon.(effect.(%{}))
+  end
+
   test "NaN floats keep their bits and compare as Java's Float.equals" do
     schema = ComponentSchemas.schema("minecraft:custom_model_data")
     bytes = <<1, 0x7FC00001::32, 0, 0, 0>>

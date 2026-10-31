@@ -124,6 +124,34 @@
     "minecraft:zombie_nautilus/variant": 106
   },
   "enums": {
+    "attribute_display": [
+      [
+        0,
+        "default"
+      ],
+      [
+        1,
+        "hidden"
+      ],
+      [
+        2,
+        "override"
+      ]
+    ],
+    "attribute_operation": [
+      [
+        0,
+        "add_value"
+      ],
+      [
+        1,
+        "add_multiplied_base"
+      ],
+      [
+        2,
+        "add_multiplied_total"
+      ]
+    ],
     "dye_color": [
       [
         0,
@@ -190,6 +218,86 @@
         "black"
       ]
     ],
+    "equipment_slot": [
+      [
+        0,
+        "mainhand"
+      ],
+      [
+        5,
+        "offhand"
+      ],
+      [
+        1,
+        "feet"
+      ],
+      [
+        2,
+        "legs"
+      ],
+      [
+        3,
+        "chest"
+      ],
+      [
+        4,
+        "head"
+      ],
+      [
+        6,
+        "body"
+      ],
+      [
+        7,
+        "saddle"
+      ]
+    ],
+    "equipment_slot_group": [
+      [
+        0,
+        "any"
+      ],
+      [
+        1,
+        "mainhand"
+      ],
+      [
+        2,
+        "offhand"
+      ],
+      [
+        3,
+        "hand"
+      ],
+      [
+        4,
+        "feet"
+      ],
+      [
+        5,
+        "legs"
+      ],
+      [
+        6,
+        "chest"
+      ],
+      [
+        7,
+        "head"
+      ],
+      [
+        8,
+        "armor"
+      ],
+      [
+        9,
+        "body"
+      ],
+      [
+        10,
+        "saddle"
+      ]
+    ],
     "firework_shape": [
       [
         0,
@@ -250,6 +358,56 @@
       [
         6,
         "dark_brown"
+      ]
+    ],
+    "item_use_animation": [
+      [
+        0,
+        "none"
+      ],
+      [
+        1,
+        "eat"
+      ],
+      [
+        2,
+        "drink"
+      ],
+      [
+        3,
+        "block"
+      ],
+      [
+        4,
+        "bow"
+      ],
+      [
+        5,
+        "trident"
+      ],
+      [
+        6,
+        "crossbow"
+      ],
+      [
+        7,
+        "spyglass"
+      ],
+      [
+        8,
+        "toot_horn"
+      ],
+      [
+        9,
+        "brush"
+      ],
+      [
+        10,
+        "bundle"
+      ],
+      [
+        11,
+        "spear"
       ]
     ],
     "llama_variant": [

@@ -15,6 +15,51 @@ defmodule Valimc.Protocol.ComponentSchemas do
   @resolvable_int {:either, :int, {:resource_key, "minecraft:context_int_provider"}}
   @resolvable_float {:either, :float, {:resource_key, "minecraft:context_float_provider"}}
 
+  @sound {:holder, "minecraft:sound_event"}
+
+  @consume_effect {:dispatch, {:registry, "minecraft:consume_effect_type"},
+                   %{
+                     "minecraft:apply_effects" => [
+                       {"effects", {:list, :mob_effect, :infinity}},
+                       {"probability", {:range, :float, 0.0, 1.0}, 1.0}
+                     ],
+                     "minecraft:remove_effects" => [
+                       {"effects", {:holder_set, "minecraft:mob_effect"}}
+                     ],
+                     "minecraft:clear_all_effects" => [],
+                     "minecraft:teleport_randomly" => [
+                       {"diameter", {:range, :float, {:gt, 0.0}, nil}, 16.0},
+                       {"directional_particles", :bool, true}
+                     ],
+                     "minecraft:play_sound" => [{"sound", @sound}]
+                   }}
+
+  @kinetic_condition {:record,
+                      [
+                        {"max_duration_ticks", @non_negative_int},
+                        {"min_speed", :float, 0.0},
+                        {"min_relative_speed", :float, 0.0}
+                      ]}
+
+  # `BlockPredicate`. Its NBT test and partial component predicates, which only
+  # map-making uses, are refused; blocks, states and exact components work.
+  @block_predicate {:record,
+                    [
+                      {"blocks", {:optional, {:holder_set, "minecraft:block"}}},
+                      {"state",
+                       {:optional,
+                        {:map, {:string, 32767},
+                         {:either, {:string, 32767},
+                          {:record,
+                           [
+                             {"min", {:optional, {:string, 32767}}},
+                             {"max", {:optional, {:string, 32767}}}
+                           ]}}, :infinity}}},
+                      {"nbt", {:optional, :unsupported}},
+                      {"components", :components, []},
+                      {"predicates", :no_predicates, []}
+                    ]}
+
   @swing_animation {:record,
                     [
                       {"type", {:enum, "swing_animation"}, "whack"},
@@ -148,6 +193,114 @@ defmodule Valimc.Protocol.ComponentSchemas do
                   {"targeting_entity_types", {:holder_set, "minecraft:entity_type"}},
                   {"visibility", {:range, :float, 0.0, 10.0}}
                 ]},
+             "minecraft:attribute_modifiers" =>
+               {:list,
+                {:record,
+                 [
+                   {"type", {:registry, "minecraft:attribute"}},
+                   {"id", :identifier},
+                   {"amount", :double},
+                   {"operation", {:enum, "attribute_operation"}},
+                   {"slot", {:enum, "equipment_slot_group"}, "any"},
+                   {"display",
+                    {:dispatch, {:enum, "attribute_display"},
+                     %{"default" => [], "hidden" => [], "override" => [{"value", :text}]}},
+                    %{"type" => "default"}}
+                 ]}, :infinity},
+             "minecraft:consumable" =>
+               {:record,
+                [
+                  {"consume_seconds", @non_negative_float, Float32.round(1.6)},
+                  {"animation", {:enum, "item_use_animation"}, "eat"},
+                  {"sound", @sound, "minecraft:entity.generic.eat"},
+                  {"has_consume_particles", :bool, true},
+                  {"on_consume_effects", {:list, @consume_effect, :infinity}, []}
+                ]},
+             "minecraft:death_protection" =>
+               {:record, [{"death_effects", {:list, @consume_effect, :infinity}, []}]},
+             "minecraft:equippable" =>
+               {:record,
+                [
+                  {"slot", {:enum, "equipment_slot"}},
+                  {"equip_sound", @sound, "minecraft:item.armor.equip_generic"},
+                  {"asset_id", {:optional, {:resource_key, "minecraft:equipment_asset"}}},
+                  {"camera_overlay", {:optional, :identifier}},
+                  {"allowed_entities", {:optional, {:holder_set, "minecraft:entity_type"}}},
+                  {"dispensable", :bool, true},
+                  {"swappable", :bool, true},
+                  {"damage_on_hurt", :bool, true},
+                  {"equip_on_interact", :bool, false},
+                  {"can_be_sheared", :bool, false},
+                  {"shearing_sound", @sound, "minecraft:item.shears.snip"}
+                ]},
+             "minecraft:tool" =>
+               {:record,
+                [
+                  {"rules",
+                   {:list,
+                    {:record,
+                     [
+                       {"blocks", {:holder_set, "minecraft:block"}},
+                       {"speed", {:optional, {:range, :float, {:gt, 0.0}, nil}}},
+                       {"correct_for_drops", {:optional, :bool}}
+                     ]}, :infinity}},
+                  {"default_mining_speed", :float, 1.0},
+                  {"damage_per_block", @non_negative_int, 1},
+                  {"can_destroy_blocks_in_creative", :bool, true}
+                ]},
+             "minecraft:blocks_attacks" =>
+               {:record,
+                [
+                  {"block_delay_seconds", @non_negative_float, 0.0},
+                  {"disable_cooldown_scale", @non_negative_float, 1.0},
+                  {"damage_reductions",
+                   {:list,
+                    {:record,
+                     [
+                       {"horizontal_blocking_angle", {:range, :float, {:gt, 0.0}, nil}, 90.0},
+                       {"type", {:optional, {:holder_set, "minecraft:damage_type"}}},
+                       {"base", :float},
+                       {"factor", :float}
+                     ]}, :infinity},
+                   [
+                     %{
+                       "horizontal_blocking_angle" => 90.0,
+                       "type" => nil,
+                       "base" => 0.0,
+                       "factor" => 1.0
+                     }
+                   ]},
+                  {"item_damage",
+                   {:record,
+                    [{"threshold", @non_negative_float}, {"base", :float}, {"factor", :float}]},
+                   %{"threshold" => 1.0, "base" => 0.0, "factor" => 1.0}},
+                  {"bypassed_by", {:optional, {:holder_set, "minecraft:damage_type"}}},
+                  {"block_sound", {:optional, @sound}},
+                  {"disabled_sound", {:optional, @sound}}
+                ]},
+             "minecraft:kinetic_weapon" =>
+               {:record,
+                [
+                  {"contact_cooldown_ticks", @non_negative_int, 10},
+                  {"delay_ticks", @non_negative_int, 0},
+                  {"dismount_conditions", {:optional, @kinetic_condition}},
+                  {"knockback_conditions", {:optional, @kinetic_condition}},
+                  {"damage_conditions", {:optional, @kinetic_condition}},
+                  {"forward_movement", :float, 0.0},
+                  {"damage_multiplier", :float, 1.0},
+                  {"sound", {:optional, @sound}},
+                  {"hit_sound", {:optional, @sound}}
+                ]},
+             "minecraft:piercing_weapon" =>
+               {:record,
+                [
+                  {"deals_knockback", :bool, true},
+                  {"dismounts", :bool, false},
+                  {"sound", {:optional, @sound}},
+                  {"hit_sound", {:optional, @sound}}
+                ]},
+             "minecraft:can_place_on" => {:compact_list, @block_predicate},
+             "minecraft:can_break" => {:compact_list, @block_predicate},
              "minecraft:trim" =>
                {:record,
                 [

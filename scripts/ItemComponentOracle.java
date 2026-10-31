@@ -101,6 +101,29 @@ public class ItemComponentOracle {
     {"provides_pottery_pattern", "'minecraft:skull'"},
     {"base_color", "'yellow'"},
     {"block_transformer", "'minecraft:hoe'"},
+    // VMC-004b5: gameplay records.
+    {"attribute_modifiers", "[{type:'minecraft:attack_damage',id:'valimc:a',amount:2.5d,operation:'add_value',slot:'mainhand'},"
+      + "{type:'minecraft:scale',id:'valimc:b',amount:-0.5d,operation:'add_multiplied_total',display:{type:'hidden'}},"
+      + "{type:'minecraft:armor',id:'valimc:c',amount:1.0d,operation:'add_multiplied_base',slot:'armor',display:{type:'override',value:'Shiny'}}]"},
+    {"consumable", "{consume_seconds:0.5f,animation:'drink',sound:'minecraft:item.honey_bottle.drink',has_consume_particles:0b,on_consume_effects:["
+      + "{type:'apply_effects',effects:[{id:'minecraft:speed',amplifier:2b,duration:200,ambient:1b,show_particles:0b},"
+      + "{id:'minecraft:poison',duration:40,show_icon:0b,hidden_effect:{amplifier:1b,duration:600}}],probability:0.5f},"
+      + "{type:'remove_effects',effects:['minecraft:wither','minecraft:hunger']},"
+      + "{type:'clear_all_effects'},{type:'teleport_randomly',diameter:8.0f,directional_particles:0b},{type:'play_sound',sound:'minecraft:entity.fox.teleport'}]}"},
+    {"death_protection", "{}"},
+    {"equippable", "{slot:'head',equip_sound:'minecraft:item.armor.equip_gold',asset_id:'minecraft:gold',camera_overlay:'minecraft:misc/pumpkinblur',"
+      + "allowed_entities:['minecraft:player','minecraft:zombie'],dispensable:0b,swappable:0b,damage_on_hurt:0b,equip_on_interact:1b,can_be_sheared:1b,shearing_sound:'minecraft:item.saddle.unequip'}"},
+    {"equippable", "{slot:'saddle',allowed_entities:'#minecraft:can_equip_saddle'}"},
+    {"tool", "{rules:[{blocks:'#minecraft:mineable/pickaxe',speed:4.5f,correct_for_drops:1b},{blocks:['minecraft:cobweb'],speed:15.0f},{blocks:'minecraft:stone',correct_for_drops:0b}],default_mining_speed:0.5f,damage_per_block:2,can_destroy_blocks_in_creative:0b}"},
+    {"blocks_attacks", "{block_delay_seconds:0.25f,disable_cooldown_scale:2.0f,damage_reductions:[{horizontal_blocking_angle:45.0f,type:'#minecraft:is_projectile',base:1.0f,factor:0.5f},{base:-1.0f,factor:0.0f}],"
+      + "item_damage:{threshold:3.0f,base:1.0f,factor:2.0f},bypassed_by:'#minecraft:bypasses_shield',block_sound:'minecraft:item.shield.block',disabled_sound:'minecraft:item.shield.break'}"},
+    {"blocks_attacks", "{damage_reductions:[]}"},
+    {"kinetic_weapon", "{contact_cooldown_ticks:3,delay_ticks:7,dismount_conditions:{max_duration_ticks:20,min_speed:0.5f},knockback_conditions:{max_duration_ticks:5,min_relative_speed:1.5f},"
+      + "damage_conditions:{max_duration_ticks:60},forward_movement:0.25f,damage_multiplier:1.5f,sound:'minecraft:item.spear.use',hit_sound:'minecraft:item.spear.hit'}"},
+    {"piercing_weapon", "{deals_knockback:0b,dismounts:1b,sound:'minecraft:item.spear.attack',hit_sound:'minecraft:item.spear.hit'}"},
+    {"can_place_on", "{blocks:'minecraft:stone'}"},
+    {"can_break", "[{blocks:['minecraft:oak_log','minecraft:birch_log'],state:{axis:'y'}},{blocks:'#minecraft:wool'},"
+      + "{state:{age:{min:'2',max:'5'},half:{min:'lower'}}},{components:{'minecraft:dyed_color':255,'minecraft:enchantable':{value:3}}}]"},
   };
 
   private static DataComponentType<?> type(String name) {

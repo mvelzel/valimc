@@ -40,6 +40,14 @@ public class ItemMetadata {
     "horse_variant", net.minecraft.world.entity.animal.equine.Variant.class,
     "llama_variant", net.minecraft.world.entity.animal.equine.Llama.Variant.class,
     "map_post_processing", net.minecraft.world.item.component.MapPostProcessing.class));
+  static {
+    ENUMS.putAll(Map.of(
+      "equipment_slot", net.minecraft.world.entity.EquipmentSlot.class,
+      "equipment_slot_group", net.minecraft.world.entity.EquipmentSlotGroup.class,
+      "attribute_operation", net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.class,
+      "item_use_animation", net.minecraft.world.item.ItemUseAnimation.class,
+      "attribute_display", net.minecraft.world.item.component.ItemAttributeModifiers.Display.Type.class));
+  }
   // Built-in registries whose network ids component values carry.
   private static final List<String> BUILTIN = List.of("attribute", "block_entity_type",
     "consume_effect_type", "sound_event", "villager_type");
@@ -55,7 +63,8 @@ public class ItemMetadata {
   }
   @SuppressWarnings({"unchecked", "rawtypes"})
   private static List<Object> enumValues(Class<?> type) throws Exception {
-    var codec = (net.minecraft.network.codec.StreamCodec) type.getField("STREAM_CODEC").get(null);
+    var field = type.getDeclaredField("STREAM_CODEC"); field.setAccessible(true);
+    var codec = (net.minecraft.network.codec.StreamCodec) field.get(null);
     var values = new ArrayList<Object>();
     for (var constant : type.getEnumConstants()) {
       var buf = new net.minecraft.network.FriendlyByteBuf(Unpooled.buffer());
@@ -96,7 +105,8 @@ public class ItemMetadata {
       items.put(BuiltInRegistries.ITEM.getKey(item).toString(), facts);
       var present = new TreeSet<String>();
       var encoded = new TreeMap<String,Integer>();
-      for (var type : item.components().keySet()) {
+      // Registry order: a component map iterates by identity hash, which varies between runs.
+      for (var type : item.components().keySet().stream().sorted(Comparator.comparingInt(BuiltInRegistries.DATA_COMPONENT_TYPE::getId)).toList()) {
         var name = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);
         present.add(name.toString());
         var hex = encodeDefault(type, item.components().get(type), registries);

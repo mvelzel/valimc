@@ -36,13 +36,35 @@ defmodule Valimc.Protocol.ComponentSchema do
       when the schema is optional) or `{name, schema, default}`
     * `{:nbt, schema}`: a persistent-only value, whose stream form is its data
       form as network NBT
+    * `{:dispatch, type_schema, cases}`: a type, then the fields `cases` lists
+      for it; the data form is one compound with a `type` field
+    * `{:map, key, value, max}`: `{key, value}` pairs, a list on the network and
+      a compound in the data form
+    * `{:compact_list, schema}`: a list whose data form writes one entry alone
+    * `:mob_effect`, `:effect_details`: `MobEffectInstance` and its details
+    * `:components`: exact component values (`DataComponentExactPredicate`),
+      `{name, value}` pairs through `ItemStack`'s and `ItemData`'s codecs
+    * `:no_predicates`: partial component predicates, accepted only empty
+    * `:unsupported`: a branch ValiMC refuses (a block predicate's NBT)
   """
   import Bitwise
   alias Valimc.Data.{BuiltinRegistries, ComponentTypes, NBT}
-  alias Valimc.Protocol.{ItemTypes, Wire}
+  alias Valimc.Protocol.{ItemData, ItemStack, ItemTypes, Wire}
   alias Valimc.Text.Codec, as: Text
 
   @max_string 32767
+
+  # `MobEffectInstance.Details`: an absent `show_icon` follows `show_particles`
+  # in the data form, which always writes it.
+  @details [
+    {"amplifier", :amplifier, 0},
+    {"duration", :varint, 0},
+    {"ambient", :bool, false},
+    {"show_particles", :bool, true},
+    {"show_icon", :bool},
+    {"hidden_effect", {:optional, :effect_details}}
+  ]
+  @mob_effect [{"id", {:registry, "minecraft:mob_effect"}} | @details]
 
   ## Network stream
 
@@ -149,7 +171,48 @@ defmodule Valimc.Protocol.ComponentSchema do
     end
   end
 
+  def take({:dispatch, type_schema, cases}, bytes) do
+    {type, rest} = take(type_schema, bytes)
+    {record, rest} = take({:record, case_fields(cases, type)}, rest)
+    {Map.put(record, "type", type), rest}
+  end
+
+  def take({:map, key, value, max}, bytes),
+    do: take({:list, {:record, [{0, key}, {1, value}]}, max}, bytes) |> pairs()
+
+  def take({:compact_list, schema}, bytes), do: take({:list, schema, :infinity}, bytes)
+  def take(:amplifier, bytes), do: take(:varint, bytes)
+  def take(:effect_details, bytes), do: take({:record, @details}, bytes)
+  def take(:mob_effect, bytes), do: take({:record, @mob_effect}, bytes)
+
+  def take(:components, bytes) do
+    {count, rest} = take(:varint, bytes)
+    check(count >= 0 and count <= byte_size(rest), :list_too_long)
+
+    {pairs, rest} =
+      Enum.reduce(1..count//1, {[], rest}, fn _, {pairs, rest} ->
+        {id, rest} = take(:varint, rest)
+        name = ItemTypes.component(id) || fail(:unknown_component)
+        {value, rest} = ItemStack.take_component(name, rest)
+        {[{name, value} | pairs], rest}
+      end)
+
+    {Enum.reverse(pairs), rest}
+  end
+
+  def take(:no_predicates, bytes) do
+    case take(:varint, bytes) do
+      {0, rest} -> {[], rest}
+      _ -> fail(:unsupported_predicate)
+    end
+  end
+
+  def take(:unsupported, _bytes), do: fail(:unsupported_predicate)
   def take(_schema, _bytes), do: fail(:malformed)
+
+  defp pairs({records, rest}), do: {Enum.map(records, &{&1[0], &1[1]}), rest}
+
+  defp case_fields(cases, type), do: Map.get(cases, type) || fail(:unknown_type)
 
   # Each element takes at least one byte, so a count beyond the input is malformed.
   defp take_list(schema, count, bytes) do
@@ -236,6 +299,35 @@ defmodule Valimc.Protocol.ComponentSchema do
     do: Enum.map(fields, &encode(field_schema(&1), Map.fetch!(record, field_name(&1))))
 
   def encode({:nbt, schema}, value), do: NBT.encode(to_tag(schema, value))
+
+  def encode({:dispatch, type_schema, cases}, %{"type" => type} = value),
+    do: [encode(type_schema, type), encode({:record, case_fields(cases, type)}, value)]
+
+  def encode({:map, key, value, max}, pairs) when is_list(pairs),
+    do:
+      encode(
+        {:list, {:record, [{0, key}, {1, value}]}, max},
+        Enum.map(pairs, fn {k, v} -> %{0 => k, 1 => v} end)
+      )
+
+  def encode({:compact_list, schema}, values), do: encode({:list, schema, :infinity}, values)
+  def encode(:amplifier, value), do: encode(:varint, value)
+  def encode(:effect_details, value), do: encode({:record, @details}, value)
+  def encode(:mob_effect, value), do: encode({:record, @mob_effect}, value)
+
+  def encode(:components, pairs) when is_list(pairs) do
+    [
+      Wire.varint(length(pairs)),
+      Enum.map(pairs, fn {name, value} ->
+        [
+          Wire.varint(ItemTypes.component_id(name) || fail(:unknown_component)),
+          ItemStack.encode_component_value(name, value)
+        ]
+      end)
+    ]
+  end
+
+  def encode(:no_predicates, []), do: Wire.varint(0)
   def encode(_schema, _value), do: fail(:invalid_value)
 
   @doc "Whether `value` is a valid value of `schema`."
@@ -248,7 +340,7 @@ defmodule Valimc.Protocol.ComponentSchema do
 
   @doc """
   Count-independent comparison key: the canonical stream encoding, with every
-  NaN as Java's canonical NaN (`Float.equals`).
+  NaN as Java's canonical NaN (`Float.equals`) and map entries sorted.
   """
   def identity_key(schema, value),
     do: schema |> encode(canonical(value)) |> IO.iodata_to_binary()
@@ -258,9 +350,19 @@ defmodule Valimc.Protocol.ComponentSchema do
   defp canonical({:double_bits, bits}) when (bits &&& 0xFFFFFFFFFFFFF) != 0,
     do: {:double_bits, 0x7FF8000000000000}
 
-  defp canonical(values) when is_list(values), do: Enum.map(values, &canonical/1)
+  # Map entries (`{:map, ...}`, `:components`) compare without their order, as
+  # their data form, a compound, has none.
+  defp canonical(values) when is_list(values) do
+    values = Enum.map(values, &canonical/1)
+
+    if values != [] and Enum.all?(values, &match?({key, _} when is_binary(key), &1)),
+      do: Enum.sort(values),
+      else: values
+  end
+
   defp canonical(%{} = map), do: Map.new(map, fn {k, v} -> {k, canonical(v)} end)
   defp canonical({tag, value}) when tag in [:left, :right], do: {tag, canonical(value)}
+  defp canonical({key, value}) when is_binary(key), do: {key, canonical(value)}
   defp canonical(value), do: value
 
   ## Data form (NBT through vanilla's codecs)
@@ -366,7 +468,50 @@ defmodule Valimc.Protocol.ComponentSchema do
   end
 
   def from_tag({:nbt, schema}, tag), do: from_tag(schema, tag)
+
+  def from_tag({:dispatch, type_schema, cases}, {:compound, %{"type" => type} = values}) do
+    type = from_tag(type_schema, type)
+    {:record, case_fields(cases, type)} |> from_tag({:compound, values}) |> Map.put("type", type)
+  end
+
+  def from_tag({:map, key, value, max}, {:compound, values}) do
+    check(max == :infinity or map_size(values) <= max, :list_too_long)
+
+    values
+    |> Enum.sort()
+    |> Enum.map(fn {k, v} -> {from_tag(key, {:string, k}), from_tag(value, v)} end)
+  end
+
+  def from_tag({:compact_list, schema}, {:list, _} = list) do
+    values = Enum.map(NBT.items(list), &from_tag(schema, &1))
+    check(values != [], :empty_list)
+    values
+  end
+
+  def from_tag({:compact_list, schema}, tag), do: [from_tag(schema, tag)]
+  def from_tag(:amplifier, tag), do: from_tag(:unsigned_byte, tag)
+  def from_tag(:effect_details, tag), do: from_tag({:record, @details}, show_icon(tag))
+  def from_tag(:mob_effect, tag), do: from_tag({:record, @mob_effect}, show_icon(tag))
+
+  def from_tag(:components, {:compound, values}) do
+    values
+    |> Enum.sort()
+    |> Enum.map(fn {name, tag} ->
+      name = from_tag(:identifier, {:string, name})
+      check(ItemTypes.component_id(name) != nil, :unknown_component)
+      {name, ItemData.component_value(name, tag)}
+    end)
+  end
+
+  def from_tag(:no_predicates, {:compound, values}) when map_size(values) == 0, do: []
   def from_tag(_schema, _tag), do: fail(:invalid_tag)
+
+  defp show_icon({:compound, %{"show_icon" => _}} = tag), do: tag
+
+  defp show_icon({:compound, values}),
+    do: {:compound, Map.put(values, "show_icon", Map.get(values, "show_particles", {:byte, 1}))}
+
+  defp show_icon(tag), do: tag
 
   @doc "Write the data form as vanilla's codecs write it (defaults omitted)."
   def to_tag(schema, value)
@@ -436,6 +581,32 @@ defmodule Valimc.Protocol.ComponentSchema do
   end
 
   def to_tag({:nbt, schema}, value), do: to_tag(schema, value)
+
+  def to_tag({:dispatch, type_schema, cases}, %{"type" => type} = value) do
+    {:compound, fields} = to_tag({:record, case_fields(cases, type)}, value)
+    {:compound, Map.put(fields, "type", to_tag(type_schema, type))}
+  end
+
+  def to_tag({:map, key, value, _}, pairs) when is_list(pairs) do
+    {:compound,
+     Map.new(pairs, fn {k, v} ->
+       {:string, k} = to_tag(key, k)
+       {k, to_tag(value, v)}
+     end)}
+  end
+
+  def to_tag({:compact_list, schema}, [value]), do: to_tag(schema, value)
+  def to_tag({:compact_list, schema}, values), do: to_tag({:list, schema, :infinity}, values)
+  def to_tag(:amplifier, value), do: to_tag(:unsigned_byte, value)
+  def to_tag(:effect_details, value), do: to_tag({:record, @details}, value)
+  def to_tag(:mob_effect, value), do: to_tag({:record, @mob_effect}, value)
+
+  def to_tag(:components, pairs) when is_list(pairs),
+    do:
+      {:compound,
+       Map.new(pairs, fn {name, value} -> {name, ItemData.component_tag(name, value)} end)}
+
+  def to_tag(:no_predicates, []), do: {:compound, %{}}
   def to_tag(_schema, _value), do: fail(:invalid_value)
 
   # `optionalFieldOf` omits an absent value and one equal to its default.

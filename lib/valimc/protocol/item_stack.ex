@@ -213,6 +213,26 @@ defmodule Valimc.Protocol.ItemStack do
     end
   end
 
+  @doc """
+  One component value's network form, by type (`DataComponentExactPredicate`
+  holds them outside a patch). Throws on an invalid or unsupported value.
+  """
+  def take_component(name, bytes) do
+    case @codecs[name] do
+      nil -> throw({:component_error, :unsupported_component})
+      codec -> read_component(codec, bytes)
+    end
+  end
+
+  def encode_component_value(name, value) do
+    codec = @codecs[name] || throw({:component_error, :unsupported_component})
+    check(valid_component?(codec, value), :invalid_component_value)
+    encode_component(codec, value)
+  end
+
+  @doc "The identity key of one component value (what merging compares)."
+  def component_identity(name, value), do: component_key(Map.fetch!(@codecs, name), value)
+
   def max_stack_size(%__MODULE__{} = stack) do
     effective(
       stack,
@@ -327,6 +347,14 @@ defmodule Valimc.Protocol.ItemStack do
 
   defp read_component({:schema, schema}, bytes), do: ComponentSchema.take(schema, bytes)
 
+  # Persistent only: its stream form is its data form as NBT, which no client receives.
+  defp read_component(:map_decorations, bytes) do
+    case NBT.take(bytes) do
+      {:ok, tag, rest} -> {LootComponents.decorations_from_tag(tag), rest}
+      {:error, reason} -> throw({:item_error, {:nbt, reason}})
+    end
+  end
+
   defp read_component(:block_state, bytes) do
     {count, rest} = Wire.take_varint(bytes)
     check(count in 0..64, :invalid_component_value)
@@ -439,6 +467,9 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:instrument, value), do: LootComponents.encode_instrument(value)
 
   defp encode_component({:schema, schema}, value), do: ComponentSchema.encode(schema, value)
+
+  defp encode_component(:map_decorations, value),
+    do: NBT.encode(LootComponents.decorations_tag(value))
 
   defp encode_component(:block_state, value),
     do: [

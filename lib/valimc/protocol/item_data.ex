@@ -233,6 +233,17 @@ defmodule Valimc.Protocol.ItemData do
   defp qualified("minecraft:" <> _ = name), do: name
   defp qualified(name), do: if(String.contains?(name, ":"), do: name, else: "minecraft:" <> name)
 
+  @doc "One component value from its data form (vanilla's `type.codec()`); throws when invalid."
+  def component_value(name, tag) do
+    if name not in ItemStack.supported_components(),
+      do: throw({:component_error, :unsupported_component})
+
+    from_tag(name, tag)
+  end
+
+  @doc "One component value's data form."
+  def component_tag(name, value), do: component(name, value)
+
   # Schema components (VMC-004b4) through `ComponentSchema`, the rest by hand.
   defp from_tag(name, value) do
     case ComponentSchemas.schema(name) do
