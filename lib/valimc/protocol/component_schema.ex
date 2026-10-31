@@ -46,6 +46,12 @@ defmodule Valimc.Protocol.ComponentSchema do
       `{name, value}` pairs through `ItemStack`'s and `ItemData`'s codecs
     * `:no_predicates`: partial component predicates, accepted only empty
     * `:unsupported`: a branch ValiMC refuses (a block predicate's NBT)
+    * `:template`: an item stack template, an `ItemStack` of 1..99 with its own
+      patch; templates nest at most 16 deep
+    * `:container`: a container's slots, `nil` for an empty one; the data form
+      lists the filled ones by slot
+    * `{:contents, schema}`: held stacks that must fit their own items
+      (`ItemStack.validateContainedItemSizes`)
   """
   import Bitwise
   alias Valimc.Data.{BuiltinRegistries, ComponentTypes, NBT}
@@ -65,6 +71,10 @@ defmodule Valimc.Protocol.ComponentSchema do
     {"hidden_effect", {:optional, :effect_details}}
   ]
   @mob_effect [{"id", {:registry, "minecraft:mob_effect"}} | @details]
+  @max_nesting 16
+  @nesting {__MODULE__, :nesting}
+  @slots {:list, {:optional, :template}, 256}
+  @slot_entries {:list, {:record, [{"slot", {:range, :int, 0, 255}}, {"item", :template}]}, 256}
 
   ## Network stream
 
@@ -208,6 +218,12 @@ defmodule Valimc.Protocol.ComponentSchema do
   end
 
   def take(:unsupported, _bytes), do: fail(:unsupported_predicate)
+  def take(:template, bytes), do: nested(fn -> ItemStack.take_template(bytes) end)
+  def take(:container, bytes), do: take(@slots, bytes)
+
+  def take({:contents, schema}, bytes),
+    do: schema |> take(bytes) |> tap(fn {stacks, _} -> fits!(stacks) end)
+
   def take(_schema, _bytes), do: fail(:malformed)
 
   defp pairs({records, rest}), do: {Enum.map(records, &{&1[0], &1[1]}), rest}
@@ -328,6 +344,17 @@ defmodule Valimc.Protocol.ComponentSchema do
   end
 
   def encode(:no_predicates, []), do: Wire.varint(0)
+
+  def encode(:template, %ItemStack{} = stack),
+    do: nested(fn -> ItemStack.encode_template(stack) end)
+
+  def encode(:container, slots), do: encode(@slots, slots)
+
+  def encode({:contents, schema}, stacks) do
+    fits!(stacks)
+    encode(schema, stacks)
+  end
+
   def encode(_schema, _value), do: fail(:invalid_value)
 
   @doc "Whether `value` is a valid value of `schema`."
@@ -359,6 +386,10 @@ defmodule Valimc.Protocol.ComponentSchema do
       do: Enum.sort(values),
       else: values
   end
+
+  # A template compares its patch as written, as `ItemStackTemplate.equals` does.
+  defp canonical(%ItemStack{} = stack),
+    do: %{stack | components: Map.new(stack.components, fn {k, v} -> {k, canonical(v)} end)}
 
   defp canonical(%{} = map), do: Map.new(map, fn {k, v} -> {k, canonical(v)} end)
   defp canonical({tag, value}) when tag in [:left, :right], do: {tag, canonical(value)}
@@ -504,6 +535,21 @@ defmodule Valimc.Protocol.ComponentSchema do
   end
 
   def from_tag(:no_predicates, {:compound, values}) when map_size(values) == 0, do: []
+  def from_tag(:template, tag), do: nested(fn -> ItemData.template(tag) end)
+
+  # `ItemContainerContents.fromSlots`: slots up to the highest filled one.
+  def from_tag(:container, tag) do
+    case from_tag(@slot_entries, tag) do
+      [] ->
+        []
+
+      entries ->
+        filled = Map.new(entries, &{&1["slot"], &1["item"]})
+        for slot <- 0..Enum.max(Map.keys(filled)), do: filled[slot]
+    end
+  end
+
+  def from_tag({:contents, schema}, tag), do: schema |> from_tag(tag) |> tap(&fits!/1)
   def from_tag(_schema, _tag), do: fail(:invalid_tag)
 
   defp show_icon({:compound, %{"show_icon" => _}} = tag), do: tag
@@ -607,12 +653,52 @@ defmodule Valimc.Protocol.ComponentSchema do
        Map.new(pairs, fn {name, value} -> {name, ItemData.component_tag(name, value)} end)}
 
   def to_tag(:no_predicates, []), do: {:compound, %{}}
+  def to_tag(:template, %ItemStack{} = stack), do: nested(fn -> ItemData.template_tag(stack) end)
+
+  def to_tag(:container, slots) when is_list(slots) do
+    entries =
+      for {stack, slot} <- Enum.with_index(slots),
+          stack != nil,
+          do: %{"slot" => slot, "item" => stack}
+
+    to_tag(@slot_entries, entries)
+  end
+
+  def to_tag({:contents, schema}, stacks) do
+    fits!(stacks)
+    to_tag(schema, stacks)
+  end
+
   def to_tag(_schema, _value), do: fail(:invalid_value)
 
   # `optionalFieldOf` omits an absent value and one equal to its default.
   defp omitted?({_, {:optional, _}}, nil), do: true
   defp omitted?({_, _, default}, value), do: value === default
   defp omitted?(_, _), do: false
+
+  ## Templates
+
+  # Templates hold templates (a shulker box in a bundle in a shulker box ...).
+  defp nested(fun) do
+    depth = Process.get(@nesting, 0)
+    check(depth < @max_nesting, :nesting_too_deep)
+    Process.put(@nesting, depth + 1)
+
+    try do
+      fun.()
+    after
+      if depth == 0, do: Process.delete(@nesting), else: Process.put(@nesting, depth)
+    end
+  end
+
+  defp fits!(stacks) when is_list(stacks) do
+    for %ItemStack{} = stack <- stacks,
+        do: check(stack.count <= ItemStack.max_stack_size(stack), :stack_size_exceeded)
+
+    :ok
+  end
+
+  defp fits!(_), do: fail(:invalid_value)
 
   ## Records
 

@@ -47,8 +47,6 @@ defmodule Valimc.Protocol.ItemStack do
     "minecraft:unbreakable" => :unit,
     "minecraft:creative_slot_lock" => :unit,
     "minecraft:intangible_projectile" => :nbt_unit,
-    # A loaded crossbow's projectiles (VMC-037o).
-    "minecraft:charged_projectiles" => :charged_projectiles,
     "minecraft:enchantment_glint_override" => :bool,
     "minecraft:item_model" => :identifier,
     "minecraft:tooltip_style" => :identifier,
@@ -67,6 +65,7 @@ defmodule Valimc.Protocol.ItemStack do
             @codecs,
             Map.new(ComponentSchemas.names(), &{&1, {:schema, ComponentSchemas.schema(&1)}})
           )
+  @holding ~w(minecraft:container minecraft:bundle_contents minecraft:charged_projectiles)
   # Persistent components vanilla never sends to clients.
   @unsynced ["minecraft:map_decorations"]
 
@@ -79,6 +78,10 @@ defmodule Valimc.Protocol.ItemStack do
   @doc "Count-independent effective identity; raw codec/journal patches remain unchanged."
   def identity_key(%__MODULE__{} = stack) do
     validate!(stack)
+    effective_key(stack)
+  end
+
+  defp effective_key(stack) do
     defaults = ItemTypes.defaults(stack.item_id)
 
     added =
@@ -102,6 +105,30 @@ defmodule Valimc.Protocol.ItemStack do
       | components: Map.take(stack.components, Enum.map(added, &elem(&1, 0))),
         removed: MapSet.new(removed)
     }
+  end
+
+  @doc """
+  An item stack template (`ItemStackTemplate`, what containers, bundles and
+  remainders hold): a stack of 1..99 whose count need not fit its item, read,
+  written, checked and normalized without the stack rules (VMC-004b6).
+  """
+  def take_template(bytes) do
+    {id, rest} = Wire.take_varint(bytes)
+    check(ItemTypes.item(id) != nil, :unknown_item)
+    {count, rest} = Wire.take_varint(rest)
+    check(count in 1..99, :invalid_item_count)
+    {added, rest} = Wire.take_varint(rest)
+    {removed, rest} = Wire.take_varint(rest)
+    check(added + removed <= ItemTypes.component_count(), :component_count_limit)
+    {components, unsupported, rest} = read_added(rest, added, :trusted, byte_size(rest), %{}, [])
+    check(unsupported == [], :unsupported_component)
+    {removed, rest} = read_removed(rest, removed, MapSet.new(), components)
+    {%__MODULE__{item_id: id, count: count, components: components, removed: removed}, rest}
+  end
+
+  def encode_template(%__MODULE__{} = stack) do
+    validate_patch!(stack)
+    [Wire.varint(stack.item_id), Wire.varint(stack.count), patch(stack, :trusted)]
   end
 
   def same_item?(%__MODULE__{item_id: id} = a, %__MODULE__{item_id: id} = b),
@@ -163,7 +190,13 @@ defmodule Valimc.Protocol.ItemStack do
 
   def encode(%__MODULE__{} = stack, mode) when mode in [:trusted, :untrusted] do
     validate!(stack)
+    bytes = [Wire.varint(stack.count), Wire.varint(stack.item_id), patch(stack, mode)]
+    check(IO.iodata_length(bytes) <= @max_bytes, :item_byte_limit)
+    bytes
+  end
 
+  # `DataComponentPatch`'s stream form; `:untrusted` prefixes each value's length.
+  defp patch(stack, mode) do
     added =
       stack.components
       |> Enum.reject(fn {name, _} -> name in @unsynced end)
@@ -171,9 +204,7 @@ defmodule Valimc.Protocol.ItemStack do
 
     removed = Enum.sort_by(stack.removed, &ItemTypes.component_id/1)
 
-    bytes = [
-      Wire.varint(stack.count),
-      Wire.varint(stack.item_id),
+    [
       Wire.varint(length(added)),
       Wire.varint(length(removed)),
       Enum.map(added, fn {name, value} ->
@@ -183,9 +214,6 @@ defmodule Valimc.Protocol.ItemStack do
       end),
       Enum.map(removed, &Wire.varint(ItemTypes.component_id(&1)))
     ]
-
-    check(IO.iodata_length(bytes) <= @max_bytes, :item_byte_limit)
-    bytes
   end
 
   @doc "Whether the stack has component `name`, by default or patch (VMC-053 item predicates)."
@@ -243,6 +271,22 @@ defmodule Valimc.Protocol.ItemStack do
   end
 
   defp validate!(stack) do
+    facts = validate_patch!(stack)
+    maximum = max_stack_size(stack)
+    check(stack.count <= maximum, :stack_size_exceeded)
+    damage = effective(stack, "minecraft:max_damage", facts["max_damage"], nil)
+    check(damage == nil or maximum == 1, :damageable_stack)
+    # `ItemStack.validateContainedItemSizes`: held stacks fit their own items.
+    for name <- @holding,
+        contents = Map.get(stack.components, name),
+        held <- contents,
+        held != nil,
+        do: check(held.count <= max_stack_size(held), :stack_size_exceeded)
+
+    :ok
+  end
+
+  defp validate_patch!(%__MODULE__{} = stack) do
     facts = ItemTypes.item(stack.item_id)
     check(facts != nil, :unknown_item)
     check(stack.count in 1..99, :invalid_item_count)
@@ -261,12 +305,10 @@ defmodule Valimc.Protocol.ItemStack do
     end
 
     for name <- stack.removed, do: check(ItemTypes.component_id(name) != nil, :unknown_component)
-    maximum = max_stack_size(stack)
-    check(stack.count <= maximum, :stack_size_exceeded)
-    damage = effective(stack, "minecraft:max_damage", facts["max_damage"], nil)
-    check(damage == nil or maximum == 1, :damageable_stack)
-    :ok
+    facts
   end
+
+  defp validate_patch!(_), do: check(false, :invalid_item)
 
   defp effective(stack, name, default, absent) do
     if MapSet.member?(stack.removed, name),
@@ -395,27 +437,7 @@ defmodule Valimc.Protocol.ItemStack do
     {value, rest}
   end
 
-  defp read_component(:charged_projectiles, bytes) do
-    {count, rest} = Wire.take_varint(bytes)
-    check(count in 0..64, :invalid_component_value)
-    Enum.map_reduce(1..count//1, rest, fn _, acc -> take_template(acc) end)
-  end
-
   defp read_component(_, _), do: throw({:item_error, :invalid_component_value})
-
-  # `ItemStackTemplate.STREAM_CODEC`: the item, its count and its patch.
-  defp take_template(bytes) do
-    {id, rest} = Wire.take_varint(bytes)
-    check(ItemTypes.item(id) != nil, :unknown_item)
-    {count, rest} = Wire.take_varint(rest)
-    check(count in 1..99, :invalid_item_count)
-    {added, rest} = Wire.take_varint(rest)
-    {removed, rest} = Wire.take_varint(rest)
-    {components, unsupported, rest} = read_added(rest, added, :trusted, byte_size(rest), %{}, [])
-    check(unsupported == [], :unsupported_component)
-    {removed, rest} = read_removed(rest, removed, MapSet.new(), components)
-    {%__MODULE__{item_id: id, count: count, components: components, removed: removed}, rest}
-  end
 
   defp valid_component?({:varint, min, max}, value), do: is_integer(value) and value in min..max
   defp valid_component?({:enum, names}, value), do: is_integer(value) and is_map_key(names, value)
@@ -441,9 +463,6 @@ defmodule Valimc.Protocol.ItemStack do
         Enum.all?(value, fn {k, v} -> is_binary(k) and is_binary(v) end)
 
   defp valid_component?(:bool, value), do: is_boolean(value)
-
-  defp valid_component?(:charged_projectiles, value),
-    do: is_list(value) and length(value) <= 64 and Enum.all?(value, &match?(%__MODULE__{}, &1))
 
   defp valid_component?(:fraction, value), do: is_float(value) and value >= 0.0 and value <= 1.0
 
@@ -480,16 +499,6 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:bool, value), do: Wire.bool(value)
   defp encode_component(:identifier, value), do: Wire.string(value)
   defp encode_component(:fraction, value), do: <<value::float-32>>
-
-  defp encode_component(:charged_projectiles, stacks) do
-    [
-      Wire.varint(length(stacks)),
-      Enum.map(stacks, fn stack ->
-        [count, id | patch] = encode(stack)
-        [id, count | patch]
-      end)
-    ]
-  end
 
   defp component_key({:schema, schema}, value), do: ComponentSchema.identity_key(schema, value)
   defp component_key(:nbt_compound, value), do: NBT.identity_key(value)

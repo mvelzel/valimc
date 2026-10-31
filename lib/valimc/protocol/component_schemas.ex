@@ -299,6 +299,20 @@ defmodule Valimc.Protocol.ComponentSchemas do
                   {"sound", {:optional, @sound}},
                   {"hit_sound", {:optional, @sound}}
                 ]},
+             # Item-holding components (VMC-004b6).
+             "minecraft:container" => {:contents, :container},
+             "minecraft:bundle_contents" => {:contents, {:list, :template, :infinity}},
+             "minecraft:charged_projectiles" => {:contents, {:list, :template, 1024}},
+             "minecraft:use_remainder" => :template,
+             "minecraft:sulfur_cube_content" => :template,
+             "minecraft:pot_decorations" =>
+               {:record,
+                [
+                  {"back", {:optional, :template}},
+                  {"left", {:optional, :template}},
+                  {"right", {:optional, :template}},
+                  {"front", {:optional, :template}}
+                ]},
              "minecraft:can_place_on" => {:compact_list, @block_predicate},
              "minecraft:can_break" => {:compact_list, @block_predicate},
              "minecraft:trim" =>

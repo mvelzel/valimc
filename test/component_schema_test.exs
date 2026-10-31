@@ -63,6 +63,25 @@ defmodule Valimc.ComponentSchemaTest do
     assert icon.(effect.(%{}))
   end
 
+  test "held stacks nest at most 16 deep and must fit their own items" do
+    box = ItemTypes.id("shulker_box")
+    container = ItemTypes.component_id("container")
+
+    nest = fn depth ->
+      Enum.reduce(1..depth, <<0>>, fn _, inner ->
+        # One slot holding a shulker box whose patch adds a container.
+        IO.iodata_to_binary([1, 1, Wire.varint(box), 1, 1, 0, Wire.varint(container), inner])
+      end)
+    end
+
+    assert {_, <<>>} = take("minecraft:container", nest.(16))
+    assert error("minecraft:container", nest.(17)) == :nesting_too_deep
+    swords = IO.iodata_to_binary([Wire.varint(ItemTypes.id("diamond_sword")), 2, 0, 0])
+    assert error("minecraft:container", <<1, 1>> <> swords) == :stack_size_exceeded
+    # A use remainder is a template too, but nothing limits its count.
+    assert {%ItemStack{count: 2}, <<>>} = take("minecraft:use_remainder", swords)
+  end
+
   test "NaN floats keep their bits and compare as Java's Float.equals" do
     schema = ComponentSchemas.schema("minecraft:custom_model_data")
     bytes = <<1, 0x7FC00001::32, 0, 0, 0>>

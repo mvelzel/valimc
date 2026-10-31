@@ -22,24 +22,47 @@ defmodule Valimc.Protocol.ItemData do
   def tag(%ItemStack{} = stack) do
     # Enforce the whole network stack bound before expanding component field names.
     ItemStack.encode(stack)
-    {_, added, removed} = ItemStack.identity_key(stack)
+    item_tag(ItemStack.normalize(stack), true)
+  end
 
+  @doc """
+  An item stack template's data form (`ItemStackTemplate.CODEC`, VMC-004b6).
+  Unlike a stack's, a template's patch is kept as it is, defaults included.
+  """
+  def template_tag(%ItemStack{} = stack) do
+    ItemStack.encode_template(stack)
+    item_tag(stack, stack.count != 1)
+  end
+
+  @doc """
+  The template a data form describes, its item alone (`"minecraft:stone"`) or
+  `{id, count, components}`; throws `{:component_error, reason}` when invalid.
+  """
+  def template({:string, _} = id), do: template({:compound, %{"id" => id}})
+
+  def template(tag) do
+    case read(tag, &ItemStack.encode_template/1) do
+      {:ok, %ItemStack{} = stack} -> stack
+      {:unsupported, _} -> throw({:component_error, :unsupported_component})
+      _ -> throw({:component_error, :invalid_template})
+    end
+  end
+
+  defp item_tag(stack, count?) do
     components =
-      for {name, _} <- added, name not in @transient, into: %{} do
-        {name, component(name, Map.fetch!(stack.components, name))}
+      for {name, value} <- stack.components, name not in @transient, into: %{} do
+        {name, component(name, value)}
       end
 
     components =
-      Enum.reduce(removed, components, fn name, fields ->
+      Enum.reduce(stack.removed, components, fn name, fields ->
         if name in @transient,
           do: fields,
           else: Map.put(fields, "!" <> name, {:compound, %{}})
       end)
 
-    fields = %{
-      "id" => {:string, ItemTypes.item(stack.item_id)["name"]},
-      "count" => {:int, stack.count}
-    }
+    fields = %{"id" => {:string, ItemTypes.item(stack.item_id)["name"]}}
+    fields = if count?, do: Map.put(fields, "count", {:int, stack.count}), else: fields
 
     {:compound,
      if(map_size(components) == 0,
@@ -54,7 +77,9 @@ defmodule Valimc.Protocol.ItemData do
   `{:unsupported, names}` when it uses components ValiMC cannot hold yet, or
   `{:error, reason}`.
   """
-  def stack({:compound, fields}) do
+  def stack(tag), do: read(tag, &ItemStack.encode/1)
+
+  defp read({:compound, fields}, check) do
     with {:string, name} <- fields["id"],
          {:ok, id} <- item_id(name),
          {:ok, count} <- count(fields["count"]),
@@ -77,7 +102,7 @@ defmodule Valimc.Protocol.ItemData do
           }
 
           # The network encoder enforces every component and stack bound.
-          ItemStack.encode(stack)
+          check.(stack)
           {:ok, if(name in ["minecraft:air", "air"], do: nil, else: stack)}
 
         names ->
@@ -93,7 +118,7 @@ defmodule Valimc.Protocol.ItemData do
     _, _ -> {:error, :invalid_item_component}
   end
 
-  def stack(_), do: {:error, :invalid_item_tag}
+  defp read(_, _), do: {:error, :invalid_item_tag}
 
   @int_max 2_147_483_647
 

@@ -121,6 +121,16 @@ public class ItemComponentOracle {
     {"kinetic_weapon", "{contact_cooldown_ticks:3,delay_ticks:7,dismount_conditions:{max_duration_ticks:20,min_speed:0.5f},knockback_conditions:{max_duration_ticks:5,min_relative_speed:1.5f},"
       + "damage_conditions:{max_duration_ticks:60},forward_movement:0.25f,damage_multiplier:1.5f,sound:'minecraft:item.spear.use',hit_sound:'minecraft:item.spear.hit'}"},
     {"piercing_weapon", "{deals_knockback:0b,dismounts:1b,sound:'minecraft:item.spear.attack',hit_sound:'minecraft:item.spear.hit'}"},
+    // VMC-004b6: item-holding components.
+    {"container", "[{slot:0,item:{id:'minecraft:stone',count:64}},{slot:13,item:'minecraft:diamond_sword'},{slot:26,item:{id:'minecraft:bundle',components:{"
+      + "'minecraft:bundle_contents':[{id:'minecraft:shulker_box',components:{'minecraft:container':[{slot:2,item:{id:'minecraft:diamond_pickaxe',components:{"
+      + "'minecraft:custom_name':'Pick','minecraft:enchantments':{'minecraft:efficiency':5},'minecraft:damage':12}}}]}},{id:'minecraft:arrow',count:12}]}}}]"},
+    {"container", "[{slot:255,item:{id:'minecraft:dirt',count:3,components:{'!minecraft:item_name':{}}}}]"},
+    {"bundle_contents", "[{id:'minecraft:dirt',count:16},'minecraft:ender_pearl',{id:'minecraft:red_bundle',components:{'minecraft:bundle_contents':[]}}]"},
+    {"charged_projectiles", "[{id:'minecraft:firework_rocket',components:{'minecraft:fireworks':{flight_duration:2b}}},'minecraft:arrow','minecraft:arrow']"},
+    {"use_remainder", "{id:'minecraft:bowl',count:2}"},
+    {"sulfur_cube_content", "'minecraft:sand'"},
+    {"pot_decorations", "{back:'minecraft:brick',front:{id:'minecraft:skull_pottery_sherd'},left:'minecraft:angler_pottery_sherd'}"},
     {"can_place_on", "{blocks:'minecraft:stone'}"},
     {"can_break", "[{blocks:['minecraft:oak_log','minecraft:birch_log'],state:{axis:'y'}},{blocks:'#minecraft:wool'},"
       + "{state:{age:{min:'2',max:'5'},half:{min:'lower'}}},{components:{'minecraft:dyed_color':255,'minecraft:enchantable':{value:3}}}]"},

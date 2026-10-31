@@ -5,8 +5,6 @@ alias Valimc.Protocol.{ItemData, ItemStack}
 # ValiMC reads each, re-encodes the network bytes exactly, reads the data form to
 # the same value and writes both back for Mojang to decode (VMC-004b).
 [input, output] = System.argv()
-# Network codecs whose data form is still to come (VMC-004b6).
-data_gaps = ["minecraft:charged_projectiles"]
 fixtures = :json.decode(File.read!(input))
 hex = &Base.decode16!(&1, case: :lower)
 
@@ -27,11 +25,18 @@ rows =
       end
 
     encoded = name |> ItemStack.encode_component_value(value) |> IO.iodata_to_binary()
-    if encoded != bytes, do: raise("#{name}: network bytes differ for #{inspect(value)}")
+    # Exact bytes, except that a nested patch's entries may come in another order
+    # (Mojang writes a component map in its iteration order, ValiMC by type id).
+    if encoded != bytes do
+      {again, <<>>} = ItemStack.take_component(name, encoded)
+
+      if ItemStack.component_identity(name, again) != ItemStack.component_identity(name, value),
+        do: raise("#{name}: network bytes differ for #{inspect(value)}")
+    end
 
     data =
-      case name not in data_gaps and fixture["data"] do
-        falsy when falsy in [nil, false] ->
+      case fixture["data"] do
+        nil ->
           []
 
         data ->

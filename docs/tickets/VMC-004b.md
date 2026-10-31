@@ -33,6 +33,7 @@ Slices, in order:
 | [004b6](VMC-004b6.md) | Item-holding components: container, bundle, use remainder, sulfur cube, templates |
 | [004b7](VMC-004b7.md) | Entity, block-entity, profile, book and sign data; persistent-only components |
 | [004b8](VMC-004b8.md) | A destroyed item drops its contents |
+| [004b9](VMC-004b9.md) | Bundle interactions: putting items in, taking them out, selection |
 
 The codecs feed the other M4 lanes (enchantable and repairable for
 enchanting, consumable and potion duration scale for brewing, additional
