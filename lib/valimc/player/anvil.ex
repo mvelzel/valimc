@@ -1,8 +1,9 @@
 defmodule Valimc.Player.Anvil do
   @moduledoc """
-  A player's anvil and grindstone menus (VMC-038b, `AnvilMenu` and
-  `GrindstoneMenu`), in the session the group hosts. The two inputs are the
-  player's menu inputs (`Inventory.payments`: saved with the inventory,
+  A player's anvil, grindstone and smithing table menus (VMC-038b and c,
+  `AnvilMenu`, `GrindstoneMenu`, `SmithingMenu`), in the session the group
+  hosts. The inputs (two, or the smithing table's template, base and
+  addition) are the player's menu inputs (`Inventory.payments`: saved with the inventory,
   given back or dropped when the menu closes); clicks on them and the
   inventory go through the one click engine; the result (window slot 2) is
   derived from the inputs (`Valimc.Menus.Anvil`) and taken here.
@@ -12,7 +13,9 @@ defmodule Valimc.Player.Anvil do
   it used), and with a chance of 12% wears the anvil a step (chipped,
   damaged, gone) with its sound; a rename (`rename_item`) changes the
   result. Taking a grindstone's result uses up both inputs and leaves
-  experience orbs at the grindstone. The inputs, the result and the levels
+  experience orbs at the grindstone. Taking a smithing table's result
+  (`Valimc.Menus.Smithing`: a netherite upgrade or a trim) uses one of each
+  input. The inputs, the result and the levels
   change in one session callback, in the player's state.
   """
   alias Valimc.Data.Blocks
@@ -26,14 +29,16 @@ defmodule Valimc.Player.Anvil do
 
   @anvils ["anvil", "chipped_anvil", "damaged_anvil"]
 
-  @doc "Open the `kind` (`:anvil` or `:grindstone`) at `position`."
+  @doc "Open the `kind` (`:anvil`, `:grindstone` or `:smithing`) at `position`."
   def open(state, kind, position, owner, sequence) do
     id = rem(state.table_counter, 127) + 1
+
+    inputs = if kind == :smithing, do: {nil, nil, nil}, else: {nil, nil}
 
     inventory =
       state.inventory
       |> Inventory.cancel_drag()
-      |> Map.update!(:payments, &(&1 || {nil, nil}))
+      |> Map.update!(:payments, &(&1 || inputs))
       |> Inventory.advance()
 
     state = state |> ItemUse.stop_item_use() |> Mining.cancel_mining()
@@ -70,6 +75,12 @@ defmodule Valimc.Player.Anvil do
     %{state | table_menu: %{menu | outcome: %{result: Anvil.grind(input, addition)}}}
   end
 
+  defp outcome(%{table_menu: %{kind: :smithing} = menu, inventory: inventory} = state) do
+    {template, base, addition} = inventory.payments
+    result = Valimc.Menus.Smithing.result(template, base, addition)
+    %{state | table_menu: %{menu | outcome: %{result: result}}}
+  end
+
   @doc "The menu's slots and cursor, sent again."
   def sync(state) do
     inventory = Inventory.advance(state.inventory)
@@ -85,7 +96,8 @@ defmodule Valimc.Player.Anvil do
   end
 
   @doc "A click in the menu: the result's own, or the engine's for the rest."
-  def click(%{table_menu: menu} = state, %{slot: 2} = click) do
+  def click(%{table_menu: %{kind: kind} = menu} = state, %{slot: slot} = click)
+      when (kind == :smithing and slot == 3) or (kind != :smithing and slot == 2) do
     result = menu.outcome.result
 
     cond do
@@ -175,6 +187,22 @@ defmodule Valimc.Player.Anvil do
 
     state = %{state | inventory: %{state.inventory | payments: {nil, nil}}}
     state |> event(1042) |> outcome() |> sync()
+  end
+
+  # `SmithingMenu.onTake`: one of each input goes, and the table's event.
+  defp taken(%{table_menu: %{kind: :smithing}} = state) do
+    inputs =
+      state.inventory.payments
+      |> Tuple.to_list()
+      |> Enum.map(fn
+        nil -> nil
+        %{count: count} = stack when count > 1 -> %{stack | count: count - 1}
+        _ -> nil
+      end)
+      |> List.to_tuple()
+
+    state = %{state | inventory: %{state.inventory | payments: inputs}}
+    state |> event(1044) |> outcome() |> sync()
   end
 
   # Taken in survival: one time in about eight the anvil wears a step.

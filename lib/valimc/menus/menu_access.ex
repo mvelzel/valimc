@@ -40,7 +40,8 @@ defmodule Valimc.Menus.MenuAccess do
     "anvil" => :anvil,
     "chipped_anvil" => :anvil,
     "damaged_anvil" => :anvil,
-    "grindstone" => :grindstone
+    "grindstone" => :grindstone,
+    "smithing_table" => :smithing
   }
   @modes [:survival, :creative, :adventure, :spectator]
   @kinds %{
@@ -53,9 +54,10 @@ defmodule Valimc.Menus.MenuAccess do
     table: [:open, :click, :check],
     enchanting: [:open, :click, :check],
     anvil: [:open, :click, :check],
-    grindstone: [:open, :click, :check]
+    grindstone: [:open, :click, :check],
+    smithing: [:open, :click, :check]
   }
-  @blockless [:table, :enchanting, :anvil, :grindstone]
+  @blockless [:table, :enchanting, :anvil, :grindstone, :smithing]
 
   @doc "The block menus that hold no block entity: a crafting table's and VMC-038's."
   def blockless, do: @blockless

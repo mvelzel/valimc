@@ -58,7 +58,7 @@ defmodule Valimc.Player.Menus do
         {:open, :enchanting} ->
           Valimc.Player.Enchanting.open(state, position, owner, request.sequence)
 
-        {:open, kind} when kind in [:anvil, :grindstone] ->
+        {:open, kind} when kind in [:anvil, :grindstone, :smithing] ->
           Valimc.Player.Anvil.open(state, kind, position, owner, request.sequence)
 
         :sheared ->
@@ -367,7 +367,8 @@ defmodule Valimc.Player.Menus do
   def click(%{table_menu: %{kind: :merchant}} = state, click),
     do: Valimc.Player.Merchant.click(state, click)
 
-  def click(%{table_menu: %{kind: kind}} = state, click) when kind in [:anvil, :grindstone] do
+  def click(%{table_menu: %{kind: kind}} = state, click)
+      when kind in [:anvil, :grindstone, :smithing] do
     if table_player_valid?(state) and current_owner?(state, state.table_menu),
       do: Valimc.Player.Anvil.click(state, click),
       else: close(state)

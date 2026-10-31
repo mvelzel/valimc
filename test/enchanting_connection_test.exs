@@ -226,4 +226,44 @@ defmodule Valimc.EnchantingConnectionTest do
 
     _ = client
   end
+
+  test "a smithing table upgrades an enchanted diamond sword to netherite (VMC-038c)", ctx do
+    sword = %{
+      ItemStack.new("diamond_sword")
+      | components: %{"minecraft:enchantments" => %{"minecraft:sharpness" => 5}}
+    }
+
+    seed(
+      ctx,
+      %{
+        36 => ItemStack.new("netherite_upgrade_smithing_template", 2),
+        37 => sword,
+        38 => ItemStack.new("netherite_ingot", 3)
+      },
+      "smithing_table"
+    )
+
+    {client, pid} = login(ctx)
+    {id, client} = open(client, ctx, 21)
+
+    # Windows 31, 32 and 33 are hotbar 0 to 2.
+    for window <- [31, 32, 33], do: click(client, id, window, "quick_move")
+
+    Valimc.TestWait.until(fn ->
+      match?(%{outcome: %{result: %ItemStack{}}}, Valimc.TestConn.state(pid).table_menu)
+    end)
+
+    click(client, id, 3, "quick_move")
+
+    Valimc.TestWait.until(fn ->
+      match?({%{count: 1}, nil, %{count: 2}}, Valimc.TestConn.state(pid).inventory.payments)
+    end)
+
+    assert Enum.any?(Valimc.TestConn.state(pid).inventory.slots, fn {_, s} ->
+             s.item_id == ItemTypes.id("minecraft:netherite_sword") and
+               ItemStack.component(s, "minecraft:enchantments") == %{"minecraft:sharpness" => 5}
+           end)
+
+    _ = client
+  end
 end

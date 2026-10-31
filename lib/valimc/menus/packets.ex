@@ -139,14 +139,17 @@ defmodule Valimc.Menus.Packets do
   def open_workstation(container, :grindstone) when container in 1..127,
     do: open_screen(container, 15, "container.grindstone_title")
 
+  def open_workstation(container, :smithing) when container in 1..127,
+    do: open_screen(container, 21, "container.upgrade")
+
   @doc "An anvil's or a grindstone's slots: the inputs, the result and the inventory."
   def workstation_inventory(container, inventory, result) when container in 1..127 do
-    {a, b} = inventory.payments
+    inputs = Tuple.to_list(inventory.payments)
 
     inventory_content(
       container,
       inventory,
-      [a, b, result | Enum.map(9..44, &Valimc.Menus.Inventory.get(inventory, &1))]
+      inputs ++ [result | Enum.map(9..44, &Valimc.Menus.Inventory.get(inventory, &1))]
     )
   end
 

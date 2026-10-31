@@ -29,7 +29,7 @@ says which run in parallel. In every slice:
 | [VMC-037q](tickets/VMC-037q.md) | Enchantment effects | Every 26.3 enchantment works on tools, weapons, armour, bows, crossbows, tridents and maces through the generated effect components, checked against the oracle |
 | [VMC-038a](tickets/VMC-038a.md) | Enchanting table | Bookshelf power, offered enchantments and the enchantment seed, lapis and level costs match the oracle |
 | [VMC-038b](tickets/VMC-038b.md) | Anvils and grindstones | Repair, combining, renaming, prior-work penalty and "Too Expensive!"; anvil wear and falling anvils; the grindstone's removal and experience; checked against the oracle |
-| VMC-038c | Smithing | Netherite upgrades and armour trims with templates match the oracle |
+| [VMC-038c](tickets/VMC-038c.md) | Smithing | Netherite upgrades and armour trims with templates match the oracle |
 | VMC-034o | Brewing and potions | Brewing stand fuel, recipes and timing; splash and lingering potions, clouds and tipped arrows; cauldrons with potions and hoppers on the stand, matching the oracle |
 | VMC-004b | Recursive and collection item components | Container, bundle and attribute-modifier components and the rest of the codecs, bounded, with oracle round trips; a destroyed item holding them drops its contents |
 | VMC-032c | Remaining containers | Shulker boxes keep contents broken and carried, ender chests per player, barrels and the rest of 26.3's containers; an occupied furnace's removal ([VMC-034f](tickets/VMC-034f.md)) |

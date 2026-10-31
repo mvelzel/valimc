@@ -45,6 +45,7 @@ defmodule Valimc.Menus.Menu do
   def enchanting, do: %__MODULE__{kind: :enchanting}
   def anvil, do: %__MODULE__{kind: :anvil}
   def grindstone, do: %__MODULE__{kind: :grindstone}
+  def smithing, do: %__MODULE__{kind: :smithing}
 
   def dispenser(kind) when kind in [:dropper, :dispenser],
     do: %__MODULE__{kind: :dispenser, block: kind}
@@ -77,6 +78,7 @@ defmodule Valimc.Menus.Menu do
   def type(%__MODULE__{kind: :enchanting}), do: {:ok, 13}
   def type(%__MODULE__{kind: :anvil}), do: {:ok, 8}
   def type(%__MODULE__{kind: :grindstone}), do: {:ok, 15}
+  def type(%__MODULE__{kind: :smithing}), do: {:ok, 21}
   def type(%__MODULE__{kind: :shulker_box}), do: {:ok, 20}
   def type(_), do: {:error, :invalid_menu}
 
@@ -131,6 +133,11 @@ defmodule Valimc.Menus.Menu do
       when kind in [:anvil, :grindstone] and slot in [-1, -999],
       do: {:ok, slot}
 
+  # A smithing table's template, base and addition (VMC-038c); its result
+  # (window slot 3) is the menu's own.
+  def address(%__MODULE__{kind: :smithing}, slot) when slot in 0..2, do: {:ok, {:payment, slot}}
+  def address(%__MODULE__{kind: :smithing}, slot) when slot in 4..39, do: {:ok, slot + 5}
+  def address(%__MODULE__{kind: :smithing}, slot) when slot in [-1, -999], do: {:ok, slot}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 0..2, do: {:ok, {:cooking, slot}}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 3..38, do: {:ok, slot + 6}
   def address(_, _), do: {:error, :invalid_menu_slot}
@@ -166,6 +173,9 @@ defmodule Valimc.Menus.Menu do
   def contents(%__MODULE__{kind: kind}, nil, %Inventory{payments: {a, b}} = inventory)
       when kind in [:anvil, :grindstone],
       do: {:ok, [a, b, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
+
+  def contents(%__MODULE__{kind: :smithing}, nil, %Inventory{payments: {t, b, a}} = inventory),
+    do: {:ok, [t, b, a, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
 
   def contents(%__MODULE__{kind: :enchanting}, nil, %Inventory{payments: {a, b}} = inventory),
     do: {:ok, [a, b | Enum.map(9..44, &Inventory.get(inventory, &1))]}
@@ -206,6 +216,9 @@ defmodule Valimc.Menus.Menu do
   def visible(%__MODULE__{kind: kind}) when kind in [:anvil, :grindstone],
     do: [{:payment, 0}, {:payment, 1} | Enum.to_list(9..44)]
 
+  def visible(%__MODULE__{kind: :smithing}),
+    do: [{:payment, 0}, {:payment, 1}, {:payment, 2} | Enum.to_list(9..44)]
+
   def visible(%__MODULE__{kind: :enchanting}),
     do: [{:payment, 0}, {:payment, 1} | Enum.to_list(9..44)]
 
@@ -226,6 +239,10 @@ defmodule Valimc.Menus.Menu do
       map_size(ItemStack.component(stack, "minecraft:enchantments") || %{}) > 0 or
       map_size(ItemStack.component(stack, "minecraft:stored_enchantments") || %{}) > 0
   end
+
+  # A smithing table's inputs take what some recipe takes there.
+  def may_place?(%__MODULE__{kind: :smithing}, {:payment, slot}, stack),
+    do: Valimc.Menus.Smithing.may_place?(slot, stack)
 
   # The enchanting table's lapis slot takes lapis only.
   def may_place?(%__MODULE__{kind: :enchanting}, {:payment, 1}, stack),
@@ -312,12 +329,13 @@ defmodule Valimc.Menus.Menu do
   # `ItemCombinerMenu.quickMoveStack` and the grindstone's: inputs to the
   # inventory; the inventory to the inputs, else between it and the hotbar.
   def routes(%__MODULE__{kind: kind}, _inventory, {:payment, _}, _stack)
-      when kind in [:anvil, :grindstone],
+      when kind in [:anvil, :grindstone, :smithing],
       do: [Enum.to_list(9..44)]
 
   def routes(%__MODULE__{kind: kind} = menu, _inventory, slot, stack)
-      when kind in [:anvil, :grindstone] do
-    inputs = for i <- 0..1, may_place?(menu, {:payment, i}, stack), do: {:payment, i}
+      when kind in [:anvil, :grindstone, :smithing] do
+    count = if kind == :smithing, do: 2, else: 1
+    inputs = for i <- 0..count, may_place?(menu, {:payment, i}, stack), do: {:payment, i}
     rest = if slot in 9..35, do: Enum.to_list(36..44), else: Enum.to_list(9..35)
     if inputs == [], do: [rest], else: [inputs]
   end

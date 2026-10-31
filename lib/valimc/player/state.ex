@@ -236,7 +236,8 @@ defmodule Valimc.Player.State do
        when is_map(slots) do
     table_ok =
       (table == nil or (is_tuple(table) and tuple_size(table) == 9)) and
-        (inventory.payments == nil or match?({_, _}, inventory.payments))
+        (inventory.payments == nil or
+           (is_tuple(inventory.payments) and tuple_size(inventory.payments) in 2..3))
 
     stacks =
       Map.values(slots) ++

@@ -1083,6 +1083,13 @@ STAGES = [
         ('java', 'AnvilOracle', '@anvil.json'),
         ('check', 'check_anvil.exs', '@anvil.json'),
     ]),
+    # VMC-038c: the smithing recipes and what a smithing table makes of its inputs.
+    ('smithing', [
+        ('regen', 'SmithingOracle', 'facts', '@smithing.json'),
+        ('same', '@smithing.json', 'priv/crafting/smithing.json'),
+        ('java', 'SmithingOracle', 'cases', '@smithing-cases.json'),
+        ('check', 'check_smithing.exs', '@smithing-cases.json'),
+    ]),
     ('tooltip', [
         ('java', 'TooltipOracle', '@tooltips.json'),
         ('check', 'check_tooltips.exs', '@tooltips.json', '@elixir-tooltips.json'),
