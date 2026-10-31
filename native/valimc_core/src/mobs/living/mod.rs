@@ -23,6 +23,7 @@ pub mod damage;
 pub mod difficulty;
 pub mod durability;
 pub mod effects;
+pub mod enchant;
 pub mod enchantments;
 pub mod explosions;
 pub mod facts;

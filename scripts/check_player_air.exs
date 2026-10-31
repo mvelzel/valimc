@@ -1,6 +1,8 @@
 alias Valimc.Living.{Air, Armor}
 alias Valimc.Menus.Inventory
 alias Valimc.Protocol.ItemStack
+# The enchantment engine reads the living facts (VMC-037q).
+Valimc.Entity.MobFacts.install!()
 [path] = System.argv()
 data = path |> File.read!() |> JSON.decode!()
 unless data["maximum"] == Air.maximum(), do: raise("Native air maximum changed")

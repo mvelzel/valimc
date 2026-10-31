@@ -103,12 +103,23 @@ defmodule Valimc.Player.Items do
              v.kind == :orb and ExperienceOrbs.contact?(actor.box, v.at)
            end)
            |> Enum.min_by(fn {id, _} -> id end, fn -> nil end),
-         false <- mending_pending?(state.inventory),
+         {inventory, remaining} = mend(state.inventory, view.value),
          {:ok, experience} <-
-           Experience.give(state.player.progression.experience, view.value),
+           Experience.give(state.player.progression.experience, remaining),
          {:ok, owner} <- owner_of(state, view),
          :ok <- Region.take_orb(owner, actor, view.uuid, view.value) do
-      send_packets(state, [Valimc.Player.Packets.experience(experience)])
+      state =
+        if inventory == state.inventory,
+          do: state,
+          else:
+            Valimc.Player.CreativeInventory.resync_inventory(%{
+              state
+              | inventory: Inventory.advance(inventory)
+            })
+
+      if remaining > 0,
+        do: send_packets(state, [Valimc.Player.Packets.experience(experience)])
+
       state = put_in(state.player.progression.experience, experience)
       %{state | experience_after: now + 100}
     else
@@ -158,23 +169,56 @@ defmodule Valimc.Player.Items do
   defp earlier(nil, entry), do: entry
   defp earlier({id, _} = first, {next, _} = entry), do: if(next < id, do: entry, else: first)
 
-  # Mending repairs equipment with the XP; until it does, its orbs stay.
-  defp mending_pending?(inventory) do
-    Enum.any?([5, 6, 7, 8, 36 + inventory.selected, 45], fn slot ->
-      case Inventory.get(inventory, slot) do
-        nil ->
-          false
+  # `ExperienceOrb.repairPlayerItems` (VMC-037q): a random damaged item
+  # whose enchantments repair with experience (Mending), once per such
+  # enchantment, takes the repair its effects give, and what is left of the
+  # orb goes on to the next. `{inventory, experience left}`.
+  @equipment [mainhand: nil, offhand: 45, feet: 8, legs: 7, chest: 6, head: 5]
 
-        stack ->
-          Map.get(stack.components, "minecraft:damage", 0) > 0 and
-            Map.get(
-              Map.get(stack.components, "minecraft:enchantments", %{}),
-              "minecraft:mending",
-              0
-            ) >
-              0
-      end
-    end)
+  @doc false
+  def mend(inventory, amount) do
+    candidates =
+      for {slot, index} <- @equipment,
+          index = index || 36 + inventory.selected,
+          %{} = stack <- [Inventory.get(inventory, index)],
+          Map.get(stack.components, "minecraft:damage", 0) > 0,
+          levels = Valimc.Living.Enchant.levels(stack),
+          _ <- 1..Valimc.Living.Enchant.count_with(:repair_with_xp, levels, slot)//1,
+          do: {index, stack, levels}
+
+    case candidates do
+      [] ->
+        {inventory, amount}
+
+      _ ->
+        {index, stack, levels} = Enum.random(candidates)
+
+        from_xp =
+          max(
+            0,
+            trunc(
+              Valimc.Living.Enchant.value(
+                :repair_with_xp,
+                levels,
+                %{tool: stack.item_id},
+                amount
+              )
+            )
+          )
+
+        damage = stack.components["minecraft:damage"]
+        repair = min(from_xp, damage)
+
+        stack = %{
+          stack
+          | components: Map.put(stack.components, "minecraft:damage", damage - repair)
+        }
+
+        inventory = %{inventory | slots: Map.put(inventory.slots, index, stack)}
+        left = if repair > 0, do: amount - div(repair * amount, from_xp), else: 0
+
+        if repair > 0 and left > 0, do: mend(inventory, left), else: {inventory, 0}
+    end
   end
 
   # The owner of the player's section, when it is the group the session runs in.

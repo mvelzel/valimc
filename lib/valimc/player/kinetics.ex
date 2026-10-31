@@ -158,9 +158,21 @@ defmodule Valimc.Player.Kinetics do
       jump_boost: Valimc.Living.Attributes.jump_boost_level(effects),
       slow_falling: slow,
       levitation: levitation,
-      dolphins_grace: Map.has_key?(effects, @dolphins_grace)
+      dolphins_grace: Map.has_key?(effects, @dolphins_grace),
+      water_efficiency: water_efficiency(Map.get(player, :equipment, %{}))
     }
   end
 
   defp floats({x, y, z}), do: {x * 1.0, y * 1.0, z * 1.0}
+
+  # Depth Strider's `water_movement_efficiency` from the boots
+  # (`Equipment.capture/1`'s slot 2), VMC-037q.
+  defp water_efficiency(%{2 => boots}) do
+    Valimc.Living.Armor.enchanted_value(
+      Valimc.Living.Armor.attributes(%{feet: boots}),
+      "minecraft:water_movement_efficiency"
+    ) * 1.0
+  end
+
+  defp water_efficiency(_equipment), do: 0.0
 end

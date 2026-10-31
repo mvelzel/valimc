@@ -483,6 +483,33 @@ defmodule Valimc.Native do
   def mob_facts_init(_facts), do: :erlang.nif_error(:nif_not_loaded)
   def mob_living_facts_init(_facts), do: :erlang.nif_error(:nif_not_loaded)
 
+  # The enchantment engine (VMC-037q, `valimc_nif::enchant`).
+  def enchant_value(_hook, _enchantments, _ctx, _random, _value),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_unconditioned(_hook, _enchantments, _value), do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_equipment_drops(_enchanted, _enchantments, _ctx, _random, _chance),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_immune(_enchantments, _ctx), do: :erlang.nif_error(:nif_not_loaded)
+  def enchant_modifiers(_enchantments, _slot), do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_post_attack(_enchanted, _enchantments, _ctx, _random),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_entity(_hook, _enchantments, _ctx, _random), do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_location(_slot, _enchantments, _active, _ctx, _random),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_stop_location(_slot, _enchantments, _active), do: :erlang.nif_error(:nif_not_loaded)
+  def enchant_flags(_enchantments), do: :erlang.nif_error(:nif_not_loaded)
+  def enchant_count_with(_hook, _enchantments, _slot), do: :erlang.nif_error(:nif_not_loaded)
+
+  def enchant_disk_positions(_position, _offset, _radius, _height),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   ## Codec
 
   def nbt_read(_bytes, _byte_limit, _nodes, _depth), do: :erlang.nif_error(:nif_not_loaded)

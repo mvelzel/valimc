@@ -570,6 +570,7 @@ impl Player {
                     on_ground: motion.physical_ground,
                     sprint: self.sprint,
                     dolphins_grace: self.dolphins_grace,
+                    water_efficiency: self.water_efficiency,
                     horizontal_collision: horizontal,
                     climbable: climbing,
                     shallow: depths.lava <= 0.4,

@@ -22,6 +22,7 @@ use rustler::{Atom, Binary, Encoder, Env, NewBinary, NifResult, ResourceArc, Ter
 mod background;
 mod climate;
 mod codec;
+mod enchant;
 mod facts;
 #[cfg(feature = "parity")]
 mod fluid_parity;

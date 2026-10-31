@@ -60,8 +60,9 @@ and the Curse of Binding.
 - **Mobs** call it in Rust (`mobs::living::enchantments` becomes a thin
   adapter over the engine). **Players** call it by NIF
   (`Native.enchant_*`); each call is a short pure fold, well under 1 ms.
-  `Valimc.Protocol.EnchantmentEffects` keeps its API and delegates, so the
-  Elixir interpreter goes away and one engine remains.
+  `Valimc.Protocol.EnchantmentEffects`, the older Elixir reader, still
+  answers players' melee damage, knockback, protection and Unbreaking under
+  their stages; each moves onto the engine when its path changes.
 - **Oracle.** `EnchantmentEffectOracle` builds stacks with real
   enchantments and runs vanilla's `EnchantmentHelper` hooks over a matrix of
   levels, items, targets and damage sources: values directly, entity effects
@@ -149,6 +150,54 @@ Luck of the Sea and Lure need fishing, which ValiMC does not have yet; their
 value hooks are in the engine and its oracle cases, and act when fishing
 lands.
 
+## Implementation
+
+### q1a — The engine, attributes, Silk Touch and Mending (October 31, 2026)
+
+- **Engine.** `valimc_core::mobs::living::enchant` (`mod.rs` types,
+  `parse.rs`, `eval.rs`): every effect component of the pinned pack parses
+  into typed effects, and its forms are those listed above; the hooks fold
+  values in Java floats and answer actions. It lives in `LivingFacts`
+  (`enchant`), so mobs reach it in Rust; players reach it through
+  `valimc_nif::enchant` and `Valimc.Living.Enchant`. The `armor` slot group
+  now holds the body slot, as `EquipmentSlotGroup.ARMOR` does.
+- **Oracle.** `EnchantmentEffectOracle` runs vanilla's `EnchantmentHelper`
+  on enchanted stacks against real entities and damage sources in a probe
+  level with the data pack's entity and damage type tags: every
+  enchantment's attribute modifiers in every slot, Unbreaking's draws by
+  seed, block experience, Mending's repair, ammunition use and piercing by
+  ammunition, Multishot, Loyalty, the fishing values, Quick Charge, Riptide,
+  attack damage, knockback, Breach and Density against eight victims and
+  five sources, Looting's drop chance, and protection and immunity. Stage
+  `enchantment_effects`: 3,533 cases, all equal.
+- **Players' attributes.** `Living.Armor.attributes/1` adds the modifiers
+  the equipment's enchantments give (`enchanted`) and sends each attribute
+  with its base and modifiers when it changes: burning time, oxygen bonus,
+  mining efficiency, submerged mining speed, sneaking speed, sweeping
+  damage ratio, water movement efficiency and explosion knockback
+  resistance. Mining speed, air, burning, Blast Protection's knockback and
+  the player kinetics' water drag (Depth Strider) read them; the
+  hand-written Efficiency and Aqua Affinity formulas and the Fire
+  Protection table are gone.
+- **Silk Touch.** A harvest's experience goes through the tool's
+  `block_experience` where the block drops it by `tryDropExperience`.
+- **Mending.** An orb a player touches is taken at once; its experience
+  repairs a random damaged item with Mending first
+  (`ExperienceOrb.repairPlayerItems`), and only the rest is given.
+
+Tests: `enchantment_effects_test.exs` (attributes, Silk Touch, Mending); the
+stages `enchantment_effects`, `player_mining`, `player_armor`, `player_air`,
+`damage_protection`, `fluid_travel`, `swim_steering`, `explosion`,
+`player_kinetics`, `server_movement`, `block_loot`, `combat`,
+`hostile_ai`, `mob_ai`, `enchantments` and `equipment` pass.
+
+Left in q1: Frost Walker's ice (needs frosted ice's aging), Soul Speed and
+the Curse of Binding.
+
 ## Awaiting client
 
-Added per slice as each lands.
+- **Efficiency and Mending** (q1a): an Efficiency V diamond pickaxe breaks
+  stone without the crack lagging behind; a damaged Mending pickaxe in the
+  hand mends from orbs, and the experience bar fills only once it is whole.
+- **Depth Strider** (q1a): Depth Strider III boots walk on a pool's floor at
+  land speed.

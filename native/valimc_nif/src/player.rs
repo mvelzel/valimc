@@ -59,6 +59,7 @@ pub(crate) struct PlayerT {
     slow_falling: bool,
     levitation: Option<i32>,
     dolphins_grace: bool,
+    water_efficiency: f64,
 }
 
 pub(crate) fn path(p: &PathT) -> Path {
@@ -135,6 +136,7 @@ pub(crate) fn player(p: &PlayerT) -> NifResult<Player> {
         slow_falling: p.slow_falling,
         levitation: p.levitation,
         dolphins_grace: p.dolphins_grace,
+        water_efficiency: p.water_efficiency,
     })
 }
 

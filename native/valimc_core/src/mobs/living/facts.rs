@@ -210,6 +210,8 @@ pub struct LivingFacts {
     items: HashMap<i32, ItemFacts>,
     /// By name.
     pub enchantments: HashMap<String, Enchantment>,
+    /// The enchantment engine over the same definitions (VMC-037q).
+    pub enchant: super::enchant::Engine,
     landing_states: Vec<u16>,
     landing: Vec<LandingPair>,
     /// `bubble_column`'s block id.
@@ -232,7 +234,8 @@ pub fn slot_group(name: &str) -> Result<u8, String> {
     Ok(match name {
         "any" => 0xFF,
         "hand" => bits(&[Slot::Mainhand, Slot::Offhand]),
-        "armor" => bits(&[Slot::Feet, Slot::Legs, Slot::Chest, Slot::Head]),
+        // `EquipmentSlotGroup.ARMOR`: every armor slot, the body's too.
+        "armor" => bits(&[Slot::Feet, Slot::Legs, Slot::Chest, Slot::Head, Slot::Body]),
         other => match Slot::from_name(other) {
             Some(slot) => 1 << slot as usize,
             None => return Err(format!("unknown slot group {other}")),
@@ -405,6 +408,7 @@ impl LivingFacts {
         }
 
         let enchantments = parse_enchantments(at("enchantments")?)?;
+        let enchant = super::enchant::Engine::parse(at("enchantments")?, mob)?;
         let (landing_states, landing) = parse_landing(at("landing")?, mob)?;
 
         Ok(LivingFacts {
@@ -417,6 +421,7 @@ impl LivingFacts {
             entity_tags,
             items,
             enchantments,
+            enchant,
             landing_states,
             landing,
             bubble_column: mob.blocks.id("minecraft:bubble_column"),

@@ -1,6 +1,8 @@
 alias Valimc.Menus.Inventory
 alias Valimc.Player.MiningSpeed
 alias Valimc.Protocol.{Data, ItemStack}
+# The enchantment engine reads the living facts (VMC-037q).
+Valimc.Entity.MobFacts.install!()
 [path] = System.argv()
 facts = path |> File.read!() |> JSON.decode!()
 

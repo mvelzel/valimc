@@ -2,6 +2,8 @@ alias Valimc.Living.{Armor, Damage, DamageSource}
 alias Valimc.Menus.Inventory
 alias Valimc.Data.EffectTypes
 alias Valimc.Protocol.{ItemStack, ItemTypes}
+# The enchantment engine reads the living facts (VMC-037q).
+Valimc.Entity.MobFacts.install!()
 Code.ensure_loaded!(Damage)
 [path] = System.argv()
 cases = path |> File.read!() |> JSON.decode!()

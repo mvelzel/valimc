@@ -2,21 +2,30 @@ defmodule Valimc.Player.MiningSpeed do
   @moduledoc """
   Stock player mining speed/harvest; the player owner supplies current gear,
   eye/ground contact and its effects (Mining Fatigue, VMC-043e).
+  Enchantments act through their attributes (`attributes/1`).
   """
   alias Valimc.Menus.Inventory
   alias Valimc.Blocks.Mining
   alias Valimc.Blocks.MiningTools
-  alias Valimc.Protocol.ItemStack
+  alias Valimc.Living.Armor
 
+  @doc """
+  The mining attributes the held tool's and the helmet's enchantments give
+  (Efficiency's `mining_efficiency`, Aqua Affinity's `submerged_mining_speed`),
+  through the enchantment engine (VMC-037q).
+  """
   def attributes(inventory) do
-    efficiency = enchantment(Inventory.held(inventory, :main), "minecraft:efficiency")
-    aqua = enchantment(Inventory.get(inventory, 5), "minecraft:aqua_affinity")
+    attributes =
+      Armor.attributes(%{
+        mainhand: Inventory.held(inventory, :main),
+        head: Inventory.get(inventory, 5)
+      })
 
     %{
-      mining_efficiency:
-        if(efficiency > 0, do: min(1024.0, efficiency * efficiency + 1.0), else: 0.0),
+      mining_efficiency: Armor.enchanted_value(attributes, "minecraft:mining_efficiency"),
       block_break_speed: 1.0,
-      submerged_mining_speed: min(20.0, 0.2 * (1.0 + 4.0 * aqua))
+      submerged_mining_speed:
+        Armor.enchanted_value(attributes, "minecraft:submerged_mining_speed")
     }
   end
 
@@ -49,11 +58,6 @@ defmodule Valimc.Player.MiningSpeed do
   defp fatigue(speed, nil), do: speed
   defp fatigue(:infinity, _level), do: :infinity
   defp fatigue(speed, level), do: f32(speed * f32(:math.pow(0.3, level + 1)))
-
-  defp enchantment(nil, _name), do: 0
-
-  defp enchantment(%ItemStack{components: components}, name),
-    do: components |> Map.get("minecraft:enchantments", %{}) |> Map.get(name, 0)
 
   defp f32(value) do
     case <<value::float-32>> do

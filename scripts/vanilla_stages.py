@@ -1048,6 +1048,11 @@ STAGES = [
         ('check', 'check_enchantments.exs', '@enchantments.json', '@elixir-enchantments.json'),
         ('java', 'EnchantmentOracle', 'verify', '@elixir-enchantments.json'),
     ]),
+    # VMC-037q: the enchantment engine's hooks against vanilla's `EnchantmentHelper`.
+    ('enchantment_effects', [
+        ('java', 'EnchantmentEffectOracle', '@enchantment-effects.json'),
+        ('check', 'check_enchantment_effects.exs', '@enchantment-effects.json'),
+    ]),
     ('tooltip', [
         ('java', 'TooltipOracle', '@tooltips.json'),
         ('check', 'check_tooltips.exs', '@tooltips.json', '@elixir-tooltips.json'),

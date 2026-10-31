@@ -59,7 +59,14 @@ defmodule Valimc.Player.Explosions do
       {:ok, [seen]} = Kernel.exposure(Valimc.World.View.new(), center, [geometry.box])
       damage = Explosions.damage(radius, center, feet, seen)
       state = hurt(state, damage, explosion.source)
-      impulse = Explosions.knockback(center, geometry.eye, distance, seen)
+      # Blast Protection's `explosion_knockback_resistance` (VMC-037q).
+      resistance =
+        state.inventory
+        |> Valimc.Living.Armor.equipment()
+        |> Valimc.Living.Armor.attributes()
+        |> Valimc.Living.Armor.enchanted_value("minecraft:explosion_knockback_resistance")
+
+      impulse = Explosions.knockback(center, geometry.eye, distance, seen, resistance)
       state = push(state, impulse)
 
       flying = player.game_mode.current == :creative and player.abilities.flying

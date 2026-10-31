@@ -98,6 +98,8 @@ pub struct Player {
     pub levitation: Option<i32>,
     /// Dolphin's Grace: its water drag is 0.96.
     pub dolphins_grace: bool,
+    /// `water_movement_efficiency` (Depth Strider, VMC-037q).
+    pub water_efficiency: f64,
 }
 
 /// What a player query reads: blocks, solid entity observations and the border.

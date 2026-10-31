@@ -12,7 +12,7 @@ defmodule Valimc.Blocks.MiningLoot do
   """
   alias Valimc.Blocks.Loot
   alias Valimc.Data.Blocks
-  alias Valimc.Protocol.ItemStack
+  alias Valimc.Living.Enchant
   use Valimc.Data.Facts, "loot/blocks.json"
 
   @tables List.to_tuple(@facts["tables"])
@@ -60,25 +60,37 @@ defmodule Valimc.Blocks.MiningLoot do
 
   @doc """
   The experience a harvest of `state` with `tool` pops (`spawnAfterBreak`):
-  the sum of its draws, none when Silk Touch cancels it.
+  the sum of its draws, through the tool's `block_experience` effects
+  (Silk Touch's none, `tryDropExperience`) where the block drops it that
+  way (VMC-037q).
   """
   def experience(state, tool) do
     case Map.get(@experience, Blocks.block_id(state)) do
       nil ->
         0
 
-      {terms, cancels} ->
-        if cancels and enchanted?(tool, "minecraft:silk_touch"),
-          do: 0,
-          else: Enum.sum(for {low, high} <- terms, do: low + :rand.uniform(high - low + 1) - 1)
+      {terms, through_tool} ->
+        sampled = Enum.sum(for {low, high} <- terms, do: low + :rand.uniform(high - low + 1) - 1)
+
+        if through_tool and tool != nil,
+          do:
+            trunc(
+              Enchant.value(
+                :block_experience,
+                Enchant.levels(tool),
+                %{tool: tool.item_id},
+                sampled
+              )
+            ),
+          else: sampled
     end
   end
 
   @doc "Whether `tool` holds `enchantment` (applied, not stored)."
   def enchanted?(nil, _enchantment), do: false
 
-  def enchanted?(%ItemStack{components: components}, enchantment),
-    do: Map.get(Map.get(components, "minecraft:enchantments", %{}), enchantment, 0) > 0
+  def enchanted?(tool, enchantment),
+    do: Enum.any?(Enchant.levels(tool), fn {name, level} -> name == enchantment and level > 0 end)
 
   defp seed do
     <<seed::signed-64>> = :crypto.strong_rand_bytes(8)

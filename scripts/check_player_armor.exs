@@ -1,6 +1,8 @@
 alias Valimc.Living.Armor
 alias Valimc.Menus.Inventory
 alias Valimc.Protocol.ItemStack
+# The enchantment engine reads the living facts (VMC-037q).
+Valimc.Entity.MobFacts.install!()
 [facts_path, cases_path] = System.argv()
 
 unless :json.decode(File.read!(facts_path)) ==
@@ -28,7 +30,9 @@ for row <- rows do
       {gear["slot"], stack}
     end)
 
-  actual = Armor.attributes(Armor.equipment(%Inventory{slots: slots}))
+  actual =
+    Armor.attributes(Armor.equipment(%Inventory{slots: slots}))
+    |> Map.take([:armor, :toughness, :burning_time])
 
   unless actual == %{
            armor: row["armor"],
