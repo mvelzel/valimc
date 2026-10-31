@@ -74,9 +74,9 @@ pub struct Hit {
     pub post_attack: bool,
     /// An arrow's Punch: its knockback and horizontal motion `{x, z}`.
     pub punch: Option<(f64, [f64; 2])>,
-    /// The effect a hit that lands adds (a tipped arrow's, a wither
+    /// The effects a hit that lands adds (a tipped arrow's, a wither
     /// skeleton's wither): `(id, rung)`.
-    pub effect: Option<(i32, super::model::Rung)>,
+    pub effects: Vec<(i32, super::model::Rung)>,
     /// The attacker's fall distance, ground and flying as requirements
     /// read them (Wind Burst's, VMC-037q).
     pub attacker_motion: Option<(f64, bool, bool)>,
@@ -117,7 +117,7 @@ impl Hit {
             dragon_part: None,
             post_attack: false,
             punch: None,
-            effect: None,
+            effects: Vec::new(),
             attacker_motion: None,
         }
     }
@@ -824,7 +824,7 @@ pub fn hurt_body(
     }
     // `doPostHurtEffects` and a melee's own (`WitherSkeleton.doHurtTarget`):
     // a hit that lands adds its effect, even a killing one.
-    if let Some((id, rung)) = hit.effect {
+    for &(id, rung) in &hit.effects {
         living_mob::add_effect(rules.facts, ty.id, &mut body.mob, id, rung);
     }
     // `InfestedMobEffect.onMobHurt`: silverfish from the middle of its box,
@@ -1085,7 +1085,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         bypass_immunity: false,
         killer: Some(killer),
         dragon_part: None,
-        effect: None,
+        effects: Vec::new(),
     })
 }
 

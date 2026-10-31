@@ -12,6 +12,74 @@ defmodule Valimc.Protocol.PotionContents do
 
   def empty, do: %{potion: nil, color: nil, effects: [], name: nil}
 
+  # `PotionContents.BASE_POTION_COLOR`, a water bottle's blue.
+  @base_color -13_083_194
+
+  @doc """
+  A potion's colour (`PotionContents.getColor`): its custom colour, else its
+  visible effects' colours mixed by amplifier (opaque), else water's blue.
+  """
+  def color(%{color: color}) when is_integer(color), do: color
+
+  def color(contents) do
+    effects = effects(contents)
+
+    {r, g, b, count} =
+      Enum.reduce(effects, {0, 0, 0, 0}, fn
+        {id, [{_, amplifier, _, true, _} | _]}, {r, g, b, count} ->
+          color = Valimc.Data.EffectFacts.get(id).color
+          weight = amplifier + 1
+
+          {r + weight * Bitwise.band(Bitwise.bsr(color, 16), 255),
+           g + weight * Bitwise.band(Bitwise.bsr(color, 8), 255),
+           b + weight * Bitwise.band(color, 255), count + weight}
+
+        _, acc ->
+          acc
+      end)
+
+    if count == 0 do
+      @base_color
+    else
+      argb = 0xFF000000 + div(r, count) * 65_536 + div(g, count) * 256 + div(b, count)
+      argb - 0x100000000
+    end
+  end
+
+  @doc "A stack's potion contents: its own, else its item's default, else none."
+  def of(%Valimc.Protocol.ItemStack{} = stack) do
+    case Map.fetch(stack.components, "minecraft:potion_contents") do
+      {:ok, value} ->
+        value
+
+      :error ->
+        case Valimc.Protocol.ItemTypes.defaults(stack.item_id).values["minecraft:potion_contents"] do
+          nil ->
+            empty()
+
+          bytes ->
+            {value, <<>>} = take(bytes)
+            value
+        end
+    end
+  end
+
+  @doc "A stack's `potion_duration_scale` (a lingering potion's 0.25, a tipped arrow's 0.125)."
+  def duration_scale(%Valimc.Protocol.ItemStack{} = stack) do
+    case Map.fetch(stack.components, "minecraft:potion_duration_scale") do
+      {:ok, scale} when is_number(scale) ->
+        scale * 1.0
+
+      _ ->
+        case Valimc.Protocol.ItemTypes.defaults(stack.item_id).values[
+               "minecraft:potion_duration_scale"
+             ] do
+          <<scale::float-32>> -> scale
+          _ -> 1.0
+        end
+    end
+  end
+
   def valid?(%{potion: potion, color: color, effects: effects, name: name} = value) do
     map_size(value) == 4 and (potion == nil or PotionTypes.valid_id?(potion)) and
       (color == nil or (is_integer(color) and color in @int_min..@int_max)) and

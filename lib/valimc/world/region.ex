@@ -365,6 +365,14 @@ defmodule Valimc.World.Region do
   def place_crystal({pid, epoch}, position, player_boxes),
     do: call(pid, {:place_crystal, epoch, position, player_boxes}, budget(pid, 1000))
 
+  @doc "A bottle's use (`:pour` or `:fill`) on the cauldron at `position` (VMC-034o): `{:ok, used?}`."
+  def cauldron({pid, epoch}, position, use) when is_pid(pid) and use in [:pour, :fill] do
+    call(pid, {:cauldron, epoch, position, use}, budget(pid, 1000))
+  catch
+    :exit, {:timeout, _} -> Valimc.Data.Error.retry(:block_commit_uncertain)
+    :exit, _ -> Valimc.Data.Error.retry(:region_unavailable)
+  end
+
   @doc """
   A player's bucket in the owner of `action`'s cell (VMC-031a), run by the
   block rules: `{:empty, position, fluid, retry, secondary}` (`BucketItem.

@@ -360,11 +360,18 @@ defmodule Valimc.Protocol.EntityPackets do
           check(is_number(value) and value >= 0 and value <= 32, "invalid radius")
           <<value::float-32>>
 
-        # A particle with a power (`PowerParticleOption`): its type and power.
+        # A particle with a power (`PowerParticleOption`): its type and power;
+        # or a coloured one (`ColorParticleOption`, a potion's): its ARGB.
         :cloud_particle ->
-          {type, power} = value
-          check(is_integer(type) and type >= 0 and is_number(power), "invalid particle")
-          [Wire.varint(type), <<power::float-32>>]
+          case value do
+            {type, {:color, argb}} ->
+              check(is_integer(type) and type >= 0 and argb in 0..0xFFFFFFFF, "invalid particle")
+              [Wire.varint(type), <<argb::32>>]
+
+            {type, power} ->
+              check(is_integer(type) and type >= 0 and is_number(power), "invalid particle")
+              [Wire.varint(type), <<power::float-32>>]
+          end
 
         # A living entity's effect particles (`ParticleTypes.STREAM_CODEC`
         # lists): a tinted `entity_effect` carries its ARGB colour.

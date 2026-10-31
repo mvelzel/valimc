@@ -29,7 +29,8 @@ defmodule Valimc.Blocks.Dispensing do
     "bucket" => :fill,
     "bone_meal" => :bone_meal
   }
-  @projectiles ~w(minecraft:arrow minecraft:snowball minecraft:egg minecraft:splash_potion minecraft:small_fireball)
+  @projectiles ~w(minecraft:arrow minecraft:snowball minecraft:egg minecraft:splash_potion
+                  minecraft:lingering_potion minecraft:small_fireball)
 
   projectile = fn
     _, false ->
@@ -60,8 +61,8 @@ defmodule Valimc.Blocks.Dispensing do
                        if dispensable, do: :equipment, else: :drop
 
                      # Shot entities ValiMC has no body for yet (spectral
-                     # arrows, bottles o' enchanting, lingering potions,
-                     # fireworks, wind charges) are not dispensed.
+                     # arrows, bottles o' enchanting, fireworks, wind
+                     # charges) are not dispensed.
                      %{"kind" => "projectile", "entity" => entity} = p ->
                        projectile.(p, entity in projectiles)
 

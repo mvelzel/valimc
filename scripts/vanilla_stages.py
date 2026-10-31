@@ -987,6 +987,10 @@ STAGES = [
         ('java', 'HostileOracle', 'effects', '@mob-effects.json'),
         ('check', 'check_mob_effects.exs', '@mob-effects.json'),
     ]),
+    ('potion_colors', [
+        ('java', 'BrewingOracle', 'colors', '@potion-colors.json'),
+        ('check', 'check_potion_colors.exs', '@potion-colors.json'),
+    ]),
     ('brewing_click', [
         ('java', 'BrewingClickOracle', '@brewing-click.json'),
         ('check', 'check_brewing_click.exs', '@brewing-click.json'),

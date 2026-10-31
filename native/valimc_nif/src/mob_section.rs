@@ -1151,7 +1151,17 @@ pub(crate) fn hit_of(rules: &Rules, v: &Value) -> NifResult<Hit> {
         }
         None => None,
     };
-    hit.effect = field(m, "effect").and_then(combat::Hit::effect_of);
+    hit.effects = field(m, "effect")
+        .and_then(combat::Hit::effect_of)
+        .into_iter()
+        .chain(
+            field(m, "effects")
+                .and_then(Value::as_list)
+                .into_iter()
+                .flatten()
+                .filter_map(combat::Hit::effect_of),
+        )
+        .collect();
     Ok(hit)
 }
 

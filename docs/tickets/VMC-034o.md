@@ -1,6 +1,6 @@
 # VMC-034o — Brewing and potions
 
-Status: In progress
+Status: Awaiting client
 Milestone: M4
 Depends on: [VMC-037p](VMC-037p.md) (every effect), [VMC-034n4](VMC-034n4.md)
 (furnaces, the model for a ticking container),
@@ -142,3 +142,60 @@ Acceptance:
     the times across a restart, clicks and hopper faces.
   - `brewing_connection_test`: a player opens a stand, sees its 41 slots and
     4 data values, and shift-clicks fuel in.
+
+### 034o3
+
+- **Lingering potions.**
+  - Thrown by players and dispensers, a lingering potion flies as a splash
+    potion does. Where it breaks it leaves `EffectCloud.lingering/3`:
+    - radius 3, shrinking by `-3/600` a tick and by half a block on each touch;
+    - 10 ticks' wait and 600 ticks' duration;
+    - its potion at the item's `potion_duration_scale` (0.25), instant
+      effects at half strength;
+    - a particle of the potion's opaque colour.
+  - A potion without effects leaves no cloud. The splash level event (2002
+    or 2007) goes out either way.
+  - Players and mobs take the cloud's effects through the splash paths.
+- **Potion colours.** `PotionContents.color/1` (`PotionContents.getColor`:
+  a custom colour, else the visible effects mixed by amplifier, else water's
+  blue) now colours splash events, clouds and tipped arrows. The
+  `potion_colors` stage checks 246 vanilla colours.
+- **Tipped arrows.**
+  - A tipped arrow carries every effect of its potion at its duration scale
+    (0.125) and shows its colour (`arrow_color`).
+  - A hit adds them all, to players and to mobs (the native `Hit.effects`
+    list).
+  - Eight arrows around a lingering potion craft eight tipped arrows of its
+    potion (`TippedArrowRecipe`).
+- **Cauldrons.** `Valimc.Blocks.Cauldron`:
+  - a water bottle pours a level into an empty or not yet full water
+    cauldron and leaves a glass bottle;
+  - a glass bottle takes a level back as a water bottle;
+  - each plays `item.bottle.empty` or `item.bottle.fill`.
+
+  The owner edits the block through the rule run; the hand's item changes
+  as a bucket's does. A sneaking player uses the item instead.
+- **Tests.** `potions_in_world_test`: the cloud's wait, quarter durations and
+  shrinking; a tipped arrow's effects, colour and recipe; the cauldron's
+  levels.
+
+## Left for later
+
+- A splash or lingering potion's water effects (hurting water-sensitive
+  mobs, putting out fire, rehydrating axolotls) and fire dousing.
+- Filling a glass bottle from water, and buckets on cauldrons.
+- A cloud's touch on an entity that refuses all its effects still counts.
+- Wind charges trigger blocks; see [VMC-037p](VMC-037p.md).
+
+## Awaiting client
+
+In M4's batched run:
+- **Brewing:** a stand placed and opened shows its screen; with blaze powder
+  and water bottles it brews nether wart into awkward potions. The bubbles and
+  progress arrow run for 20 seconds, the bottles show on the block, and the
+  brew ends with its sound. Splash and lingering upgrades work, as does a
+  hopper feeding the stand from above and the side and taking from below.
+- **A thrown lingering potion** leaves a cloud of its colour that gives its
+  effect and shrinks.
+- **Tipped arrows** crafted in a table and shot give their effect.
+- **Cauldrons:** a water bottle fills a cauldron and a glass bottle empties it.

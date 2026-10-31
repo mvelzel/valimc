@@ -120,6 +120,20 @@ defmodule Valimc.Player.Placement do
             )
         }
 
+      # Water bottles and empty ones on cauldrons (VMC-034o), unless the
+      # player sneaks (`isSecondaryUseActive` skips the block's use).
+      (use = Valimc.Blocks.Cauldron.use_of(stack)) != nil and
+          not Valimc.Player.Input.pressed?(state.player.input, :shift) ->
+        %{
+          kind: :cauldron,
+          use: use,
+          request: request,
+          stack: stack,
+          slot: slot,
+          mode: state.player.game_mode.current,
+          body: body(state, request)
+        }
+
       # Bone meal grows what takes it (VMC-039a).
       stack != nil and stack.item_id == @bone_meal ->
         %{
@@ -228,6 +242,41 @@ defmodule Valimc.Player.Placement do
       Valimc.Data.PlayerPose.geometry(player.pose, {player.x, player.y, player.z})
 
     geometry.box
+  end
+
+  # `CauldronInteraction` in the cauldron's owner; the bottle in hand becomes
+  # its result as a bucket's does (`ItemUtils.createFilledResult`).
+  defp run(state, %{kind: :cauldron, request: request} = command) do
+    used =
+      with %{} <- command.body,
+           {:ok, owner} <- owner(request.position),
+           {:ok, true} <- Region.cauldron(owner, request.position, command.use) do
+        true
+      else
+        _ -> false
+      end
+
+    state =
+      if used do
+        {x, y, z} = request.position
+        at = {x + 0.5, y + 0.5, z + 0.5}
+        sound = Valimc.Blocks.Cauldron.sound(command.use)
+        packet = Valimc.World.Sounds.packet(sound, :block, at, :rand.uniform(1 <<< 62))
+        key = Grid.section(state.player.dimension, Grid.chunk_key(x, z))
+        World.publish(key, {:sound, at, 16.0, packet, state.connection})
+        send_packets(state, [packet])
+
+        result = Valimc.Blocks.Cauldron.result(command.use)
+
+        inventory =
+          Valimc.Player.Buckets.filled(state.inventory, request.hand, command.stack, result)
+
+        CreativeInventory.resync_inventory(%{state | inventory: inventory})
+      else
+        CreativeInventory.resync_inventory(state)
+      end
+
+    acknowledge(state, request)
   end
 
   defp run(state, %{kind: :correction, request: request}) do

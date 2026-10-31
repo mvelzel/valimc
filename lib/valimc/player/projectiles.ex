@@ -45,7 +45,9 @@ defmodule Valimc.Player.Projectiles do
     "minecraft:ender_pearl" =>
       {"minecraft:ender_pearl", "minecraft:entity.ender_pearl.throw", 0.0, 1.5},
     "minecraft:splash_potion" =>
-      {"minecraft:splash_potion", "minecraft:entity.splash_potion.throw", -20.0, 0.5}
+      {"minecraft:splash_potion", "minecraft:entity.splash_potion.throw", -20.0, 0.5},
+    "minecraft:lingering_potion" =>
+      {"minecraft:lingering_potion", "minecraft:entity.lingering_potion.throw", -20.0, 0.5}
   }
   @arrows ["minecraft:arrow", "minecraft:tipped_arrow"]
   @eye "minecraft:eye_of_ender"

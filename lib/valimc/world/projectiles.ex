@@ -244,12 +244,14 @@ defmodule Valimc.World.Projectiles do
   ## Thrown items
 
   defp planned(%Body{type: type} = body, old, position, hit, _loosened, targets, context)
-       when type in ~w(minecraft:snowball minecraft:egg minecraft:ender_pearl minecraft:splash_potion) do
+       when type in ~w(minecraft:snowball minecraft:egg minecraft:ender_pearl minecraft:splash_potion
+                       minecraft:lingering_potion) do
     case hit do
       nil ->
         {:keep, body, position, []}
 
-      {:entity, id, at} when type != "minecraft:splash_potion" ->
+      {:entity, id, at}
+      when type not in ["minecraft:splash_potion", "minecraft:lingering_potion"] ->
         case targets[id] do
           nil ->
             thrown(body, old, at, context)
@@ -451,8 +453,9 @@ defmodule Valimc.World.Projectiles do
 
     hit = projectile_hit(body, context.me, at, :arrow, damage * 1.0)
     hit = if Projectile.burning?(body), do: Map.put(hit, :ignite, 100), else: hit
-    # `Arrow.doPostHurtEffects`: a tipped arrow's effect (VMC-043b).
-    hit = if d.effects != [], do: Map.put(hit, :effect, hd(d.effects)), else: hit
+    # `Arrow.doPostHurtEffects`: a tipped arrow's effects (VMC-034o), a
+    # stray's slowness (VMC-043b).
+    hit = if d.effects != [], do: Map.put(hit, :effects, d.effects), else: hit
     hit = if knockback > 0.0, do: Map.put(hit, :punch, {knockback, {vx, vz}}), else: hit
 
     # The weapon's and the target's post-attack effects (the weapon in the
@@ -605,6 +608,29 @@ defmodule Valimc.World.Projectiles do
   defp thrown(%Body{type: "minecraft:splash_potion"} = body, _old, at, _context),
     do: {:remove, [{:splash, body, at}]}
 
+  # `ThrownLingeringPotion.onHitAsPotion`: a cloud of its potion where it
+  # broke (a potion without effects leaves none), at the potion's duration
+  # scale, and the splash's level event.
+  defp thrown(%Body{type: "minecraft:lingering_potion"} = body, _old, {x, y, z} = at, _context) do
+    stack = Projectile.stack(body)
+    contents = potion_contents(stack)
+    effects = Valimc.Protocol.PotionContents.effects(contents)
+    instant = Enum.any?(effects, fn {id, _} -> id in instant_ids() end)
+    cell = {floor(x), floor(y), floor(z)}
+
+    event =
+      {:level_event, cell, if(instant, do: 2007, else: 2002), potion_color(contents, effects)}
+
+    if effects == [] do
+      {:remove, [event]}
+    else
+      cloud =
+        Valimc.Entity.EffectCloud.lingering(body.data.owner, contents, duration_scale(stack))
+
+      {:remove, [{:cloud, Store.body_record(cloud, :crypto.strong_rand_bytes(16), at)}, event]}
+    end
+  end
+
   # `ThrownEgg.onHit`: a chick (age -24000) at the egg, facing its way.
   defp chick(body, {x, y, z}) do
     {:ok, chicken} = Body.new("minecraft:chicken")
@@ -751,26 +777,11 @@ defmodule Valimc.World.Projectiles do
     end
   end
 
-  defp potion_contents(%ItemStack{} = stack) do
-    case Map.fetch(stack.components, "minecraft:potion_contents") do
-      {:ok, value} ->
-        value
+  defp duration_scale(stack), do: Valimc.Protocol.PotionContents.duration_scale(stack)
+  defp potion_contents(stack), do: Valimc.Protocol.PotionContents.of(stack)
 
-      :error ->
-        case Valimc.Protocol.ItemTypes.defaults(stack.item_id).values["minecraft:potion_contents"] do
-          nil ->
-            Valimc.Protocol.PotionContents.empty()
-
-          bytes ->
-            {value, <<>>} = Valimc.Protocol.PotionContents.take(bytes)
-            value
-        end
-    end
-  end
-
-  # `PotionContents.getColor`: the custom color, else a water potion's blue.
-  defp potion_color(%{color: color}, _effects) when is_integer(color), do: color
-  defp potion_color(_contents, _effects), do: -13_083_194
+  # `PotionContents.getColor`.
+  defp potion_color(contents, _effects), do: Valimc.Protocol.PotionContents.color(contents)
 
   defp box_distance_sq({ax0, ay0, az0, ax1, ay1, az1}, {bx0, by0, bz0, bx1, by1, bz1}) do
     dx = max(max(ax0 - bx1, bx0 - ax1), 0.0)

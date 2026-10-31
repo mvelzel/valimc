@@ -281,7 +281,29 @@ public class BrewingOracle {
         Files.writeString(Path.of(args[1]), new GsonBuilder().serializeNulls().create().toJson(cases));
         System.out.println("PASS: " + cases.size() + " vanilla brewing stand scripts through serverTick.");
       }
-      default -> throw new IllegalArgumentException("usage: BrewingOracle facts|tick OUT.json");
+      case "colors" -> {
+        // `PotionContents.getColor` of every potion, and of custom effects
+        // with amplifiers and hidden particles mixed in.
+        var rows = new JsonArray();
+        for (var potion : BuiltInRegistries.POTION.listElements().toList()) {
+          var row = new JsonObject(); row.addProperty("potion", BuiltInRegistries.POTION.getId(potion.value()));
+          row.add("effects", new JsonArray()); row.addProperty("color", new PotionContents(potion).getColor()); rows.add(row);
+        }
+        var random = new java.util.Random(34);
+        for (int n = 0; n < 200; n++) {
+          var effects = new ArrayList<net.minecraft.world.effect.MobEffectInstance>(); var list = new JsonArray();
+          for (int k = 0; k < 1 + random.nextInt(4); k++) {
+            int id = random.nextInt(BuiltInRegistries.MOB_EFFECT.size()); int amp = random.nextInt(6); boolean visible = random.nextInt(4) != 0;
+            effects.add(new net.minecraft.world.effect.MobEffectInstance(BuiltInRegistries.MOB_EFFECT.get(id).orElseThrow(), 200, amp, false, visible, true));
+            var e = new JsonArray(); e.add(id); e.add(amp); e.add(visible); list.add(e);
+          }
+          var row = new JsonObject(); row.add("potion", JsonNull.INSTANCE); row.add("effects", list);
+          row.addProperty("color", new PotionContents(Optional.empty(), Optional.empty(), effects, Optional.empty()).getColor()); rows.add(row);
+        }
+        Files.writeString(Path.of(args[1]), new GsonBuilder().serializeNulls().create().toJson(rows));
+        System.out.println("PASS: " + rows.size() + " vanilla potion colours.");
+      }
+      default -> throw new IllegalArgumentException("usage: BrewingOracle facts|tick|colors OUT.json");
     }
   }
 }

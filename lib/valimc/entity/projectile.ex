@@ -24,7 +24,8 @@ defmodule Valimc.Entity.Projectile do
   @trident "minecraft:trident"
   @arrows [@arrow, @trident]
   @eye "minecraft:eye_of_ender"
-  @thrown ~w(minecraft:snowball minecraft:egg minecraft:ender_pearl minecraft:splash_potion)
+  @thrown ~w(minecraft:snowball minecraft:egg minecraft:ender_pearl minecraft:splash_potion
+             minecraft:lingering_potion)
   @fireballs ~w(minecraft:small_fireball minecraft:fireball minecraft:dragon_fireball)
   @bullet "minecraft:shulker_bullet"
   @types [@arrow, @trident, @eye, @bullet | @thrown ++ @fireballs]
@@ -37,6 +38,7 @@ defmodule Valimc.Entity.Projectile do
     "minecraft:egg" => "egg",
     "minecraft:ender_pearl" => "ender_pearl",
     "minecraft:splash_potion" => "splash_potion",
+    "minecraft:lingering_potion" => "lingering_potion",
     "minecraft:small_fireball" => "fire_charge",
     "minecraft:fireball" => "fire_charge"
   }
@@ -128,6 +130,28 @@ defmodule Valimc.Entity.Projectile do
 
     data =
       if stack != nil and Map.has_key?(data, :item), do: %{data | item: one(stack)}, else: data
+
+    # A tipped arrow carries its potion's effects at its duration scale and
+    # shows the potion's colour (VMC-034o, `Arrow.setPotionContents`).
+    data =
+      if type == @arrow and stack != nil and
+           stack.item_id == ItemStack.new("tipped_arrow").item_id do
+        contents = Valimc.Protocol.PotionContents.of(stack)
+        scale = Valimc.Protocol.PotionContents.duration_scale(stack)
+
+        effects =
+          for {id, [rung | _]} <- Valimc.Protocol.PotionContents.effects(contents, scale),
+              do: {id, rung}
+
+        color =
+          if effects == [] and contents.color == nil,
+            do: -1,
+            else: Valimc.Protocol.PotionContents.color(contents)
+
+        Map.merge(data, %{effects: effects, color: color})
+      else
+        data
+      end
 
     # `AbstractArrow.setOwner`: a player's arrow may be picked up.
     data =
@@ -245,7 +269,10 @@ defmodule Valimc.Entity.Projectile do
   defp kind(%Body{type: @trident, data: d} = body),
     do: {:arrow, {gravity(body, 0.05), Float32.round(0.99), not d.dealt}}
 
-  defp kind(%Body{type: "minecraft:splash_potion"} = body), do: {:throwable, gravity(body, 0.05)}
+  defp kind(%Body{type: type} = body)
+       when type in ["minecraft:splash_potion", "minecraft:lingering_potion"],
+       do: {:throwable, gravity(body, 0.05)}
+
   defp kind(%Body{type: type} = body) when type in @thrown, do: {:throwable, gravity(body, 0.03)}
   defp kind(%Body{type: @eye, data: data}), do: {:eye, data.target}
   defp kind(%Body{type: @bullet} = body), do: Valimc.Entity.ShulkerBullet.kind(body)
@@ -293,7 +320,7 @@ defmodule Valimc.Entity.Projectile do
       {:arrow_flags, flags, 0},
       {:arrow_pierce_level, Map.get(d, :pierce, 0), 0},
       {:arrow_in_ground, d.in_ground, false},
-      {:arrow_color, -1, -1}
+      {:arrow_color, Map.get(d, :color, -1), -1}
     ]
   end
 

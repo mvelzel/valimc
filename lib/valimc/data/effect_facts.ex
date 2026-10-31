@@ -28,4 +28,9 @@ defmodule Valimc.Data.EffectFacts do
 
   def get(id) when is_integer(id) and id >= 0 and id < tuple_size(@effects),
     do: elem(@effects, id)
+
+  @entity_effect @effects |> Tuple.to_list() |> Enum.find(& &1.tinted) |> Map.fetch!(:particle)
+
+  @doc "The `entity_effect` particle's id, the one a potion's colour tints."
+  def entity_effect, do: @entity_effect
 end

@@ -99,8 +99,34 @@ defmodule Valimc.Menus.Crafting do
          end)
          |> Map.new(fn {key, indexes} -> {key, Enum.reverse(indexes)} end)
 
-  @doc "Four or nine physical grid stacks, row-major; ordinary ingredients ignore patches/counts."
-  def result(grid) when is_list(grid) and length(grid) in [4, 9] do
+  @arrow ItemTypes.id("arrow")
+  @lingering ItemTypes.id("lingering_potion")
+  @tipped ItemTypes.id("tipped_arrow")
+
+  @doc """
+  Four or nine physical grid stacks, row-major; ordinary ingredients ignore
+  patches/counts. A lingering potion ringed by eight arrows makes eight tipped
+  arrows of its potion (`TippedArrowRecipe`, VMC-034o).
+  """
+  def result([a, a2, a3, b, %ItemStack{item_id: @lingering} = potion, b2, c, c2, c3] = grid)
+      when is_struct(a, ItemStack) do
+    if Enum.all?([a, a2, a3, b, b2, c, c2, c3], &match?(%ItemStack{item_id: @arrow}, &1)) do
+      contents = Valimc.Protocol.PotionContents.of(potion)
+
+      {:ok,
+       %ItemStack{
+         item_id: @tipped,
+         count: 8,
+         components: %{"minecraft:potion_contents" => contents}
+       }}
+    else
+      ordinary(grid)
+    end
+  end
+
+  def result(grid), do: ordinary(grid)
+
+  defp ordinary(grid) when is_list(grid) and length(grid) in [4, 9] do
     with {:ok, ids} <- item_ids(grid) do
       size = if length(grid) == 4, do: 2, else: 3
       present = Enum.reject(ids, &(&1 == 0))
@@ -118,7 +144,7 @@ defmodule Valimc.Menus.Crafting do
     end
   end
 
-  def result(_), do: {:error, :invalid_crafting_grid}
+  defp ordinary(_), do: {:error, :invalid_crafting_grid}
 
   def remainder(%ItemStack{item_id: id}), do: Map.get(@remainders, id)
 

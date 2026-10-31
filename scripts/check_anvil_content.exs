@@ -63,6 +63,7 @@ counts =
           case entry do
             %{slots: slots} -> slots
             %{cooking: cooking} -> cooking.slots
+            %{brewing: brewing} -> brewing.slots
           end
 
         expected =

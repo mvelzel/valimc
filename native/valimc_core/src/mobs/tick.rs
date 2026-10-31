@@ -357,8 +357,8 @@ pub fn with_extras(mut hit: combat::Hit, made: &[AiEffect], target: &Ref) -> com
     if let Some(v) = m.get_atom("lift") {
         hit.lift = v.as_number();
     }
-    if let Some(v) = m.get_atom("effect") {
-        hit.effect = combat::Hit::effect_of(v);
+    if let Some(effect) = m.get_atom("effect").and_then(combat::Hit::effect_of) {
+        hit.effects.push(effect);
     }
     if let Some(v) = m.get_atom("extra_knockback") {
         hit.extra_knockback = v.as_tuple_n::<2>().and_then(|[power, direction]| {

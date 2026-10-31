@@ -1328,10 +1328,11 @@ defmodule Valimc.World.RegionData do
 
     case EffectCloud.tick(body, position, targets) do
       :remove ->
-        case Store.remove(store, store.epoch, id, revision) do
-          {:ok, store} -> put_entities(state, store)
-          _ -> state
-        end
+        remove_cloud(state, id, revision)
+
+      # A lingering cloud's last touch shrank it away (`radiusOnUse`).
+      {:remove, effects} ->
+        state |> remove_cloud(id, revision) |> cloud_effects(e, body, position, effects)
 
       {:keep, next, effects} ->
         next = %{next | data: Map.put(next.data, :world_tick, state.game_tick)}
@@ -1342,51 +1343,73 @@ defmodule Valimc.World.RegionData do
             _ -> state
           end
 
-        me = %{
-          uuid: e.uuid,
-          entity_id: e.entity_id,
-          player: false,
-          type: body.type,
-          mainhand: nil
-        }
-
-        owner = body.data.owner
-
-        attacker =
-          if owner,
-            do: %{
-              uuid: owner.uuid,
-              entity_id: owner.id,
-              player: owner.player,
-              type: owner[:type],
-              mainhand: nil
-            },
-            else: me
-
-        template = %{
-          source: Valimc.Living.DamageSource.new(:indirect_magic),
-          amount: 0.0,
-          attacker: attacker,
-          direct: me,
-          position: position
-        }
-
-        Enum.reduce(effects, state, fn
-          {:hurt, %{ref: {:player, uuid}}, amount}, acc ->
-            send(self(), {:player, uuid, {:hurt, %{template | amount: amount}}})
-            acc
-
-          {:hurt, %{ref: {:mob, sid}} = target, amount}, acc ->
-            mob_effect(acc, sid, target, {:hurt, :indirect_magic, amount}, template)
-
-          {:heal, %{ref: {:player, uuid}}, amount}, acc ->
-            send(self(), {:player, uuid, {:splash, [{:heal, amount}], template}})
-            acc
-
-          {:heal, %{ref: {:mob, sid}} = target, amount}, acc ->
-            mob_effect(acc, sid, target, {:heal, amount}, template)
-        end)
+        cloud_effects(state, e, body, position, effects)
     end
+  end
+
+  defp remove_cloud(state, id, revision) do
+    store = state.entities.store
+
+    case Store.remove(store, store.epoch, id, revision) do
+      {:ok, store} -> put_entities(state, store)
+      _ -> state
+    end
+  end
+
+  # What a cloud gives the entities it touched, the cloud dealing it for its
+  # owner: hurts and heals, and a lingering potion's effects (VMC-034o).
+  defp cloud_effects(state, e, body, position, effects) do
+    me = %{
+      uuid: e.uuid,
+      entity_id: e.entity_id,
+      player: false,
+      type: body.type,
+      mainhand: nil
+    }
+
+    owner = body.data.owner
+
+    attacker =
+      if owner,
+        do: %{
+          uuid: owner.uuid,
+          entity_id: owner.id,
+          player: owner.player,
+          type: owner[:type],
+          mainhand: nil
+        },
+        else: me
+
+    template = %{
+      source: Valimc.Living.DamageSource.new(:indirect_magic),
+      amount: 0.0,
+      attacker: attacker,
+      direct: me,
+      position: position
+    }
+
+    Enum.reduce(effects, state, fn
+      {:hurt, %{ref: {:player, uuid}}, amount}, acc ->
+        send(self(), {:player, uuid, {:hurt, %{template | amount: amount}}})
+        acc
+
+      {:hurt, %{ref: {:mob, sid}} = target, amount}, acc ->
+        mob_effect(acc, sid, target, {:hurt, :indirect_magic, amount}, template)
+
+      {:heal, %{ref: {:player, uuid}}, amount}, acc ->
+        send(self(), {:player, uuid, {:splash, [{:heal, amount}], template}})
+        acc
+
+      {:heal, %{ref: {:mob, sid}} = target, amount}, acc ->
+        mob_effect(acc, sid, target, {:heal, amount}, template)
+
+      {:effect, %{ref: {:player, uuid}}, id, rungs}, acc ->
+        send(self(), {:player, uuid, {:splash, [{:add, id, rungs}], template}})
+        acc
+
+      {:effect, %{ref: {:mob, sid}} = target, id, rungs}, acc ->
+        mob_effect(acc, sid, target, {:add, id, rungs}, template)
+    end)
   end
 
   defp binary_packet({id, payload}), do: {id, IO.iodata_to_binary(payload)}
@@ -5241,6 +5264,24 @@ defmodule Valimc.World.RegionData do
           {:reply, Error.retry(:region_busy), next}
       end
     else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+    end
+  end
+
+  # A bottle on a cauldron (VMC-034o): its level changes with block updates.
+  def handle_call({:cauldron, epoch, position, use}, _from, state) do
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         true <- in_region?(state, position) or {:error, :invalid_cauldron},
+         nil <- write_busy(state),
+         block = Blocks.get(state.blocks, position),
+         {:ok, next} <- Valimc.Blocks.Cauldron.apply(block, use) do
+      case rule_run(state, %{actions: [{:edit, position, block, next, nil, [:updates]}]}) do
+        {next_state, %{results: [result]}} -> {:reply, {:ok, result > 0}, next_state}
+        {next_state, _} -> {:reply, {:ok, false}, next_state}
+      end
+    else
+      :pass -> {:reply, {:ok, false}, state}
       {:retry, _} = busy -> {:reply, {:error, busy}, state}
       {:error, _} = error -> {:reply, error, state}
     end
