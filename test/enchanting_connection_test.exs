@@ -45,7 +45,7 @@ defmodule Valimc.EnchantingConnectionTest do
 
   defp target(ctx), do: {floor(ctx.pose.x), 64, floor(ctx.pose.z) + 3}
 
-  defp seed(ctx, slots) do
+  defp seed(ctx, slots, block \\ "enchanting_table") do
     player =
       Map.merge(ctx.pose, %{
         game_mode: GameMode.new(:survival),
@@ -66,7 +66,7 @@ defmodule Valimc.EnchantingConnectionTest do
     :ok =
       Valimc.TestBlocks.set(
         target(ctx),
-        Valimc.Protocol.Data.item_block(Valimc.Protocol.Data.item("enchanting_table"))
+        Valimc.Protocol.Data.item_block(Valimc.Protocol.Data.item(block))
       )
   end
 
@@ -146,5 +146,84 @@ defmodule Valimc.EnchantingConnectionTest do
              s.item_id == ItemTypes.id("minecraft:diamond_sword") and
                map_size(ItemStack.component(s, "minecraft:enchantments") || %{}) > 0
            end)
+  end
+
+  defp open(client, ctx, type) do
+    Client.send_packet(client, :play, "use_item_on", [
+      Wire.varint(0),
+      Wire.position(target(ctx)),
+      <<1, 0.5::float-32, 0.5::float-32, 0.5::float-32, 0, 0, 1>>
+    ])
+
+    {body, client} = Client.await(client, :play, "open_screen")
+    {id, body} = Wire.take_varint(body)
+    assert {^type, _title} = Wire.take_varint(body)
+    {id, client}
+  end
+
+  defp click(client, id, slot, action) do
+    Client.send_packet(client, :play, "container_click", [
+      Wire.varint(id),
+      <<0, slot::signed-16, 0::signed-8>>,
+      Wire.varint(ItemTypes.input_id(action)),
+      <<0, 0>>
+    ])
+  end
+
+  test "an anvil puts a book's Sharpness on a sword for its cost (VMC-038b)", ctx do
+    book = %{
+      ItemStack.new("enchanted_book")
+      | components: %{"minecraft:stored_enchantments" => %{"minecraft:sharpness" => 3}}
+    }
+
+    seed(ctx, %{36 => ItemStack.new("diamond_sword"), 37 => book}, "anvil")
+    {client, pid} = login(ctx)
+    {id, client} = open(client, ctx, 8)
+
+    # Window 30 and 31 are hotbar 0 and 1.
+    click(client, id, 30, "quick_move")
+    click(client, id, 31, "quick_move")
+
+    Valimc.TestWait.until(fn ->
+      match?(%{outcome: %{cost: cost}} when cost > 0, Valimc.TestConn.state(pid).table_menu)
+    end)
+
+    cost = Valimc.TestConn.state(pid).table_menu.outcome.cost
+    click(client, id, 2, "quick_move")
+
+    Valimc.TestWait.until(fn -> Valimc.TestConn.state(pid).inventory.payments == {nil, nil} end)
+    state = Valimc.TestConn.state(pid)
+    assert state.player.progression.experience.level == 30 - cost
+
+    assert Enum.any?(state.inventory.slots, fn {_, s} ->
+             (ItemStack.component(s, "minecraft:enchantments") || %{})["minecraft:sharpness"] == 3
+           end)
+  end
+
+  test "a grindstone takes a sword's enchantments off for experience (VMC-038b)", ctx do
+    sword = %{
+      ItemStack.new("diamond_sword")
+      | components: %{"minecraft:enchantments" => %{"minecraft:sharpness" => 5}}
+    }
+
+    seed(ctx, %{36 => sword}, "grindstone")
+    {client, pid} = login(ctx)
+    {id, client} = open(client, ctx, 15)
+    click(client, id, 30, "quick_move")
+
+    Valimc.TestWait.until(fn ->
+      match?(%{outcome: %{result: %ItemStack{}}}, Valimc.TestConn.state(pid).table_menu)
+    end)
+
+    click(client, id, 2, "quick_move")
+    Valimc.TestWait.until(fn -> Valimc.TestConn.state(pid).inventory.payments == {nil, nil} end)
+    slots = Valimc.TestConn.state(pid).inventory.slots
+
+    assert Enum.any?(slots, fn {_, s} ->
+             s.item_id == ItemTypes.id("minecraft:diamond_sword") and
+               (ItemStack.component(s, "minecraft:enchantments") || %{}) == %{}
+           end)
+
+    _ = client
   end
 end

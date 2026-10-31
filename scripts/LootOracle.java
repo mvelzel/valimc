@@ -288,6 +288,8 @@ public class LootOracle {
       row.addProperty("id", holder.key().identifier().toString());
       row.addProperty("weight", d.weight());
       row.addProperty("max_level", d.maxLevel());
+      // VMC-038b: what each level adds to an anvil's price.
+      row.addProperty("anvil_cost", d.anvilCost());
       row.add("min_cost", cost(d.minCost()));
       row.add("max_cost", cost(d.maxCost()));
       row.add("supported_items", itemNames(d.supportedItems()));

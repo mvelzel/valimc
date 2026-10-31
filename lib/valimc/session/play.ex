@@ -79,6 +79,7 @@ defmodule Valimc.Session.Play do
                "container_close",
                "select_trade",
                "container_button_click",
+               "rename_item",
                "use_item",
                "use_item_on"
              ] ->
@@ -251,6 +252,10 @@ defmodule Valimc.Session.Play do
       # An enchanting table's buttons (VMC-038a).
       "container_button_click" ->
         Valimc.Player.Enchanting.button(state, payload)
+
+      # An anvil's rename field (VMC-038b).
+      "rename_item" ->
+        Valimc.Player.Anvil.rename(state, payload)
 
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)

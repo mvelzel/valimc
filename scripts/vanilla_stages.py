@@ -1078,6 +1078,11 @@ STAGES = [
         ('java', 'EnchantingTableOracle', '@enchanting-table.json'),
         ('check', 'check_enchanting_table.exs', '@enchanting-table.json'),
     ]),
+    # VMC-038b: the anvil's and grindstone's results, costs and experience.
+    ('anvil', [
+        ('java', 'AnvilOracle', '@anvil.json'),
+        ('check', 'check_anvil.exs', '@anvil.json'),
+    ]),
     ('tooltip', [
         ('java', 'TooltipOracle', '@tooltips.json'),
         ('check', 'check_tooltips.exs', '@tooltips.json', '@elixir-tooltips.json'),

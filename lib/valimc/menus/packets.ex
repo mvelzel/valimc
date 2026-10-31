@@ -132,6 +132,24 @@ defmodule Valimc.Menus.Packets do
         elem(Valimc.Menus.Menu.contents(Valimc.Menus.Menu.enchanting(), nil, inventory), 1)
       )
 
+  @doc "An anvil's or a grindstone's screen (VMC-038b)."
+  def open_workstation(container, :anvil) when container in 1..127,
+    do: open_screen(container, 8, "container.repair")
+
+  def open_workstation(container, :grindstone) when container in 1..127,
+    do: open_screen(container, 15, "container.grindstone_title")
+
+  @doc "An anvil's or a grindstone's slots: the inputs, the result and the inventory."
+  def workstation_inventory(container, inventory, result) when container in 1..127 do
+    {a, b} = inventory.payments
+
+    inventory_content(
+      container,
+      inventory,
+      [a, b, result | Enum.map(9..44, &Valimc.Menus.Inventory.get(inventory, &1))]
+    )
+  end
+
   @doc "One of a menu's data slots (`ClientboundContainerSetDataPacket`)."
   def property(container, index, value) when container in 1..127,
     do: Packets.packet("container_set_data", [Wire.varint(container), <<index::16, value::16>>])

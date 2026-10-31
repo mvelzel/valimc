@@ -43,6 +43,8 @@ defmodule Valimc.Menus.Menu do
   def shulker_box, do: %__MODULE__{kind: :shulker_box}
   def merchant, do: %__MODULE__{kind: :merchant}
   def enchanting, do: %__MODULE__{kind: :enchanting}
+  def anvil, do: %__MODULE__{kind: :anvil}
+  def grindstone, do: %__MODULE__{kind: :grindstone}
 
   def dispenser(kind) when kind in [:dropper, :dispenser],
     do: %__MODULE__{kind: :dispenser, block: kind}
@@ -73,6 +75,8 @@ defmodule Valimc.Menus.Menu do
   def type(%__MODULE__{kind: :dispenser}), do: {:ok, 6}
   def type(%__MODULE__{kind: :merchant}), do: {:ok, 19}
   def type(%__MODULE__{kind: :enchanting}), do: {:ok, 13}
+  def type(%__MODULE__{kind: :anvil}), do: {:ok, 8}
+  def type(%__MODULE__{kind: :grindstone}), do: {:ok, 15}
   def type(%__MODULE__{kind: :shulker_box}), do: {:ok, 20}
   def type(_), do: {:error, :invalid_menu}
 
@@ -115,6 +119,18 @@ defmodule Valimc.Menus.Menu do
   def address(%__MODULE__{kind: :enchanting}, slot) when slot in 0..1, do: {:ok, {:payment, slot}}
   def address(%__MODULE__{kind: :enchanting}, slot) when slot in 2..37, do: {:ok, slot + 7}
   def address(%__MODULE__{kind: :enchanting}, slot) when slot in [-1, -999], do: {:ok, slot}
+  # An anvil's and a grindstone's two inputs (VMC-038b); their result
+  # (window slot 2) is the menu's own (`Player.Anvil`).
+  def address(%__MODULE__{kind: kind}, slot) when kind in [:anvil, :grindstone] and slot in 0..1,
+    do: {:ok, {:payment, slot}}
+
+  def address(%__MODULE__{kind: kind}, slot) when kind in [:anvil, :grindstone] and slot in 3..38,
+    do: {:ok, slot + 6}
+
+  def address(%__MODULE__{kind: kind}, slot)
+      when kind in [:anvil, :grindstone] and slot in [-1, -999],
+      do: {:ok, slot}
+
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 0..2, do: {:ok, {:cooking, slot}}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 3..38, do: {:ok, slot + 6}
   def address(_, _), do: {:error, :invalid_menu_slot}
@@ -146,6 +162,10 @@ defmodule Valimc.Menus.Menu do
 
   def contents(%__MODULE__{kind: :merchant}, nil, %Inventory{payments: {a, b}} = inventory),
     do: {:ok, [a, b, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
+
+  def contents(%__MODULE__{kind: kind}, nil, %Inventory{payments: {a, b}} = inventory)
+      when kind in [:anvil, :grindstone],
+      do: {:ok, [a, b, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
 
   def contents(%__MODULE__{kind: :enchanting}, nil, %Inventory{payments: {a, b}} = inventory),
     do: {:ok, [a, b | Enum.map(9..44, &Inventory.get(inventory, &1))]}
@@ -183,6 +203,9 @@ defmodule Valimc.Menus.Menu do
   # `MerchantMenu.canTakeItemForPickAll` refuses every slot.
   def visible(%__MODULE__{kind: :merchant}), do: []
 
+  def visible(%__MODULE__{kind: kind}) when kind in [:anvil, :grindstone],
+    do: [{:payment, 0}, {:payment, 1} | Enum.to_list(9..44)]
+
   def visible(%__MODULE__{kind: :enchanting}),
     do: [{:payment, 0}, {:payment, 1} | Enum.to_list(9..44)]
 
@@ -194,6 +217,15 @@ defmodule Valimc.Menus.Menu do
 
   def may_place?(%__MODULE__{kind: :inventory}, slot, stack) when slot in 5..8,
     do: equipment_slot(stack) == slot
+
+  # A grindstone takes what can wear or is enchanted (`GrindstoneMenu`'s slots).
+  def may_place?(%__MODULE__{kind: :grindstone}, {:payment, _}, stack) do
+    (is_integer(ItemStack.component(stack, "minecraft:max_damage")) and
+       is_integer(ItemStack.component(stack, "minecraft:damage")) and
+       ItemStack.component(stack, "minecraft:unbreakable") == nil) or
+      map_size(ItemStack.component(stack, "minecraft:enchantments") || %{}) > 0 or
+      map_size(ItemStack.component(stack, "minecraft:stored_enchantments") || %{}) > 0
+  end
 
   # The enchanting table's lapis slot takes lapis only.
   def may_place?(%__MODULE__{kind: :enchanting}, {:payment, 1}, stack),
@@ -276,6 +308,19 @@ defmodule Valimc.Menus.Menu do
 
   def routes(%__MODULE__{kind: :enchanting}, _inventory, _slot, _stack),
     do: [[{:payment, 0}]]
+
+  # `ItemCombinerMenu.quickMoveStack` and the grindstone's: inputs to the
+  # inventory; the inventory to the inputs, else between it and the hotbar.
+  def routes(%__MODULE__{kind: kind}, _inventory, {:payment, _}, _stack)
+      when kind in [:anvil, :grindstone],
+      do: [Enum.to_list(9..44)]
+
+  def routes(%__MODULE__{kind: kind} = menu, _inventory, slot, stack)
+      when kind in [:anvil, :grindstone] do
+    inputs = for i <- 0..1, may_place?(menu, {:payment, i}, stack), do: {:payment, i}
+    rest = if slot in 9..35, do: Enum.to_list(36..44), else: Enum.to_list(9..35)
+    if inputs == [], do: [rest], else: [inputs]
+  end
 
   def routes(%__MODULE__{kind: :merchant}, _inventory, {:payment, _}, _stack),
     do: [Enum.to_list(9..44)]

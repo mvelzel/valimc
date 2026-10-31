@@ -36,7 +36,11 @@ defmodule Valimc.Menus.MenuAccess do
   # Block menus without a block entity (VMC-038): their inputs are the
   # player's while the menu is open.
   @blocks %{
-    Data.item_block(Data.item("enchanting_table")) => :enchanting
+    "enchanting_table" => :enchanting,
+    "anvil" => :anvil,
+    "chipped_anvil" => :anvil,
+    "damaged_anvil" => :anvil,
+    "grindstone" => :grindstone
   }
   @modes [:survival, :creative, :adventure, :spectator]
   @kinds %{
@@ -47,9 +51,11 @@ defmodule Valimc.Menus.MenuAccess do
     storage: [:open, :subscribe, :check, :click, :refresh],
     ender_chest: [:open, :subscribe, :check, :click, :refresh],
     table: [:open, :click, :check],
-    enchanting: [:open, :click, :check]
+    enchanting: [:open, :click, :check],
+    anvil: [:open, :click, :check],
+    grindstone: [:open, :click, :check]
   }
-  @blockless [:table, :enchanting]
+  @blockless [:table, :enchanting, :anvil, :grindstone]
 
   @doc "The block menus that hold no block entity: a crafting table's and VMC-038's."
   def blockless, do: @blockless
@@ -82,10 +88,21 @@ defmodule Valimc.Menus.MenuAccess do
       Storage.kind(block) != nil -> :storage
       EnderChest.ender_chest?(block) -> :ender_chest
       block == @table -> :table
-      Map.has_key?(@blocks, block) -> Map.fetch!(@blocks, block)
+      blockless(block) != nil -> blockless(block)
       true -> nil
     end
   end
+
+  # The block menu of a state's block, whatever its properties (an anvil's
+  # facing, a grindstone's face).
+  defp blockless(block) when is_integer(block) do
+    case Valimc.Data.Blocks.name(Valimc.Data.Blocks.block_id(block)) do
+      nil -> nil
+      name -> Map.get(@blocks, name)
+    end
+  end
+
+  defp blockless(_block), do: nil
 
   @doc "Whether a player in `mode` at `eye` still reaches `menu`'s block at `position`."
   def valid_view?(menu, block, mode, {x, y, z} = eye, position)
@@ -169,7 +186,7 @@ defmodule Valimc.Menus.MenuAccess do
           else: :pass
 
       menu in @blockless and opening ->
-        if Map.get(@blocks, block) == menu and
+        if blockless(block) == menu and
              Interaction.within_block?(grant.mode, grant.eye, position),
            do: {:open, menu},
            else: :pass
