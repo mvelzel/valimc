@@ -49,7 +49,7 @@ code, so one session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. The M3 gate: the fresh-world survival route to the dragon's death ([078](tickets/VMC-078.md)) and the pending client gates below, in one tester handoff.
+1. The M3 gate's findings ([083](tickets/VMC-083.md)): the failures and missing commands the gate run found, then one client run of what it could not observe. The survival route itself passed ([078](tickets/VMC-078.md)).
 2. Then define M4 from the backlog.
 3. Later: SIMD where data-parallel work dominates ([082](tickets/VMC-082.md)) and the performance items left in [081](tickets/VMC-081.md#closure).
 
@@ -65,14 +65,10 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 ## Pending client gates
 
-| Ticket | Remaining gate |
-|---|---|
-| [VMC-045a](tickets/VMC-045a.md) | Ordinary survival fight, exit/reconnect and ritual beam/protection observations in the M3 route |
-| [VMC-043e1](tickets/VMC-043e1.md), [043e2](tickets/VMC-043e2.md), [043e3](tickets/VMC-043e3.md), [043e4](tickets/VMC-043e4.md), [043e5](tickets/VMC-043e5.md), [043e6](tickets/VMC-043e6.md), [043e7](tickets/VMC-043e7.md), [043e8](tickets/VMC-043e8.md) | Shulker range closure, survival hurt-teleport and shell; pearl-spawned endermite; fish flee/puff/flop and squid ink; elder ghost; bat wake/no-push; dolphin leap, feed, retaliation and land; turtles lay eggs and eggs break underfoot; axolotls hunt, play dead and return to water; fish/axolotl bucket capture and release |
-| [VMC-043b](tickets/VMC-043b.md) ([043b1](tickets/VMC-043b1.md)–[043b6](tickets/VMC-043b6.md)) | Baby zombies, husk Hunger/conversion and equipment pickup; drowned tridents/day return and zombie egg-stomping; stray/bogged effects and skeleton shade; creeper ignition and spider leap/climb; enderman pumpkin/projectile teleport/block handling; witch drinking, silverfish alarm, ordinary slime combat and open-sky/dawn phantoms |
-| [VMC-043d](tickets/VMC-043d.md) | Generated fortress blazes volley and drop rods; zombified piglins attack together; piglins attack without gold; return a ghast fireball; hoglin charge, ordinary magma-cube combat and wither skeletons |
-| [VMC-043c](tickets/VMC-043c.md) | Rabbits fleeing players and generated animals grazing/wandering; regrowth, laying, hopping and core interactions passed |
-| [VMC-044a1](tickets/VMC-044a1.md), [a2](tickets/VMC-044a2.md), [a3](tickets/VMC-044a3.md), [a4](tickets/VMC-044a4.md) | Generated village gathering and zombie panic; golem defense/kill; cat rabbit predation; trader avoidance and drinking animation |
+The October 30–31 gate run passed the survival route and most family
+observations ([078](tickets/VMC-078.md)). The family tickets' remaining
+observations and the run's failures are gathered in [083](tickets/VMC-083.md),
+which closes them with one client run.
 
 ## Retrieve and update
 
