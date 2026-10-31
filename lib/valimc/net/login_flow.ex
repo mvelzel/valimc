@@ -107,6 +107,8 @@ defmodule Valimc.Net.LoginFlow do
       respawn: nil,
       sleeping: nil,
       time_since_rest: 0,
+      # A new player's first enchanting seed (`Player.enchantmentSeed`).
+      enchantment_seed: :rand.uniform(4_294_967_296) - 2_147_483_649,
       pose: :standing,
       ready: false
     }
@@ -167,6 +169,7 @@ defmodule Valimc.Net.LoginFlow do
               # A sleeper saved in its bed gets up once it plays (VMC-040a).
               sleeping: snapshot.sleeping && %{bed: snapshot.sleeping, ticks: 0},
               time_since_rest: snapshot.time_since_rest,
+              enchantment_seed: snapshot.enchantment_seed,
               motion:
                 Motion.flight(
                   %Motion{

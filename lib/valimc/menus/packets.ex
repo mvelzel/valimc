@@ -119,6 +119,23 @@ defmodule Valimc.Menus.Packets do
     ])
   end
 
+  @doc "An enchanting table's screen (VMC-038a)."
+  def open_enchanting(container) when container in 1..127,
+    do: open_screen(container, 13, "container.enchant")
+
+  @doc "An enchanting table's slots: the item, the lapis and the inventory."
+  def enchanting_inventory(container, inventory) when container in 1..127,
+    do:
+      inventory_content(
+        container,
+        inventory,
+        elem(Valimc.Menus.Menu.contents(Valimc.Menus.Menu.enchanting(), nil, inventory), 1)
+      )
+
+  @doc "One of a menu's data slots (`ClientboundContainerSetDataPacket`)."
+  def property(container, index, value) when container in 1..127,
+    do: Packets.packet("container_set_data", [Wire.varint(container), <<index::16, value::16>>])
+
   def table_inventory(container, inventory) when container in 1..127,
     do:
       inventory_content(

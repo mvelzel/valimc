@@ -1073,6 +1073,11 @@ STAGES = [
         ('java', 'EnchantmentEffectOracle', '@enchantment-effects.json'),
         ('check', 'check_enchantment_effects.exs', '@enchantment-effects.json'),
     ]),
+    # VMC-038a: the enchanting table's bookshelves, offers and enchanting.
+    ('enchanting_table', [
+        ('java', 'EnchantingTableOracle', '@enchanting-table.json'),
+        ('check', 'check_enchanting_table.exs', '@enchanting-table.json'),
+    ]),
     ('tooltip', [
         ('java', 'TooltipOracle', '@tooltips.json'),
         ('check', 'check_tooltips.exs', '@tooltips.json', '@elixir-tooltips.json'),

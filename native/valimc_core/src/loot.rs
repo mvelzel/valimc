@@ -2117,6 +2117,106 @@ impl Loot {
         Ok(stack.enchantments)
     }
 
+    /// The enchanting table's offers (VMC-038a, `EnchantmentMenu.slotsChanged`)
+    /// for `item` among `bookcases` bookshelves with the player's enchantment
+    /// `seed`: per slot its level cost (0 for none), and the clue (one of its
+    /// enchantments and level) or None.
+    pub fn table_offers(
+        &self,
+        item: &str,
+        bookcases: i32,
+        seed: i32,
+    ) -> Result<[(i32, Option<(String, i32)>); 3], String> {
+        let mut random = Random::legacy(seed as i64);
+        let mut costs = [0i32; 3];
+        for (slot, cost) in costs.iter_mut().enumerate() {
+            *cost = self.table_cost(&mut random, slot as i32, bookcases, item);
+            if *cost < slot as i32 + 1 {
+                *cost = 0;
+            }
+        }
+        let mut offers: [(i32, Option<(String, i32)>); 3] = Default::default();
+        for slot in 0..3 {
+            offers[slot].0 = costs[slot];
+            if costs[slot] > 0 {
+                let list = self.table_list(&mut random, item, seed, slot as i32, costs[slot])?;
+                if !list.is_empty() {
+                    let (e, level) = list[random.next_int_bounded(list.len() as i32) as usize];
+                    offers[slot].1 = Some((self.enchantments[e].id.clone(), level));
+                }
+            }
+        }
+        Ok(offers)
+    }
+
+    /// The enchantments the table's button `slot` puts on `item` at `cost`
+    /// (`EnchantmentMenu.getEnchantmentList` from the same seed).
+    pub fn table_enchant(
+        &self,
+        item: &str,
+        seed: i32,
+        slot: i32,
+        cost: i32,
+    ) -> Result<Vec<(String, i32)>, String> {
+        let mut random = Random::legacy(seed as i64);
+        Ok(self
+            .table_list(&mut random, item, seed, slot, cost)?
+            .into_iter()
+            .map(|(e, level)| (self.enchantments[e].id.clone(), level))
+            .collect())
+    }
+
+    /// `EnchantmentHelper.getEnchantmentCost`.
+    fn table_cost(&self, random: &mut Random, slot: i32, bookcases: i32, item: &str) -> i32 {
+        if self.info(item).enchantable <= 0 {
+            return 0;
+        }
+        let bookcases = bookcases.min(15);
+        let selected = random.next_int_bounded(8)
+            + 1
+            + (bookcases >> 1)
+            + random.next_int_bounded(bookcases + 1);
+        match slot {
+            0 => (selected / 3).max(1),
+            1 => selected * 2 / 3 + 1,
+            _ => selected.max(bookcases * 2),
+        }
+    }
+
+    /// `getEnchantmentList`: reseeded with the seed plus the slot, the
+    /// table's enchantments (`#in_enchanting_table`) at the cost; a book
+    /// loses one at random when it would get more than one.
+    fn table_list(
+        &self,
+        random: &mut Random,
+        item: &str,
+        seed: i32,
+        slot: i32,
+        cost: i32,
+    ) -> Result<Vec<(usize, i32)>, String> {
+        *random = Random::legacy(seed.wrapping_add(slot) as i64);
+        let set = self.holder_set(
+            "minecraft:enchantment",
+            &Json::String("#minecraft:in_enchanting_table".into()),
+        )?;
+        let source = set
+            .members
+            .iter()
+            .map(|m| {
+                self.enchantment_index
+                    .get(m)
+                    .copied()
+                    .ok_or_else(|| format!("unknown enchantment {m}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let stack = Stack::new(item);
+        let mut list = self.select_enchantments(random, &stack, cost, &source);
+        if stack.is("minecraft:book") && list.len() > 1 {
+            list.remove(random.next_int_bounded(list.len() as i32) as usize);
+        }
+        Ok(list)
+    }
+
     /// `EnchantmentHelper.selectEnchantment`.
     fn select_enchantments(
         &self,

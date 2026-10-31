@@ -78,6 +78,7 @@ defmodule Valimc.Session.Play do
                "container_click",
                "container_close",
                "select_trade",
+               "container_button_click",
                "use_item",
                "use_item_on"
              ] ->
@@ -246,6 +247,10 @@ defmodule Valimc.Session.Play do
 
       "select_trade" ->
         Valimc.Player.Merchant.select(state, payload)
+
+      # An enchanting table's buttons (VMC-038a).
+      "container_button_click" ->
+        Valimc.Player.Enchanting.button(state, payload)
 
       "container_close" ->
         {_container, <<>>} = Wire.take_varint(payload)

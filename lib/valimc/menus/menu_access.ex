@@ -33,6 +33,11 @@ defmodule Valimc.Menus.MenuAccess do
     do: raise("Wrong chest opening facts")
 
   @table Data.item_block(Data.item("crafting_table"))
+  # Block menus without a block entity (VMC-038): their inputs are the
+  # player's while the menu is open.
+  @blocks %{
+    Data.item_block(Data.item("enchanting_table")) => :enchanting
+  }
   @modes [:survival, :creative, :adventure, :spectator]
   @kinds %{
     chest: [:open, :subscribe, :check, :click, :refresh],
@@ -41,8 +46,13 @@ defmodule Valimc.Menus.MenuAccess do
     dispenser: [:open, :subscribe, :check, :click, :refresh],
     storage: [:open, :subscribe, :check, :click, :refresh],
     ender_chest: [:open, :subscribe, :check, :click, :refresh],
-    table: [:open, :click, :check]
+    table: [:open, :click, :check],
+    enchanting: [:open, :click, :check]
   }
+  @blockless [:table, :enchanting]
+
+  @doc "The block menus that hold no block entity: a crafting table's and VMC-038's."
+  def blockless, do: @blockless
 
   @doc """
   The menus a block's owner keeps a view of: those over an owned container
@@ -59,7 +69,7 @@ defmodule Valimc.Menus.MenuAccess do
   @doc """
   The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser`
   (droppers too), `:storage` (a barrel or a shulker box), `:ender_chest`,
-  `:table` or nil.
+  `:table`, `:enchanting` (VMC-038a) or nil.
   """
   def menu(nil), do: nil
 
@@ -72,6 +82,7 @@ defmodule Valimc.Menus.MenuAccess do
       Storage.kind(block) != nil -> :storage
       EnderChest.ender_chest?(block) -> :ender_chest
       block == @table -> :table
+      Map.has_key?(@blocks, block) -> Map.fetch!(@blocks, block)
       true -> nil
     end
   end
@@ -157,7 +168,13 @@ defmodule Valimc.Menus.MenuAccess do
           do: :open,
           else: :pass
 
-      menu != :table and not entry?(menu, block, entry) ->
+      menu in @blockless and opening ->
+        if Map.get(@blocks, block) == menu and
+             Interaction.within_block?(grant.mode, grant.eye, position),
+           do: {:open, menu},
+           else: :pass
+
+      menu not in @blockless and not entry?(menu, block, entry) ->
         {:error, :missing_menu_entry}
 
       opening and not Interaction.within_block?(grant.mode, grant.eye, position) ->
@@ -175,7 +192,7 @@ defmodule Valimc.Menus.MenuAccess do
       not valid_view?(menu, block, grant.mode, grant.eye, position) ->
         {:error, :invalid_menu_context}
 
-      menu == :table ->
+      menu in @blockless ->
         :valid
 
       not opening and grant[:menu] != menu ->

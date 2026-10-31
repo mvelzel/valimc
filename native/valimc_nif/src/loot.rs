@@ -696,3 +696,32 @@ fn loot_trade_sets(
         })
         .collect()
 }
+
+/// The enchanting table's offers (VMC-038a): `{:ok, [{cost, clue}]}` for
+/// its three slots, a clue `{enchantment, level}` or nil.
+#[rustler::nif]
+fn loot_table_offers(
+    registry: ResourceArc<LootRegistry>,
+    item: String,
+    bookcases: i32,
+    seed: i32,
+) -> NifResult<(Atom, Vec<(i32, Option<(String, i32)>)>)> {
+    reply(
+        registry
+            .loot
+            .table_offers(&item, bookcases, seed)
+            .map(|offers| offers.into_iter().collect()),
+    )
+}
+
+/// The enchantments the table's button `slot` gives `item` at `cost`.
+#[rustler::nif]
+fn loot_table_enchant(
+    registry: ResourceArc<LootRegistry>,
+    item: String,
+    seed: i32,
+    slot: i32,
+    cost: i32,
+) -> NifResult<(Atom, Vec<(String, i32)>)> {
+    reply(registry.loot.table_enchant(&item, seed, slot, cost))
+}

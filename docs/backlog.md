@@ -27,7 +27,7 @@ says which run in parallel. In every slice:
 | VMC-006a | Stored game rules | Every 26.3 game rule stored with the world, sent where the client reads it and enforced where its system exists; `/gamerule` runs them all |
 | VMC-037p | Every status effect | Every 26.3 effect's mechanics on players and mobs (haste, invisibility and glowing, luck, the omens, Hero of the Village, wind charged, weaving, oozing, infested and the rest) match the oracle |
 | [VMC-037q](tickets/VMC-037q.md) | Enchantment effects | Every 26.3 enchantment works on tools, weapons, armour, bows, crossbows, tridents and maces through the generated effect components, checked against the oracle |
-| VMC-038a | Enchanting table | Bookshelf power, offered enchantments and the enchantment seed, lapis and level costs match the oracle |
+| [VMC-038a](tickets/VMC-038a.md) | Enchanting table | Bookshelf power, offered enchantments and the enchantment seed, lapis and level costs match the oracle |
 | VMC-038b | Anvils and grindstones | Repair, combining, renaming, prior-work penalty and "Too Expensive!"; anvil wear and falling anvils; the grindstone's removal and experience; checked against the oracle |
 | VMC-038c | Smithing | Netherite upgrades and armour trims with templates match the oracle |
 | VMC-034o | Brewing and potions | Brewing stand fuel, recipes and timing; splash and lingering potions, clouds and tipped arrows; cauldrons with potions and hoppers on the stand, matching the oracle |

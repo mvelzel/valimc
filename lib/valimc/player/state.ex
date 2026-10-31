@@ -45,7 +45,9 @@ defmodule Valimc.Player.State do
             # sleeps in (it gets up when loaded) and its ticks since rest.
             respawn: nil,
             sleeping: nil,
-            time_since_rest: 0
+            time_since_rest: 0,
+            # VMC-038a: the seed of its enchanting table offers (`XpSeed`).
+            enchantment_seed: 0
 
   @type t :: %__MODULE__{}
 
@@ -85,7 +87,8 @@ defmodule Valimc.Player.State do
         seen_credits: Map.get(player, :seen_credits, false),
         respawn: Map.get(player, :respawn),
         sleeping: Valimc.Player.Packets.sleeping_pos(player),
-        time_since_rest: Map.get(player, :time_since_rest, 0)
+        time_since_rest: Map.get(player, :time_since_rest, 0),
+        enchantment_seed: Map.get(player, :enchantment_seed, 0)
       })
     )
   end
@@ -213,7 +216,10 @@ defmodule Valimc.Player.State do
       invalid_respawn_point: Valimc.Player.RespawnPoint.valid?(state.respawn),
       invalid_sleeping_position: Valimc.Player.Life.valid_location?(state.sleeping),
       invalid_time_since_rest:
-        is_integer(state.time_since_rest) and state.time_since_rest in 0..2_147_483_647
+        is_integer(state.time_since_rest) and state.time_since_rest in 0..2_147_483_647,
+      invalid_enchantment_seed:
+        is_integer(state.enchantment_seed) and
+          state.enchantment_seed in -2_147_483_648..2_147_483_647
     ]
 
     case Enum.find(checks, fn {_, valid} -> valid != true end) do

@@ -9286,8 +9286,24 @@ defmodule Valimc.World.RegionData do
                 now
               )
 
+            # A crafting table, or a block menu without a block entity
+            # (VMC-038: an enchanting table).
             true ->
-              Valimc.Menus.MenuAccess.authorize(:table, block, nil, nil, position, grant, now)
+              blockless = Valimc.Menus.MenuAccess.blockless()
+
+              menu =
+                cond do
+                  Valimc.Menus.MenuAccess.menu(block) in blockless ->
+                    Valimc.Menus.MenuAccess.menu(block)
+
+                  is_map(grant) and grant[:menu] in blockless ->
+                    grant[:menu]
+
+                  true ->
+                    :table
+                end
+
+              Valimc.Menus.MenuAccess.authorize(menu, block, nil, nil, position, grant, now)
           end
       end
 

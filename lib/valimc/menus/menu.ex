@@ -28,6 +28,7 @@ defmodule Valimc.Menus.Menu do
   @plain [:chest, :hopper, :dispenser, :shulker_box]
 
   @bucket Data.item("bucket")
+  @lapis Data.item("lapis_lazuli")
   @equipment %{"head" => 5, "chest" => 6, "legs" => 7, "feet" => 8, "offhand" => 45}
 
   def inventory, do: %__MODULE__{}
@@ -41,6 +42,7 @@ defmodule Valimc.Menus.Menu do
   def hopper, do: %__MODULE__{kind: :hopper}
   def shulker_box, do: %__MODULE__{kind: :shulker_box}
   def merchant, do: %__MODULE__{kind: :merchant}
+  def enchanting, do: %__MODULE__{kind: :enchanting}
 
   def dispenser(kind) when kind in [:dropper, :dispenser],
     do: %__MODULE__{kind: :dispenser, block: kind}
@@ -70,6 +72,7 @@ defmodule Valimc.Menus.Menu do
   def type(%__MODULE__{kind: :hopper}), do: {:ok, 16}
   def type(%__MODULE__{kind: :dispenser}), do: {:ok, 6}
   def type(%__MODULE__{kind: :merchant}), do: {:ok, 19}
+  def type(%__MODULE__{kind: :enchanting}), do: {:ok, 13}
   def type(%__MODULE__{kind: :shulker_box}), do: {:ok, 20}
   def type(_), do: {:error, :invalid_menu}
 
@@ -107,6 +110,11 @@ defmodule Valimc.Menus.Menu do
   def address(%__MODULE__{kind: :merchant}, 2), do: {:ok, 0}
   def address(%__MODULE__{kind: :merchant}, slot) when slot in 3..38, do: {:ok, slot + 6}
   def address(%__MODULE__{kind: :merchant}, slot) when slot in [-1, -999], do: {:ok, slot}
+  # `EnchantmentMenu` (VMC-038a): the item and the lapis are the player's
+  # two menu inputs.
+  def address(%__MODULE__{kind: :enchanting}, slot) when slot in 0..1, do: {:ok, {:payment, slot}}
+  def address(%__MODULE__{kind: :enchanting}, slot) when slot in 2..37, do: {:ok, slot + 7}
+  def address(%__MODULE__{kind: :enchanting}, slot) when slot in [-1, -999], do: {:ok, slot}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 0..2, do: {:ok, {:cooking, slot}}
   def address(%__MODULE__{kind: :cooking}, slot) when slot in 3..38, do: {:ok, slot + 6}
   def address(_, _), do: {:error, :invalid_menu_slot}
@@ -138,6 +146,9 @@ defmodule Valimc.Menus.Menu do
 
   def contents(%__MODULE__{kind: :merchant}, nil, %Inventory{payments: {a, b}} = inventory),
     do: {:ok, [a, b, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
+
+  def contents(%__MODULE__{kind: :enchanting}, nil, %Inventory{payments: {a, b}} = inventory),
+    do: {:ok, [a, b | Enum.map(9..44, &Inventory.get(inventory, &1))]}
 
   def contents(_, _, _), do: {:error, :invalid_menu_contents}
 
@@ -172,6 +183,9 @@ defmodule Valimc.Menus.Menu do
   # `MerchantMenu.canTakeItemForPickAll` refuses every slot.
   def visible(%__MODULE__{kind: :merchant}), do: []
 
+  def visible(%__MODULE__{kind: :enchanting}),
+    do: [{:payment, 0}, {:payment, 1} | Enum.to_list(9..44)]
+
   @doc "Whether `address` accepts `stack` (vanilla's `Slot.mayPlace`)."
   def may_place?(_menu, _address, nil), do: true
   def may_place?(_menu, 0, _stack), do: false
@@ -180,6 +194,10 @@ defmodule Valimc.Menus.Menu do
 
   def may_place?(%__MODULE__{kind: :inventory}, slot, stack) when slot in 5..8,
     do: equipment_slot(stack) == slot
+
+  # The enchanting table's lapis slot takes lapis only.
+  def may_place?(%__MODULE__{kind: :enchanting}, {:payment, 1}, stack),
+    do: stack.item_id == @lapis
 
   # `ShulkerBoxSlot.mayPlace`: only what fits inside a container item.
   def may_place?(%__MODULE__{kind: :shulker_box}, {:container, _}, stack),
@@ -202,6 +220,7 @@ defmodule Valimc.Menus.Menu do
 
   @doc "The most of `stack` `address` holds (vanilla's `Slot.getMaxStackSize(stack)`)."
   def limit(%__MODULE__{kind: :inventory}, slot, _stack) when slot in 5..8, do: 1
+  def limit(%__MODULE__{kind: :enchanting}, {:payment, 0}, _stack), do: 1
   def limit(_menu, {:cooking, 1}, %{item_id: @bucket}), do: 1
   def limit(_menu, _address, stack), do: ItemStack.max_stack_size(stack)
 
@@ -246,6 +265,18 @@ defmodule Valimc.Menus.Menu do
 
   # `MerchantMenu.quickMoveStack`: payments to the inventory; the inventory
   # and hotbar to each other, never to the payments.
+  # `EnchantmentMenu.quickMoveStack`: its inputs to the inventory from the
+  # hotbar's end; lapis to its slot; anything else one at a time to the
+  # item slot (whose limit is one).
+  def routes(%__MODULE__{kind: :enchanting}, _inventory, {:payment, _}, _stack),
+    do: [Enum.to_list(44..9//-1)]
+
+  def routes(%__MODULE__{kind: :enchanting}, _inventory, _slot, %{item_id: @lapis}),
+    do: [[{:payment, 1}]]
+
+  def routes(%__MODULE__{kind: :enchanting}, _inventory, _slot, _stack),
+    do: [[{:payment, 0}]]
+
   def routes(%__MODULE__{kind: :merchant}, _inventory, {:payment, _}, _stack),
     do: [Enum.to_list(9..44)]
 

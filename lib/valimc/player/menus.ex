@@ -54,6 +54,10 @@ defmodule Valimc.Player.Menus do
         :open ->
           open_table_menu(state, position, owner, request.sequence)
 
+        # VMC-038: an enchanting table.
+        {:open, :enchanting} ->
+          Valimc.Player.Enchanting.open(state, position, owner, request.sequence)
+
         :sheared ->
           state
           |> Valimc.Player.Placement.wear_held(request.hand, 1)
@@ -359,6 +363,12 @@ defmodule Valimc.Player.Menus do
 
   def click(%{table_menu: %{kind: :merchant}} = state, click),
     do: Valimc.Player.Merchant.click(state, click)
+
+  def click(%{table_menu: %{kind: :enchanting}} = state, click) do
+    if table_player_valid?(state) and current_owner?(state, state.table_menu),
+      do: Valimc.Player.Enchanting.click(state, click),
+      else: close(state)
+  end
 
   def click(state, click) do
     if table_player_valid?(state) and current_owner?(state, state.table_menu),

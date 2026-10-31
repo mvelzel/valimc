@@ -615,6 +615,10 @@ defmodule Valimc.Native do
   ## Loot (VMC-072a, entity drops VMC-037n)
 
   def loot_registry(_tables, _registries), do: :erlang.nif_error(:nif_not_loaded)
+  def loot_table_offers(_registry, _item, _bookcases, _seed), do: :erlang.nif_error(:nif_not_loaded)
+
+  def loot_table_enchant(_registry, _item, _seed, _slot, _cost),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   def loot_fill(_registry, _table, _seed, _luck, _origin, _size, _biome, _structure, _next_map),
     do: :erlang.nif_error(:nif_not_loaded)
