@@ -39,7 +39,7 @@ for row <- cases do
   :ok = Native.mob_section_oracle_prepare(section, 100, 0.0, nil)
 
   for step <- row["trace"] do
-    {:ok, {{hurt, _, _, _, _}, _, _}} = Native.mob_section_hurt(section, 100, hit)
+    {:ok, {{hurt, _, _, _, _, _}, _, _}} = Native.mob_section_hurt(section, 100, hit)
     {health, _, _, _, _, _} = Native.mob_section_oracle_health(section, 100)
 
     thorns =

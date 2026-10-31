@@ -977,6 +977,7 @@ pub(crate) fn hit_of(rules: &Rules, v: &Value) -> NifResult<Hit> {
     hit.dragon_part = field(m, "dragon_part")
         .and_then(Value::as_int)
         .map(|p| p as u8);
+    hit.post_attack = field(m, "post_attack").and_then(Value::as_bool) == Some(true);
     Ok(hit)
 }
 
@@ -1011,7 +1012,7 @@ fn act<'a, R: Encoder>(
 
 /// `Combat.resolve/2` of `hit` on mob `id`: `{:ok, {outcome, events,
 /// {position, row}}}` with `outcome` `{hurt, full, died, previous,
-/// health}`.
+/// health, post-attack actions on the attacker}`.
 #[rustler::nif]
 fn mob_section_hurt<'a>(
     env: Env<'a>,
@@ -1024,7 +1025,14 @@ fn mob_section_hurt<'a>(
     act(env, &res, id, |rules, mob, events| {
         let (more, r) = combat::resolve(rules, mob, &hit);
         events.extend(more);
-        (r.hurt, r.full, r.died, r.previous, r.health)
+        (
+            r.hurt,
+            r.full,
+            r.died,
+            r.previous,
+            r.health,
+            crate::enchant::Actions(r.post),
+        )
     })
 }
 
@@ -1439,6 +1447,9 @@ fn mob_section_mob_hit<'a>(
     }
     if let Some(k) = &hit.killer {
         m.insert_atom("killer", k.clone());
+    }
+    if hit.post_attack {
+        m.insert_atom("post_attack", Value::bool(true));
     }
     Ok((atoms::ok(), mob_term::encode(env, &Value::Map(m))?).encode(env))
 }

@@ -1342,6 +1342,11 @@ impl Tick {
             let state = self.turns.get_mut(&tid).expect("turn");
             slot.mob.body.velocity = ticker.current[state.index].velocity;
             let (events, hurt) = combat::hit_body(rules, &mut slot.mob, &hit);
+            // Its weapon's and the target's post-attack effects on the
+            // target (VMC-037q); those on an attacking mob are not run.
+            if hurt {
+                combat::post_attack(rules, &mut slot.mob, &hit);
+            }
             if hurt && !state.stepped && !state.refused {
                 super::living::health::tick(&mut slot.mob.body.mob.living.health);
             }

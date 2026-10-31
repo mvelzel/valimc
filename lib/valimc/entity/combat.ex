@@ -13,7 +13,10 @@ defmodule Valimc.Entity.Combat do
   away from; none gives a random direction), `direction` (a projectile's:
   the knockback's `{xd, zd}`, which it is pushed against) and, for an attack,
   `extra_knockback`, `{power, {xd, zd}}` applied when the hit hurts
-  (`causeExtraKnockback`), and `lift`, a throw up after a hurt.
+  (`causeExtraKnockback`), `lift`, a throw up after a hurt, and
+  `post_attack` (VMC-037q): the enchantments' post-attack effects run, and
+  a hurt mob's outcome holds those on the attacker (`Living.Enchant`
+  actions) as `post_attack`.
   """
   alias Valimc.Entity.{Body, Store}
   alias Valimc.Living.DamageSource
@@ -46,11 +49,18 @@ defmodule Valimc.Entity.Combat do
   # carries its new row and events.
   def resolve(%{kind: :mob, native: ref, entity: entity}, hit) when ref != nil do
     case Valimc.Native.mob_section_hurt(ref, entity.entity_id, hit) do
-      {:ok, {{true, full, died, previous, health}, events, {position, row}}} ->
+      {:ok, {{true, full, died, previous, health, post}, events, {position, row}}} ->
         {{:native, position, row, events},
-         %{hurt: true, full: full, died: died, previous: previous, health: health}}
+         %{
+           hurt: true,
+           full: full,
+           died: died,
+           previous: previous,
+           health: health,
+           post_attack: post
+         }}
 
-      {:ok, {{false, _, _, _, _}, events, {position, row}}} ->
+      {:ok, {{false, _, _, _, _, _}, events, {position, row}}} ->
         {{:native, position, row, events}, %{hurt: false}}
 
       {:error, _} ->

@@ -60,6 +60,84 @@ public class EnchantmentEffectOracle {
     @Override public net.minecraft.world.level.GameType gameMode() { return net.minecraft.world.level.GameType.SURVIVAL; }
   }
 
+  /** A body that records what post-attack effects do to it, standing in for any entity type. */
+  static class Recorder extends Player {
+    JsonArray actions = new JsonArray();
+    Recorder(net.minecraft.world.level.Level level) { super(level, new com.mojang.authlib.GameProfile(new UUID(3, 4), "Recorder")); }
+    @Override public net.minecraft.world.level.GameType gameMode() { return net.minecraft.world.level.GameType.SURVIVAL; }
+    @Override public void igniteForTicks(int ticks) { var a = new JsonArray(); a.add("ignite"); a.add(ticks); actions.add(a); }
+    @Override public boolean addEffect(net.minecraft.world.effect.MobEffectInstance e, Entity source) {
+      var a = new JsonArray(); a.add("mob_effect"); a.add(e.getEffect().unwrapKey().orElseThrow().identifier().toString());
+      a.add(e.getDuration()); a.add(e.getAmplifier()); actions.add(a); return true;
+    }
+    @Override public boolean hurtServer(ServerLevel level, DamageSource source, float damage) {
+      var a = new JsonArray(); a.add("damage"); a.add(damage); a.add(source.typeHolder().unwrapKey().orElseThrow().identifier().toString());
+      actions.add(a); return true;
+    }
+  }
+
+  static Recorder recorder(String type) throws Exception {
+    var r = new Recorder(level);
+    var field = Entity.class.getDeclaredField("type");
+    field.setAccessible(true);
+    unsafe.putObject(r, unsafe.objectFieldOffset(field), BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(type)));
+    return r;
+  }
+
+  /** `doPostAttackEffectsWithItemSource` with one shared random: what each party took. */
+  static void postAttack() throws Exception {
+    var random = new Random(37L);
+    var weapons = new ArrayList<Map<String, Integer>>();
+    weapons.add(Map.of());
+    for (int l = 1; l <= 3; l++) weapons.add(one("minecraft:fire_aspect", l));
+    for (int l = 1; l <= 5; l++) weapons.add(one("minecraft:bane_of_arthropods", l));
+    weapons.add(Map.of("minecraft:fire_aspect", 2, "minecraft:bane_of_arthropods", 5));
+    var armour = List.of(Map.<String, Integer>of(), one("minecraft:thorns", 1), one("minecraft:thorns", 3), one("minecraft:thorns", 10));
+    for (var victimType : List.of("minecraft:zombie", "minecraft:spider", "minecraft:player")) {
+      for (var w : weapons) {
+        for (var a : armour) {
+          for (var melee : List.of(true, false)) {
+            long seed = random.nextLong();
+            var shared = RandomSource.create(seed);
+            var victim = recorder(victimType);
+            var attacker = recorder("minecraft:player");
+            var arrow = entity("minecraft:arrow");
+            for (var e : List.of((Entity) victim, attacker)) {
+              var field = Entity.class.getDeclaredField("random");
+              field.setAccessible(true);
+              unsafe.putObject(e, unsafe.objectFieldOffset(field), shared);
+            }
+            var lf = net.minecraft.world.level.Level.class.getDeclaredField("random");
+            lf.setAccessible(true);
+            unsafe.putObject(level, unsafe.objectFieldOffset(lf), shared);
+            var weapon = stack("minecraft:iron_sword", w);
+            attacker.setItemSlot(EquipmentSlot.MAINHAND, weapon);
+            var chest = stack("minecraft:iron_chestplate", a);
+            victim.setItemSlot(EquipmentSlot.CHEST, chest);
+            var damage = melee ? source("minecraft:player_attack", attacker, attacker) : source("minecraft:arrow", arrow, attacker);
+            EnchantmentHelper.doPostAttackEffectsWithItemSource(level, victim, damage, weapon);
+            var o = new JsonObject();
+            o.addProperty("hook", "post_attack");
+            o.add("weapon", levels(weapon));
+            o.add("armour", levels(chest));
+            o.add("this", view(victim));
+            o.add("attacker", view(attacker));
+            o.add("direct", view(damage.getDirectEntity()));
+            var d = new JsonArray();
+            d.add(damage.typeHolder().unwrapKey().orElseThrow().identifier().toString());
+            d.add(damage.isDirect());
+            o.add("damage", d);
+            o.addProperty("seed", seed);
+            o.add("victim_took", victim.actions);
+            o.add("attacker_took", attacker.actions);
+            o.addProperty("armour_damage", chest.getDamageValue());
+            cases.add(o);
+          }
+        }
+      }
+    }
+  }
+
   static sun.misc.Unsafe unsafe;
   static Arena level;
   static HolderLookup.Provider lookup;
@@ -212,6 +290,7 @@ public class EnchantmentEffectOracle {
     seed(0L);
 
     modifiers();
+    postAttack();
     var random = new Random(20261031L);
 
     // Item-filtered counts: the tool context is the stack itself, or the ammo.

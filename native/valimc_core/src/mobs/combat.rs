@@ -23,7 +23,7 @@ use super::facts::MobFacts;
 use super::living::facts::{tag, LivingFacts};
 use super::living::melee::{self, DEFAULT_KNOCKBACK};
 use super::living::mob::{self as living_mob, Type};
-use super::living::{enchantments, f, items};
+use super::living::{enchant, enchantments, f, items};
 use super::model::{Body, FamilyData, Mind, MobMotion, NativeMob, Slot};
 use super::random::LegacyRandom;
 use super::sensing::{Kind, Ref};
@@ -67,6 +67,9 @@ pub struct Hit {
     /// The dragon part it struck (0 the head, 1 the neck, ...), where it
     /// struck one.
     pub dragon_part: Option<u8>,
+    /// Its enchantments' post-attack effects run when it hurts (VMC-037q):
+    /// a melee hit, `doPostAttackEffects`.
+    pub post_attack: bool,
 }
 
 impl Hit {
@@ -84,6 +87,7 @@ impl Hit {
             bypass_immunity: false,
             killer: None,
             dragon_part: None,
+            post_attack: false,
         }
     }
 }
@@ -397,7 +401,7 @@ pub fn random<'m>(mob: &'m mut super::model::Mob, uuid: &[u8; 16]) -> &'m mut Le
 }
 
 /// How `resolve` ended (`Combat.resolve/2`'s outcome).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Resolution {
     /// Whether it took the hit.
     pub hurt: bool,
@@ -406,6 +410,8 @@ pub struct Resolution {
     /// Its health before and after.
     pub previous: f64,
     pub health: f64,
+    /// The post-attack actions on the attacker, for its owner (VMC-037q).
+    pub post: Vec<enchant::Action>,
 }
 
 /// `Combat.resolve/2` on a mob: its events and the outcome; a turned-away
@@ -425,19 +431,212 @@ pub fn resolve(rules: &Rules, mob: &mut NativeMob, hit: &Hit) -> (Vec<Event>, Re
                     died: false,
                     previous: before,
                     health: before,
+                    post: Vec::new(),
                 },
             )
         }
-        Some((events, outcome)) => (
-            events,
-            Resolution {
-                hurt: true,
-                full: outcome.full,
-                died: outcome.died,
-                previous: before,
-                health: mob.body.mob.living.health.value,
-            },
-        ),
+        Some((events, outcome)) => {
+            let post = if hit.post_attack {
+                post_attack(rules, mob, hit)
+            } else {
+                Vec::new()
+            };
+            (
+                events,
+                Resolution {
+                    hurt: true,
+                    full: outcome.full,
+                    died: outcome.died,
+                    previous: before,
+                    health: mob.body.mob.living.health.value,
+                    post,
+                },
+            )
+        }
+    }
+}
+
+/// `EnchantmentHelper.doPostAttackEffectsWithItemSource` on a mob hurt by
+/// `hit` (VMC-037q): the effects of its equipment (enchanted victim), then
+/// of the attacker's weapon (enchanted attacker). Those on the mob apply
+/// here; those on the attacker are returned for its owner, a worn piece's
+/// wear as the piece's own.
+pub fn post_attack(rules: &Rules, mob: &mut NativeMob, hit: &Hit) -> Vec<enchant::Action> {
+    let engine = &rules.living.enchant;
+    let view = |a: &Attacker| enchant::EntityView {
+        type_id: rules
+            .facts
+            .entities
+            .ids
+            .get(&a.entity_type)
+            .copied()
+            .unwrap_or(0),
+        player: a.player.then(|| ("survival".to_owned(), 20)),
+        ..Default::default()
+    };
+    let this = enchant::EntityView {
+        type_id: rules
+            .facts
+            .entities
+            .ids
+            .get(&mob.body.entity_type)
+            .copied()
+            .unwrap_or(0),
+        on_ground: mob.body.on_ground,
+        fall_distance: mob.body.mob.motion.fall_distance,
+        ..Default::default()
+    };
+    let attacker = hit.attacker.as_ref().map(view);
+    let direct = hit.direct.as_ref().map(view);
+    let is_direct = match (&hit.attacker, &hit.direct) {
+        (Some(a), Some(d)) => a.uuid == d.uuid,
+        _ => false,
+    };
+    let ctx = enchant::Context {
+        this: Some(&this),
+        attacker: attacker.as_ref(),
+        direct: direct.as_ref(),
+        damage: Some((hit.source, is_direct)),
+        ..Default::default()
+    };
+    let uuid = mob.uuid;
+    let enchanted =
+        |stack: Option<&Value>| stack.is_some_and(|s| !items::enchantments(s).is_empty());
+    if !Slot::ALL
+        .iter()
+        .any(|slot| enchanted(mob.body.mob.equipment.get(*slot)))
+        && !enchanted(hit.attacker.as_ref().and_then(|a| a.mainhand.as_ref()))
+    {
+        // Nothing to run: the mob's random stays untouched.
+        return Vec::new();
+    }
+    // The plan first, from the mob's own random; then its effects.
+    let mut worn: Vec<(Slot, i32)> = Vec::new();
+    let mut on_mob = Vec::new();
+    let mut out = Vec::new();
+    {
+        let equipment = mob.body.mob.equipment.clone();
+        let random = random(&mut mob.body.mob, &uuid);
+        let mut draws = enchant::Legacy { random, held: None };
+        for slot in Slot::ALL {
+            let Some(stack) = equipment.get(slot) else {
+                continue;
+            };
+            let levels: Vec<(&str, i32)> = items::enchantments(stack)
+                .into_iter()
+                .filter(|(name, _)| engine.in_slot(name, slot))
+                .map(|(n, l)| (n, l as i32))
+                .collect();
+            for (target, action) in engine.post_attack(
+                rules.facts,
+                enchant::Target::Victim,
+                &levels,
+                &ctx,
+                &mut draws,
+            ) {
+                match (target, action) {
+                    (_, enchant::Action::ItemDamage(n)) => worn.push((slot, n)),
+                    (enchant::Target::Victim, a) => on_mob.push(a),
+                    (_, a) => out.push(a),
+                }
+            }
+        }
+        if let Some(weapon) = hit.attacker.as_ref().and_then(|a| a.mainhand.as_ref()) {
+            let levels: Vec<(&str, i32)> = items::enchantments(weapon)
+                .into_iter()
+                .filter(|(name, _)| engine.in_slot(name, Slot::Mainhand))
+                .map(|(n, l)| (n, l as i32))
+                .collect();
+            for (target, action) in engine.post_attack(
+                rules.facts,
+                enchant::Target::Attacker,
+                &levels,
+                &ctx,
+                &mut draws,
+            ) {
+                match target {
+                    enchant::Target::Victim => on_mob.push(action),
+                    _ => out.push(action),
+                }
+            }
+        }
+    }
+    for (slot, n) in worn {
+        wear_piece(rules, mob, slot, n);
+    }
+    for action in on_mob {
+        apply_on_mob(rules, mob, action);
+    }
+    out
+}
+
+/// A worn piece's `hurtAndBreak` by `n` (Thorns' cost on the victim).
+fn wear_piece(rules: &Rules, mob: &mut NativeMob, slot: Slot, n: i32) {
+    let Some(stack) = mob.body.mob.equipment.get(slot).cloned() else {
+        return;
+    };
+    let uuid = mob.uuid;
+    let wear = {
+        let random = random(&mut mob.body.mob, &uuid);
+        super::living::durability::hurt_and_break(
+            rules.living,
+            rules.facts,
+            &stack,
+            n as i64,
+            || random.float() as f64,
+        )
+    };
+    match wear {
+        super::living::durability::Wear::Worn(next) => mob.body.mob.equipment.set(slot, Some(next)),
+        super::living::durability::Wear::Broken(_) => mob.body.mob.equipment.set(slot, None),
+        super::living::durability::Wear::Unchanged => {}
+    }
+}
+
+/// A post-attack action on the mob itself.
+fn apply_on_mob(rules: &Rules, mob: &mut NativeMob, action: enchant::Action) {
+    let Some(ty) = rules.of(&mob.body.entity_type) else {
+        return;
+    };
+    match action {
+        enchant::Action::Ignite(seconds) => {
+            let factor = living_mob::value(
+                rules.living,
+                rules.facts,
+                ty,
+                &mob.body.mob,
+                rules.living.attributes.burning_time,
+            );
+            let fire = &mut mob.body.mob.living.fire_ticks;
+            *fire = super::living::burning::ignite_seconds(*fire, seconds as f64, factor, false);
+        }
+        enchant::Action::MobEffect {
+            effect,
+            ticks,
+            amplifier,
+        } => {
+            if let Some(id) = rules.facts.effects.id(&effect) {
+                super::living::effects::add(
+                    &mut mob.body.mob.living.effects,
+                    id as i32,
+                    super::model::Rung {
+                        ticks,
+                        amplifier: amplifier.clamp(0, 255) as u8,
+                        ambient: false,
+                        particles: true,
+                        icon: true,
+                    },
+                );
+            }
+        }
+        enchant::Action::Damage(amount, damage_type) => {
+            if let Some(source) = rules.facts.damage_types.id(&damage_type) {
+                hurt_mob(rules, mob, source, amount as f64);
+            }
+        }
+        // Sounds, summons and explosions on a mob come with the trident and
+        // the mace (VMC-037q4, q5).
+        _ => {}
     }
 }
 
@@ -787,6 +986,7 @@ pub fn mob_hit(rules: &Rules, mob: &NativeMob, entity_id: i32, target: u16) -> O
         attacker: Some(attacker.clone()),
         direct: Some(attacker),
         position: Some(mob.position),
+        post_attack: true,
         direction: None,
         extra_knockback: Some((knockback, melee::facing(body.yaw))),
         lift: None,

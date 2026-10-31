@@ -90,10 +90,19 @@ defmodule Valimc.Living.Enchant do
     out
   end
 
-  @doc "`doPostAttack` of one item held by `enchanted` (`:attacker` or `:victim`): `[{affected, action}]`."
-  def post_attack(enchanted, enchantments, ctx) do
+  @doc """
+  `doPostAttack` of one item held by `enchanted` (`:attacker` or `:victim`)
+  in `slot` (nil: all its enchantments): `[{affected, action}]`.
+  """
+  def post_attack(enchanted, enchantments, slot, ctx) do
     {:ok, {out, _}} =
-      Native.enchant_post_attack(Atom.to_string(enchanted), enchantments, context(ctx), seed())
+      Native.enchant_post_attack(
+        Atom.to_string(enchanted),
+        enchantments,
+        slot && Atom.to_string(slot),
+        context(ctx),
+        seed()
+      )
 
     out
   end

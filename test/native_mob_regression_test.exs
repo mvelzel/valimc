@@ -209,7 +209,9 @@ defmodule Valimc.NativeMobRegressionTest do
   @attacker %{uuid: @player, entity_id: 9, player: true, type: "minecraft:player", mainhand: nil}
 
   defp hurt(ref, hit) do
-    {:ok, {{hurt, _full, died, _before, health}, _, _}} = Native.mob_section_hurt(ref, 1, hit)
+    {:ok, {{hurt, _full, died, _before, health, _post}, _, _}} =
+      Native.mob_section_hurt(ref, 1, hit)
+
     {hurt, died, health}
   end
 

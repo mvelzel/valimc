@@ -82,7 +82,7 @@ for row <- raw["cases"] do
 
     ignites = Native.dragon_oracle_actor(section, 1, {:ignites, hit}, %{})
     hit = %{hit | amount: hit.amount * 1.0}
-    {:ok, {{admitted, _, _, _, _}, _, _}} = Native.mob_section_hurt(section, 1, hit)
+    {:ok, {{admitted, _, _, _, _, _}, _, _}} = Native.mob_section_hurt(section, 1, hit)
     {value, _, hurt, _, cooldown, last} = Native.mob_section_oracle_health(section, 1)
     {:ok, restored} = Body.restore(hd(Native.mob_section_records(section, [1])))
 

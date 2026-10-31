@@ -11,8 +11,11 @@ defmodule Valimc.Player.Hurt do
   attacker's extra knockback, and plays the shield's block sound and the
   player's hurt or death sound. Knockback reaches the client as its velocity.
 
+  An attack's enchantment effects follow (`Player.Enchantments.struck/3`,
+  VMC-037q: Thorns, a weapon's Fire Aspect).
+
   Not modelled yet: shields disabled by axes (no mob wields one before
-  VMC-043b), helmet wear from falling blocks, and Thorns.
+  VMC-043b) and helmet wear from falling blocks.
   """
   alias Valimc.Data.Float32
   alias Valimc.Living.{Armor, Attributes, DamageSource, Durability, Health, Melee, Weapons}
@@ -218,6 +221,12 @@ defmodule Valimc.Player.Hurt do
         state =
           if result in [:hurt, :dead] and match?(%{player: false}, attacker),
             do: put_in(state.player.living.last_mob_hurt, Valimc.World.GameTick.current()),
+            else: state
+
+        # Enchantments' post-attack effects of an attack (VMC-037q).
+        state =
+          if hit[:post_attack] == true and not fully,
+            do: Valimc.Player.Enchantments.struck(state, hit, result),
             else: state
 
         {if(fully, do: :blocked, else: result), state}

@@ -495,7 +495,7 @@ defmodule Valimc.Native do
   def enchant_immune(_enchantments, _ctx), do: :erlang.nif_error(:nif_not_loaded)
   def enchant_modifiers(_enchantments, _slot), do: :erlang.nif_error(:nif_not_loaded)
 
-  def enchant_post_attack(_enchanted, _enchantments, _ctx, _random),
+  def enchant_post_attack(_enchanted, _enchantments, _slot, _ctx, _random),
     do: :erlang.nif_error(:nif_not_loaded)
 
   def enchant_entity(_hook, _enchantments, _ctx, _random), do: :erlang.nif_error(:nif_not_loaded)

@@ -534,12 +534,12 @@ fn apply(effect: &Effect, level: i32, draws: &mut dyn Draws, out: &mut Vec<Actio
             min_amplifier,
             max_amplifier,
         } => {
-            // `HolderSet.getRandomElement`: one draw for more than one.
-            let effect = match effects.len() {
-                0 => return,
-                1 => effects[0].clone(),
-                n => effects[draws.int(n as i32) as usize].clone(),
-            };
+            // `HolderSet.getRandomElement` (`Util.getRandomSafe`): a draw
+            // even for one.
+            if effects.is_empty() {
+                return;
+            }
+            let effect = effects[draws.int(effects.len() as i32) as usize].clone();
             let ticks = (between(draws, min_duration.at(level), max_duration.at(level)) * 20.0)
                 .round() as i32;
             let amplifier = (between(draws, min_amplifier.at(level), max_amplifier.at(level)))

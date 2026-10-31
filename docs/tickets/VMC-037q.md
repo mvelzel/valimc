@@ -99,8 +99,6 @@ water and Soul Speed on soul sand behave as vanilla in a connection test.
   Arthropods' slowness, Thorns (from the victim's armour on the attacker,
   with its armour wear), as `doPostAttackEffectsWithItemSource` runs them,
   for both sweeps and direct hits.
-- Breach's `armor_effectiveness` in the armour reduction.
-
 Acceptance: the oracle's post-attack cases pass; a Fire Aspect sword sets a
 zombie alight, Thorns hurts a zombie hitting a player and wears the armour,
 a zombie's Fire Aspect sword sets a player alight.
@@ -135,8 +133,9 @@ in a thunderstorm.
 
 - The mace's smash attack (`MaceItem`: the bonus by fall distance, the
   landing knockback, the fall reset) with Density
-  (`smash_damage_per_fallen_block`), Breach and Wind Burst (`post_attack`
-  explode: the wind burst that launches the attacker).
+  (`smash_damage_per_fallen_block`), Breach (`armor_effectiveness` in the
+  armour reduction) and Wind Burst (`post_attack` explode: the wind burst
+  that launches the attacker).
 - The spear's charge and jab (`KineticWeapon`, `PiercingWeapon`) where
   players use them, with Lunge (`post_piercing_attack`: the impulse, the
   exhaustion and the wear).
@@ -194,6 +193,35 @@ stages `enchantment_effects`, `player_mining`, `player_armor`, `player_air`,
 Left in q1: Frost Walker's ice (needs frosted ice's aging), Soul Speed and
 the Curse of Binding.
 
+### q2 — Melee and Thorns (October 31, 2026)
+
+- **Mobs hurt.** A hit carrying `post_attack` (a player's hit and each
+  sweep, a mob's melee from `mob_hit`) runs `combat::post_attack` after it
+  hurts a mob: the mob's equipment's effects (Thorns), then the attacker's
+  weapon's (Fire Aspect, Bane's slowness), from the mob's own random, and
+  only when there is an enchantment to run, so an unenchanted fight draws
+  nothing. Effects on the mob apply there (fire by its burning time, effects,
+  a worn piece's wear); those on the attacker come back in the hurt's
+  outcome (`post_attack`) to the player's session.
+- **Players hurt.** `Player.Enchantments.struck/3`, from `Player.Hurt`, runs
+  the worn pieces' effects (Thorns hurts the mob through its owner's hurt
+  path, caused by the player, and wears the piece) and a melee attacker's
+  weapon's on the player. Thorns' own hurt carries no post-attack, so it
+  never answers itself.
+- Not run: effects on a mob that attacks another mob (its Thorns), and the
+  Thorns of a mob hit by a sweep.
+- **Oracle.** 240 `doPostAttackEffectsWithItemSource` cases: Fire Aspect I–III,
+  Bane I–V and both, against Thorns I, III and X on a zombie, a spider and a
+  player, melee and by arrow, each from one seeded random shared by the
+  level and both bodies; what each party took and the chestplate's wear
+  equal vanilla's.
+
+Tests: the connection test "a Fire Aspect sword sets a zombie alight; Thorns
+hurts the zombie hitting back"; stages `enchantment_effects` (3,773
+cases), `combat`, `guardian_hurt`, `dragon_damage`, `mob_ai`, `hostile_ai`,
+`nether_mobs`, `animals`, `village` and `projectiles`. The shulker lid
+reach test fails now and then on `main` too.
+
 ## Awaiting client
 
 - **Efficiency and Mending** (q1a): an Efficiency V diamond pickaxe breaks
@@ -201,3 +229,6 @@ the Curse of Binding.
   hand mends from orbs, and the experience bar fills only once it is whole.
 - **Depth Strider** (q1a): Depth Strider III boots walk on a pool's floor at
   land speed.
+- **Fire Aspect and Thorns** (q2): a Fire Aspect sword sets a zombie
+  burning; a zombie hitting a player in Thorns III armour is hurt now and
+  then, with the thorns sound and the armour wearing.

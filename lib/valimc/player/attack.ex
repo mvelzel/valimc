@@ -12,10 +12,13 @@ defmodule Valimc.Player.Attack do
     animations and damage indicator particles. The hit goes through the one
     hurt path for bodies (`Region.hurt_entity/3`).
 
+  A hit and each sweep run the enchantments' post-attack effects in the
+  hurt mob (VMC-037q: Fire Aspect, Bane of Arthropods' slowness, the mob's
+  Thorns, whose hurt comes back here).
+
   Not attacked yet: bodies in another group (only while two groups merge)
   and other players (PvP, a follow-up). Effects on attack damage and speed
-  (Strength, Weakness, Haste, Mining Fatigue) and post-attack enchantment
-  effects (Fire Aspect, Bane of Arthropods' slowness) are VMC-037's.
+  (Strength, Weakness, Haste, Mining Fatigue) are VMC-037's.
   """
   alias Valimc.Data.{EffectTypes, EntityTypes, Float32, Grid}
   alias Valimc.Living.{Attributes, DamageSource, Durability, Melee, Weapons}
@@ -276,7 +279,8 @@ defmodule Valimc.Player.Attack do
           attacker: me,
           direct: me,
           position: {player.x, player.y, player.z},
-          extra_knockback: {knockback, facing}
+          extra_knockback: {knockback, facing},
+          post_attack: true
         }
 
         request =
@@ -300,6 +304,7 @@ defmodule Valimc.Player.Attack do
                 else: Float32.round(outcome.previous - outcome.health)
 
             state
+            |> Valimc.Player.Enchantments.attacked(outcome, view)
             |> sweep(hit, view, me, source, enchantments, strength, facing)
             |> show(effects(hit, true, actual), view)
             |> wear(mainhand)
@@ -358,7 +363,8 @@ defmodule Valimc.Player.Attack do
         attacker: me,
         direct: me,
         position: {player.x, player.y, player.z},
-        extra_knockback: {Melee.default_knockback(), facing}
+        extra_knockback: {Melee.default_knockback(), facing},
+        post_attack: true
       })
     end
 

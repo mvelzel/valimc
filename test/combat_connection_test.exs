@@ -536,4 +536,50 @@ defmodule Valimc.CombatConnectionTest do
     _ = Client.barrier(client)
     assert TestPlayer.living(pid).health.value == 0.0
   end
+
+  test "a Fire Aspect sword sets a zombie alight; Thorns hurts the zombie hitting back (VMC-037q)",
+       ctx do
+    sword = %{
+      ItemStack.new("diamond_sword")
+      | components: %{"minecraft:enchantments" => %{"minecraft:fire_aspect" => 2}}
+    }
+
+    # Thorns past its maximum level always answers (a chance of 1.5).
+    chestplate = %{
+      ItemStack.new("iron_chestplate")
+      | components: %{"minecraft:enchantments" => %{"minecraft:thorns" => 10}}
+    }
+
+    save(ctx, -90.0, %Inventory{slots: %{36 => sword, 6 => chestplate}})
+    {client, pid} = TestPlayer.login(ctx)
+    uuid = <<9::128>>
+    owner = summon(ctx, uuid)
+    {id, _} = body(owner, uuid)
+    {_, client} = Client.await(client, :play, "add_entity")
+
+    TestPlayer.ticks(pid, 14)
+    Client.send_packet(client, :play, "attack", Wire.varint(id))
+
+    # Fire Aspect II: eight seconds.
+    Valimc.TestWait.until(fn -> elem(body(owner, uuid), 1).body.mob.living.fire_ticks == 160 end)
+    health = elem(body(owner, uuid), 1).body.mob.living.health.value
+
+    Valimc.TestWait.until(fn ->
+      elem(body(owner, uuid), 1).body.mob.living.health.cooldown <= 0
+    end)
+
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      :ok = RegionData.mob_attack(section, uuid, ctx.uuid)
+      section
+    end)
+
+    # The zombie takes 1 to 5 thorns damage; the chestplate wears by 2 and
+    # by the zombie's hit.
+    Valimc.TestWait.until(fn ->
+      elem(body(owner, uuid), 1).body.mob.living.health.value < health
+    end)
+
+    assert TestPlayer.state(pid).inventory.slots[6].components["minecraft:damage"] >= 2
+    _ = client
+  end
 end

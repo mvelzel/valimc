@@ -183,6 +183,19 @@ fn block_predicate<'a>(env: Env<'a>, p: &enchant::BlockPredicate) -> Term<'a> {
     }
 }
 
+/// Actions as a list term (a mob hurt's post-attack actions).
+pub(crate) struct Actions(pub Vec<Action>);
+
+impl Encoder for Actions {
+    fn encode<'a>(&self, env: Env<'a>) -> Term<'a> {
+        self.0
+            .iter()
+            .map(|a| action(env, a))
+            .collect::<Vec<_>>()
+            .encode(env)
+    }
+}
+
 /// An action as `Valimc.Living.Enchant` reads it.
 fn action<'a>(env: Env<'a>, action: &Action) -> Term<'a> {
     let f = |v: f32| (v as f64).encode(env);
@@ -429,13 +442,14 @@ fn enchant_modifiers(
     Ok((crate::atoms::ok(), out))
 }
 
-/// `doPostAttack` of one item held by `enchanted`: `{:ok, {[{affected,
-/// action}], random}}`.
+/// `doPostAttack` of one item held by `enchanted` in `slot` (none: every
+/// enchantment): `{:ok, {[{affected, action}], random}}`.
 #[rustler::nif]
 fn enchant_post_attack<'a>(
     env: Env<'a>,
     enchanted: String,
     enchantments: Vec<(String, i32)>,
+    slot_name: Option<String>,
     ctx: Ctx,
     state: u64,
 ) -> NifResult<(Atom, (Vec<Term<'a>>, u64))> {
@@ -447,10 +461,16 @@ fn enchant_post_attack<'a>(
         random: &mut r,
         held: None,
     };
+    // `runIterationOnItem(stack, slot, ...)` visits those acting in the slot.
+    let mut levels = levels(&enchantments);
+    if let Some(name) = slot_name {
+        let slot = slot(&name)?;
+        levels.retain(|(n, _)| facts.enchant.in_slot(n, slot));
+    }
     let out = facts.enchant.post_attack(
         mob,
         target(&enchanted)?,
-        &levels(&enchantments),
+        &levels,
         &ctx.context(&views),
         &mut draws,
     );
