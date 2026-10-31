@@ -1,6 +1,9 @@
 defmodule Valimc.World.CookingBatch do
-  @moduledoc "Bounded owned cooking proposals; only the enclosing durable commit publishes a result."
-  alias Valimc.Blocks.Cooking
+  @moduledoc """
+  Bounded owned processor proposals: furnaces and brewing stands (VMC-034o);
+  only the enclosing durable commit publishes a result.
+  """
+  alias Valimc.Blocks.{Brewing, BrewingStand, Cooking}
   alias Valimc.Blocks.CookingBlocks
   alias Valimc.World.{Containers, CookingEntry}
   alias Valimc.World.ContainerSpills
@@ -18,7 +21,25 @@ defmodule Valimc.World.CookingBatch do
     end
   end
 
+  def awake?(%{brewing: %Brewing{} = brewing}, block) do
+    if BrewingStand.stand?(block) do
+      {next, events} = Brewing.tick(brewing)
+      next != brewing or Enum.any?(events, &match?({:bottles, _}, &1))
+    else
+      false
+    end
+  end
+
   def awake?(_, _), do: false
+
+  @doc "Whether an entry ticks with the processors: a furnace's or a brewing stand's."
+  def processor?(%{cooking: _}), do: true
+  def processor?(%{brewing: _}), do: true
+  def processor?(_), do: false
+
+  @doc "A processor's slots."
+  def slots(%{cooking: cooking}), do: cooking.slots
+  def slots(%{brewing: brewing}), do: brewing.slots
 
   def plan(%Containers{} = containers, %Store{} = items, key, blocks)
       when is_map(blocks) and map_size(blocks) <= @limit do
@@ -30,7 +51,8 @@ defmodule Valimc.World.CookingBatch do
         expected: blocks,
         changes: %{},
         changed: [],
-        refused: %{}
+        refused: %{},
+        level_events: []
       }
 
       result =
@@ -55,9 +77,52 @@ defmodule Valimc.World.CookingBatch do
 
   def plan(_, _, _, _), do: {:error, :invalid_cooking_batch}
 
-  defp consistent?({position, block}, containers) do
+  defp consistent?({position, block}, containers) when is_map_key(containers.entries, position) do
+    case containers.entries[position] do
+      %{brewing: %Brewing{}} -> BrewingStand.stand?(block)
+      _ -> cooking_consistent?({position, block}, containers)
+    end
+  end
+
+  defp consistent?(_, _), do: false
+
+  defp cooking_consistent?({position, block}, containers) do
     kind = CookingBlocks.kind(block)
     kind != nil and match?(%{kind: ^kind, cooking: %Cooking{}}, containers.entries[position])
+  end
+
+  # `BrewingStandBlockEntity.serverTick`: its bottles' states, its dropped
+  # remainders and the brew's level event.
+  defp advance(acc, key, position, block, %{brewing: brewing} = entry) do
+    {next, events} = Brewing.tick(brewing)
+    bits = Enum.find_value(events, fn e -> match?({:bottles, _}, e) && elem(e, 1) end)
+    replacement = if bits, do: BrewingStand.with_bottles(block, bits), else: block
+    drops = for {:drop, stack} <- events, do: stack
+    brewed = for {:level_event, type} <- events, do: {position, type, 0}
+
+    with {:ok, containers, _} <-
+           Containers.replace_brewing(acc.containers, position, entry.revision, next),
+         {:ok, items} <- ContainerSpills.add_remainder(acc.items, key, position, drops) do
+      content_changed = next.slots != brewing.slots
+
+      {:ok,
+       %{
+         acc
+         | containers: containers,
+           items: items,
+           changes:
+             if(replacement != block or content_changed,
+               do: Map.put(acc.changes, position, replacement),
+               else: acc.changes
+             ),
+           changed:
+             if(next != brewing or replacement != block,
+               do: [position | acc.changed],
+               else: acc.changed
+             ),
+           level_events: acc.level_events ++ brewed
+       }}
+    end
   end
 
   defp advance(acc, key, position, block, entry) do

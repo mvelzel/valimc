@@ -61,6 +61,22 @@ defmodule Valimc.Menus.Packets do
     inventory_content(container, inventory, contents)
   end
 
+  @doc "A brewing stand's screen (VMC-034o)."
+  def open_brewing(container, name \\ nil) when container in 1..127 do
+    {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.brewing())
+    open_screen(container, type, name || default("container.brewing"))
+  end
+
+  def brewing_inventory(container, brewing, inventory) when container in 1..127 do
+    {:ok, contents} =
+      Valimc.Menus.Menu.contents(Valimc.Menus.Menu.brewing(), brewing.slots, inventory)
+
+    inventory_content(container, inventory, contents)
+  end
+
+  @doc "A brewing stand's four data slots: brew time, fuel and their totals."
+  def brewing_properties(container, brewing), do: cooking_properties(container, brewing)
+
   def open_cooking(container, kind, name \\ nil) when container in 1..127 do
     {:ok, type} = Valimc.Menus.Menu.cooking_type(kind)
     open_screen(container, type, name || default("container." <> Atom.to_string(kind)))

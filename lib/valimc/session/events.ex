@@ -31,25 +31,25 @@ defmodule Valimc.Session.Events do
         } = state,
         {:container_changed, owner, ref, position, revision}
       )
-      when kind in [:chest, :cooking, :hopper, :dispenser, :storage, :ender_chest] and
+      when kind in [:chest, :cooking, :hopper, :dispenser, :storage, :brewing, :ender_chest] and
              is_integer(revision),
       do: Menus.changed(state, revision)
 
   def session(
         %{
           phase: :play,
-          table_menu: %{kind: :cooking, owner: owner, view_ref: ref, position: position}
+          table_menu: %{kind: kind, owner: owner, view_ref: ref, position: position}
         } = state,
         {:container_progress, owner, ref, position, generation}
       )
-      when is_integer(generation) and generation > 0,
+      when kind in [:cooking, :brewing] and is_integer(generation) and generation > 0,
       do: Menus.progressed(state, generation)
 
   def session(
         %{phase: :play, table_menu: %{kind: kind, owner: owner, view_ref: ref}} = state,
         {:container_closed, owner, ref}
       )
-      when kind in [:chest, :cooking, :hopper, :dispenser, :storage, :ender_chest],
+      when kind in [:chest, :cooking, :hopper, :dispenser, :storage, :brewing, :ender_chest],
       do: Menus.close(state)
 
   # Blocks changed near the player: its pose is sampled again, and mining and

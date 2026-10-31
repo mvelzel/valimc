@@ -27,6 +27,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   @cooking_fields @chest_fields ++
                     ~w(cooking_time_spent cooking_total_time lit_time_remaining lit_total_time speed_multiplier RecipesUsed)
   @hopper_fields @chest_fields ++ ~w(TransferCooldown)
+  @brewing_fields @chest_fields ++ ~w(BrewTime total_brew_time Fuel total_fuel speed_multiplier)
   @metadata ~w(id x y z keepPacked)
   @storage Valimc.Blocks.Storage.sizes()
 
@@ -56,8 +57,8 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   @doc """
   `{:ok, position, held}` for a block entity compound at a block state, where
   `held` is `{:chest, slots}`, `{:cooking, entry}`, `{:machine, entry}`,
-  `{:storage, entry}`, one of those named as `{:named, name, held}`, or
-  `{:preserved, type_id}`;
+  `{:storage, entry}`, `{:brewing, brewing}`, one of those named as
+  `{:named, name, held}`, or `{:preserved, type_id}`;
   `{:drop, reason}` when vanilla would not load it.
   """
   def convert({:compound, fields} = tag, state) do
@@ -86,6 +87,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
         nil -> :error
         kind when kind in [:hopper, :dropper, :dispenser] -> machine(fields, kind)
         kind when is_map_key(@storage, kind) -> storage(fields, kind)
+        :brewing_stand -> brewing(fields)
         kind -> cooking(fields, kind, CookingBlocks.kind(state))
       end
 
@@ -135,6 +137,42 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
     with true <- only?(fields, @chest_fields),
          {:ok, slots} <- items(fields["Items"], Map.fetch!(@storage, kind)) do
       {:ok, {:storage, %{kind: kind, slots: slots}}}
+    else
+      _ -> :error
+    end
+  end
+
+  # A brewing stand (VMC-034o, `loadAdditional`): its items, times and speed;
+  # the brew's ingredient is its ingredient slot's item.
+  defp brewing(fields) do
+    with true <- only?(fields, @brewing_fields),
+         {:ok, slots} <- items(fields["Items"], 5) do
+      number = fn name, default ->
+        case fields[name] do
+          {_, value} when is_integer(value) -> max(value, 0)
+          _ -> default
+        end
+      end
+
+      speed =
+        case fields["speed_multiplier"] do
+          {:float, <<value::float-32>>} -> value
+          _ -> 1.0
+        end
+
+      brew = number.("BrewTime", 0)
+
+      brewing = %Valimc.Blocks.Brewing{
+        slots: slots,
+        brew_time: brew,
+        total_brew_time: number.("total_brew_time", 400),
+        fuel: number.("Fuel", 0),
+        total_fuel: number.("total_fuel", 20),
+        speed: speed,
+        ingredient: if(brew > 0 and elem(slots, 3), do: elem(slots, 3).item_id)
+      }
+
+      if Valimc.Blocks.Brewing.valid?(brewing), do: {:ok, {:brewing, brewing}}, else: :error
     else
       _ -> :error
     end
@@ -295,6 +333,23 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
       _ ->
         {:compound, fields}
     end
+  end
+
+  def container_tag({x, y, z}, type, %{brewing: brewing}) do
+    {:compound,
+     %{
+       "id" => {:string, type},
+       "x" => {:int, x},
+       "y" => {:int, y},
+       "z" => {:int, z},
+       "keepPacked" => {:byte, 0},
+       "Items" => slot_list(brewing.slots),
+       "BrewTime" => {:int, brewing.brew_time},
+       "total_brew_time" => {:int, brewing.total_brew_time},
+       "Fuel" => {:int, brewing.fuel},
+       "total_fuel" => {:int, brewing.total_fuel},
+       "speed_multiplier" => {:float, <<brewing.speed::float-32>>}
+     }}
   end
 
   def container_tag({x, y, z}, type, %{cooking: cooking, recipes: recipes}) do

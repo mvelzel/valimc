@@ -104,6 +104,9 @@ defmodule Valimc.Player.CreativeInventory do
         %{kind: :cooking, id: id, view: view} ->
           Valimc.Menus.Packets.cooking_inventory(id, view.cooking, inventory)
 
+        %{kind: :brewing, id: id, view: view} ->
+          Valimc.Menus.Packets.brewing_inventory(id, view.brewing, inventory)
+
         %{kind: :storage, id: id, view: view} ->
           Valimc.Menus.Packets.storage_inventory(id, view.kind, view.slots, inventory)
 
@@ -144,6 +147,9 @@ defmodule Valimc.Player.CreativeInventory do
       case state.table_menu do
         %{kind: :cooking, id: id, view: view} ->
           Valimc.Menus.Packets.cooking_properties(id, view.cooking)
+
+        %{kind: :brewing, id: id, view: view} ->
+          Valimc.Menus.Packets.brewing_properties(id, view.brewing)
 
         _ ->
           []

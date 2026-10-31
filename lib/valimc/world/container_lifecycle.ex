@@ -1,5 +1,5 @@
 defmodule Valimc.World.ContainerLifecycle do
-  @moduledoc "Pure owner-local chest, cooking-block, machine (hopper, dropper, dispenser) and storage (barrel, shulker box) metadata proposal. Every removed entry (with the block it belonged to) must be spilled, or a shulker box dropped with it, in the same joint block/item/container commit."
+  @moduledoc "Pure owner-local chest, cooking-block, machine (hopper, dropper, dispenser), storage (barrel, shulker box) and brewing stand metadata proposal. Every removed entry (with the block it belonged to) must be spilled, or a shulker box dropped with it, in the same joint block/item/container commit."
   alias Valimc.Data.Grid
   alias Valimc.Protocol.Data
   alias Valimc.World.{Chunk, Containers}
@@ -59,6 +59,18 @@ defmodule Valimc.World.ContainerLifecycle do
 
         {original, _} when original in [:furnace, :smoker, :blast_furnace] ->
           {:halt, {:error, :missing_or_invalid_cooking_entry}}
+
+        # A brewing stand spills its five slots (`Containers.dropContents`).
+        {:brewing_stand, %{kind: :brewing_stand, brewing: _} = entry} ->
+          if kind(replacement) == :brewing_stand,
+            do: {:cont, {:ok, current, removed}},
+            else: retire_entry(current, position, entry, expected[position], removed)
+
+        {:brewing_stand, nil} ->
+          {:cont, {:ok, current, removed}}
+
+        {:brewing_stand, _} ->
+          {:halt, {:error, :missing_or_invalid_brewing_stand}}
 
         {original, %{kind: original, slots: _} = entry}
         when original in [:hopper, :dropper, :dispenser] or is_map_key(@storage, original) ->
@@ -150,6 +162,7 @@ defmodule Valimc.World.ContainerLifecycle do
     end
   end
 
+  defp entry_kind(%{brewing: _}), do: :brewing_stand
   defp entry_kind(%{cooking: _, kind: kind}), do: kind
   defp entry_kind(%{slots: _, kind: kind}), do: kind
   defp entry_kind(_chest), do: :chest

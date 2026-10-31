@@ -30,6 +30,7 @@ defmodule Valimc.World.ContainerClicks do
     do: %{storage: kind, slots: slots}
 
   def view(%{kind: kind, slots: slots}), do: %{machine: kind, slots: slots}
+  def view(%{brewing: brewing}), do: %{brewing: true, slots: brewing.slots}
   def view(%{kind: kind, cooking: cooking}), do: %{kind: kind, slots: cooking.slots}
 
   @doc """
@@ -52,6 +53,7 @@ defmodule Valimc.World.ContainerClicks do
   defp menu(%{rows: rows}), do: {:ok, Menu.chest(rows)}
   defp menu(%{machine: kind}), do: {:ok, Menu.machine(kind)}
   defp menu(%{storage: kind}), do: {:ok, Menu.storage(kind)}
+  defp menu(%{brewing: true}), do: {:ok, Menu.brewing()}
 
   defp menu(%{kind: kind}) do
     with {:ok, block} <- CookingBlocks.placement(kind, 0.0), do: {:ok, Menu.cooking(block)}
@@ -77,6 +79,13 @@ defmodule Valimc.World.ContainerClicks do
           Map.has_key?(entry, :slots) ->
             with {:ok, next, _} <-
                    Containers.replace(containers, position, entry.revision, slots),
+                 do: {:ok, next, inventory, [], []}
+
+          Map.has_key?(entry, :brewing) ->
+            brewing = %{entry.brewing | slots: slots}
+
+            with {:ok, next, _} <-
+                   Containers.replace_brewing(containers, position, entry.revision, brewing),
                  do: {:ok, next, inventory, [], []}
 
           entry.recipes != %{} and withdrawal?(elem(entry.cooking.slots, 2), elem(slots, 2)) ->

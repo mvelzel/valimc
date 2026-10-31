@@ -188,6 +188,9 @@ defmodule Valimc.Worldgen.FullChunk do
        else: kept(state)
   end
 
+  defp preserved_type({:brewing, brewing}, state),
+    do: if(Valimc.Blocks.Brewing.empty?(brewing), do: :fresh, else: kept(state))
+
   defp kept(state) do
     case Valimc.Blocks.BlockEntityTypes.type_id(state) do
       nil -> {:error, :no_block_entity}

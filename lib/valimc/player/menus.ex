@@ -207,6 +207,11 @@ defmodule Valimc.Player.Menus do
           {Valimc.Menus.Packets.open_cooking(id, view.kind, view[:name]),
            Valimc.Menus.Packets.cooking_inventory(id, view.cooking, inventory),
            Valimc.Menus.Packets.cooking_properties(id, view.cooking)}
+
+        :brewing ->
+          {Valimc.Menus.Packets.open_brewing(id, view[:name]),
+           Valimc.Menus.Packets.brewing_inventory(id, view.brewing, inventory),
+           Valimc.Menus.Packets.brewing_properties(id, view.brewing)}
       end
 
     send_packets(
@@ -333,6 +338,15 @@ defmodule Valimc.Player.Menus do
           %{state | table_menu: %{menu | view: view, progress_dirty: false}}
         else
           refreshed(state, {:cooking, menu.block, view})
+        end
+
+      {:brewing, _block, view} when kind == :progress and menu.kind == :brewing ->
+        if view.revision == menu.view.revision and
+             view.brewing.slots == menu.view.brewing.slots do
+          send_packets(state, Valimc.Menus.Packets.brewing_properties(menu.id, view.brewing))
+          %{state | table_menu: %{menu | view: view, progress_dirty: false}}
+        else
+          refreshed(state, {:brewing, menu.block, view})
         end
 
       :valid ->

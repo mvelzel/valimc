@@ -103,3 +103,42 @@ Acceptance:
   - mixed bottles.
 
   Ours equals vanilla after every step.
+
+### 034o2
+
+- **The block.** `BrewingStandBlock` → `Valimc.Blocks.BrewingStand`,
+  block-entity kind `:brewing_stand`.
+- **The entry.** Placing a stand creates `%{kind: :brewing_stand, brewing:
+  %Brewing{}}` (container tag 5: times, speed, ingredient, shown bottles, five
+  slots).
+  - Breaking it spills the slots (`ContainerSpills`).
+  - Comparators read its five slots.
+  - Anvil import and export carry `Items`, `BrewTime`, `total_brew_time`,
+    `Fuel`, `total_fuel` and `speed_multiplier`.
+  - A generated stand that holds potions stays preserved, as a filled
+    generated furnace does.
+- **The tick.** Stands tick in the furnaces' worker pass
+  (`CookingRuntime`/`CookingBatch`). The steps:
+  - the bottle states commit as a furnace's `lit` does;
+  - remainders drop as a furnace's do;
+  - level event 1035 is published with the commit;
+  - viewers get `container_progress` for the data slots.
+
+  Timer-only changes wait for a checkpoint, as a furnace's do.
+- **The menu.** `Menu.brewing/0` (window type 11) with vanilla's slot rules,
+  bottle limit 1 and `quickMoveStack` routes; the four data slots are brew
+  time, fuel and their totals. Clicks go through `ContainerClicks`, fenced
+  on the entry's revision as a furnace's are.
+- **Hoppers** (`ItemTransfer`) use its faces:
+  - from above, the ingredient;
+  - from the sides, empty bottle slots and the fuel;
+  - from below, the bottles, and the ingredient only as a glass bottle.
+- **Oracle.** `brewing_click` (`BrewingClickOracle`): 5,760 vanilla
+  `BrewingStandMenu.clicked` cases (pickups, shift-clicks and swaps over two
+  layouts) and every stock item's shift route equal ours; the window type is
+  vanilla's.
+- **Tests.**
+  - `brewing_region_test`: a brew through the owner, the block's bottles,
+    the times across a restart, clicks and hopper faces.
+  - `brewing_connection_test`: a player opens a stand, sees its 41 slots and
+    4 data values, and shift-clicks fuel in.

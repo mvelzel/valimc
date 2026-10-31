@@ -547,13 +547,14 @@ defmodule Valimc.Menus.Click do
     end
   end
 
-  defp get({storage, _}, {kind, index}) when kind in [:container, :cooking],
+  defp get({storage, _}, {kind, index}) when kind in [:container, :cooking, :brewing],
     do: elem(storage, index)
 
   defp get({_, inventory}, address), do: Inventory.get(inventory, address)
 
-  defp put({storage, inventory}, {kind, index}, stack) when kind in [:container, :cooking],
-    do: {put_elem(storage, index, stack), inventory}
+  defp put({storage, inventory}, {kind, index}, stack)
+       when kind in [:container, :cooking, :brewing],
+       do: {put_elem(storage, index, stack), inventory}
 
   defp put({storage, inventory}, address, stack),
     do: {storage, Inventory.put(inventory, address, stack)}

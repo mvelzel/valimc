@@ -1000,6 +1000,11 @@ defmodule Valimc.World.RegionStorage do
   defp wait({:container, _}, %{cooking: %{} = a} = old, %{cooking: %{} = b} = new, _full),
     do: if(%{old | cooking: burning(a)} == %{new | cooking: burning(b)}, do: :counters)
 
+  # A brewing stand counting its brew down (VMC-034o): a checkpoint keeps it
+  # unless it starts or ends.
+  defp wait({:container, _}, %{brewing: %{} = a} = old, %{brewing: %{} = b} = new, _full),
+    do: if(%{old | brewing: brewing(a)} == %{new | brewing: brewing(b)}, do: :counters)
+
   # A hopper counting its cooldown down (VMC-049a); a move changes its slots.
   defp wait({:container, _}, %{cooldown: _} = old, %{cooldown: _} = new, _full),
     do: if(%{old | cooldown: 0} == %{new | cooldown: 0}, do: :counters)
@@ -1030,6 +1035,8 @@ defmodule Valimc.World.RegionStorage do
     }
 
   # Burning out or finishing is a change; burning on is not.
+  defp brewing(stand), do: %{stand | brew_time: stand.brew_time > 0}
+
   defp burning(cooking),
     do: %{cooking | burn_left: cooking.burn_left > 0, progress: cooking.progress > 0}
 

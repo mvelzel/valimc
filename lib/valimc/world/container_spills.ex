@@ -35,6 +35,9 @@ defmodule Valimc.World.ContainerSpills do
           %{slots: slots} ->
             release(current, key, position, Tuple.to_list(slots))
 
+          %{brewing: brewing} ->
+            release(current, key, position, Tuple.to_list(brewing.slots))
+
           %{cooking: cooking, recipes: recipes} ->
             with {:ok, next} <- release(current, key, position, Tuple.to_list(cooking.slots)),
                  do: experience(next, key, position, recipes)

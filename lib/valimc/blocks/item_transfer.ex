@@ -13,7 +13,7 @@ defmodule Valimc.Blocks.ItemTransfer do
   edited with its block state (`Cooking.edit_slots/3`): a new input resets
   its progress, as `setItem` does.
   """
-  alias Valimc.Blocks.Cooking
+  alias Valimc.Blocks.{Brewing, Cooking}
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
 
   @bucket Data.item("bucket")
@@ -30,14 +30,23 @@ defmodule Valimc.Blocks.ItemTransfer do
   def slots_for(%{cooking: %Cooking{slots: slots}}, nil),
     do: Enum.to_list(0..(tuple_size(slots) - 1))
 
+  # `BrewingStandBlockEntity.getSlotsForFace` (VMC-034o): the ingredient from
+  # above, bottles and fuel from the sides, bottles and the ingredient below.
+  def slots_for(%{brewing: %Brewing{}}, :up), do: [3]
+  def slots_for(%{brewing: %Brewing{}}, :down), do: [0, 1, 2, 3]
+  def slots_for(%{brewing: %Brewing{}}, side) when side != nil, do: [0, 1, 2, 4]
+  def slots_for(%{brewing: %Brewing{}}, nil), do: [0, 1, 2, 3, 4]
+
   def slots_for(%{slots: slots}, _side), do: Enum.to_list(0..(tuple_size(slots) - 1))
 
   @doc "The stack in `slot`."
   def stack(%{cooking: %Cooking{slots: slots}}, slot), do: elem(slots, slot)
+  def stack(%{brewing: %Brewing{slots: slots}}, slot), do: elem(slots, slot)
   def stack(%{slots: slots}, slot), do: elem(slots, slot)
 
   @doc "The entry's slots."
   def slots(%{cooking: %Cooking{slots: slots}}), do: slots
+  def slots(%{brewing: %Brewing{slots: slots}}), do: slots
   def slots(%{slots: slots}), do: slots
 
   @doc "Whether every slot is empty (`Container.isEmpty`)."
@@ -70,6 +79,16 @@ defmodule Valimc.Blocks.ItemTransfer do
     end
   end
 
+  # `BrewingStandBlockEntity.canPlaceItem`: fuel, a reagent, or a potion input
+  # into an empty bottle slot.
+  def can_place?(%{brewing: %Brewing{slots: slots}}, slot, stack, _side) do
+    case slot do
+      4 -> Brewing.fuel?(stack)
+      3 -> Brewing.reagent?(stack)
+      _ -> Brewing.potion_input?(stack) and elem(slots, slot) == nil
+    end
+  end
+
   # `ShulkerBoxBlockEntity.canPlaceItemThroughFace` (VMC-032c2): no shulker
   # box goes into another.
   def can_place?(%{kind: :shulker_box}, _slot, stack, _side),
@@ -80,6 +99,10 @@ defmodule Valimc.Blocks.ItemTransfer do
   @doc "`canTakeItemThroughFace`: a furnace gives only buckets from its fuel below."
   def can_take?(%{cooking: %Cooking{}}, 1, stack, :down),
     do: MapSet.member?(@bottom_takeable, stack.item_id)
+
+  # A brewing stand's ingredient leaves only as an empty bottle.
+  def can_take?(%{brewing: %Brewing{}}, 3, stack, _side),
+    do: stack.item_id == Data.item("glass_bottle")
 
   def can_take?(_entry, _slot, _stack, _side), do: true
 
@@ -167,6 +190,9 @@ defmodule Valimc.Blocks.ItemTransfer do
       %{entry | cooking: %{cooking | slots: slots}}
     end
   end
+
+  def put(%{brewing: %Brewing{} = brewing} = entry, slot, stack, _block),
+    do: %{entry | brewing: %{brewing | slots: put_elem(brewing.slots, slot, stack)}}
 
   def put(%{slots: slots} = entry, slot, stack, _block),
     do: %{entry | slots: put_elem(slots, slot, stack)}

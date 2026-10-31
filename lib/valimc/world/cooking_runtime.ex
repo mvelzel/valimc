@@ -1,5 +1,5 @@
 defmodule Valimc.World.CookingRuntime do
-  @moduledoc "Bounded cooking activity and proposals; simulation runs on workers, never the owner."
+  @moduledoc "Bounded cooking and brewing activity and proposals; simulation runs on workers, never the owner."
   alias Valimc.Blocks.CookingBlocks
   alias Valimc.Data.Grid
   alias Valimc.World.{BlockBatch, Chunk, CookingBatch}
@@ -31,7 +31,8 @@ defmodule Valimc.World.CookingRuntime do
         :all
 
       {:all, _} ->
-        for {position, %{cooking: _}} <- containers.entries,
+        for {position, entry} <- containers.entries,
+            CookingBatch.processor?(entry),
             eligible?(position, chunks),
             into: MapSet.new(),
             do: position
@@ -53,7 +54,8 @@ defmodule Valimc.World.CookingRuntime do
 
   def plan(containers, items, key, edits, selection, blocked) do
     blocks =
-      for {position, %{cooking: _}} <- containers.entries,
+      for {position, entry} <- containers.entries,
+          CookingBatch.processor?(entry),
           into: %{},
           do: {position, Chunk.block_at(edits, position)}
 
@@ -92,8 +94,8 @@ defmodule Valimc.World.CookingRuntime do
           before = containers.entries[position]
           after_entry = plan.containers.entries[position]
 
-          before.cooking.slots != after_entry.cooking.slots or
-            before.recipes != after_entry.recipes
+          CookingBatch.slots(before) != CookingBatch.slots(after_entry) or
+            Map.get(before, :recipes) != Map.get(after_entry, :recipes)
         end)
 
       {:ok,
@@ -118,14 +120,17 @@ defmodule Valimc.World.CookingRuntime do
     }
   end
 
+  @doc "Whether a processor's block change is its own: a furnace's lit, a brewing stand's bottles."
   def lit_change?(original, replacement) do
-    CookingBlocks.kind(original) != nil and
-      Enum.any?([true, false], &(CookingBlocks.lit(original, &1) == {:ok, replacement}))
+    (CookingBlocks.kind(original) != nil and
+       Enum.any?([true, false], &(CookingBlocks.lit(original, &1) == {:ok, replacement}))) or
+      Valimc.Blocks.BrewingStand.bottles_change?(original, replacement)
   end
 
   # A successful step leaves valid slots. Remaining heat must decrease next tick;
   # do not simulate that tick again just to rediscover the same active processor.
   defp awake_after?(%{cooking: %{burn_left: heat}}, _) when heat > 0, do: true
+  defp awake_after?(%{brewing: %{brew_time: time}}, _) when time > 0, do: true
   defp awake_after?(entry, block), do: CookingBatch.awake?(entry, block)
 
   defp prepare(real) when map_size(real) == 0, do: {:ok, nil}

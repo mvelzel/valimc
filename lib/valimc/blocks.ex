@@ -8,6 +8,7 @@ defmodule Valimc.Blocks do
   """
   alias Valimc.Blocks.{
     Barrel,
+    BrewingStand,
     BuddingAmethyst,
     Chest,
     FallingBlock,
@@ -26,6 +27,7 @@ defmodule Valimc.Blocks do
   @classes %{
     "ChestBlock" => Chest,
     "BarrelBlock" => Barrel,
+    "BrewingStandBlock" => BrewingStand,
     "ShulkerBoxBlock" => ShulkerBox,
     "FurnaceBlock" => Furnace,
     "SmokerBlock" => Furnace,
@@ -73,6 +75,9 @@ defmodule Valimc.Blocks do
            end) and
            Enum.all?(ShulkerBox.states(), fn state ->
              elem(@modules, :binary.at(@by_state, state)) == ShulkerBox
+           end) and
+           Enum.all?(Valimc.Data.Blocks.states("brewing_stand"), fn state ->
+             elem(@modules, :binary.at(@by_state, state)) == BrewingStand
            end),
          do: raise("Block behaviour classes do not cover the owned block entities")
 
@@ -110,7 +115,7 @@ defmodule Valimc.Blocks do
   def behaviour(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@modules, :binary.at(@by_state, state))
 
-  @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`, `:hopper`, `:dropper`, `:dispenser`, `:barrel`, `:shulker_box`) or nil; any term is accepted."
+  @doc "Owned block-entity kind (`:chest`, `:furnace`, `:smoker`, `:blast_furnace`, `:hopper`, `:dropper`, `:dispenser`, `:barrel`, `:shulker_box`, `:brewing_stand`) or nil; any term is accepted."
   def block_entity(state) when is_integer(state) and state >= 0 and state < @count,
     do: elem(@entity_kinds, :binary.at(@entities, state))
 

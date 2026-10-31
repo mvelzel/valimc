@@ -51,6 +51,7 @@ defmodule Valimc.Menus.MenuAccess do
     dispenser: [:open, :subscribe, :check, :click, :refresh],
     storage: [:open, :subscribe, :check, :click, :refresh],
     ender_chest: [:open, :subscribe, :check, :click, :refresh],
+    brewing: [:open, :subscribe, :check, :click, :refresh],
     table: [:open, :click, :check],
     enchanting: [:open, :click, :check],
     anvil: [:open, :click, :check],
@@ -66,7 +67,7 @@ defmodule Valimc.Menus.MenuAccess do
   The menus a block's owner keeps a view of: those over an owned container
   entry, and an ender chest's (its viewers counted, its slots the player's).
   """
-  def containers, do: [:chest, :cooking, :hopper, :dispenser, :storage, :ender_chest]
+  def containers, do: [:chest, :cooking, :hopper, :dispenser, :storage, :brewing, :ender_chest]
 
   @doc """
   The menus whose viewers open the block (`ContainerOpenersCounter`): chests,
@@ -77,7 +78,7 @@ defmodule Valimc.Menus.MenuAccess do
   @doc """
   The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser`
   (droppers too), `:storage` (a barrel or a shulker box), `:ender_chest`,
-  `:table`, `:enchanting` (VMC-038a) or nil.
+  `:brewing`, `:table`, `:enchanting` (VMC-038a) or nil.
   """
   def menu(nil), do: nil
 
@@ -89,6 +90,7 @@ defmodule Valimc.Menus.MenuAccess do
       Machine.kind(block) != nil -> :dispenser
       Storage.kind(block) != nil -> :storage
       EnderChest.ender_chest?(block) -> :ender_chest
+      Valimc.Blocks.BrewingStand.stand?(block) -> :brewing
       block == @table -> :table
       blockless(block) != nil -> blockless(block)
       true -> nil
@@ -292,6 +294,11 @@ defmodule Valimc.Menus.MenuAccess do
 
   defp entry?(:ender_chest, block, entry),
     do: EnderChest.ender_chest?(block) and entry == EnderChest.view()
+
+  defp entry?(:brewing, block, entry),
+    do:
+      Valimc.Blocks.BrewingStand.stand?(block) and
+        match?(%{brewing: %Valimc.Blocks.Brewing{}}, entry)
 
   defp entry?(:cooking, block, entry) do
     kind = CookingBlocks.kind(block)

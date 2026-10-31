@@ -270,6 +270,7 @@ defmodule Valimc.World.Hoppers do
   end
 
   defp matches?(%{cooking: _, kind: kind}, block), do: CookingBlocks.kind(block) == kind
+  defp matches?(%{brewing: _}, block), do: Valimc.Blocks.block_entity(block) == :brewing_stand
   defp matches?(%{rows: 3}, block), do: Valimc.Blocks.block_entity(block) == :chest
   defp matches?(%{kind: kind, slots: _}, block), do: Valimc.Blocks.block_entity(block) == kind
   defp matches?(_, _), do: false

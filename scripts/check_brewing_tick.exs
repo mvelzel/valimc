@@ -54,7 +54,15 @@ for {c, n} <- Enum.with_index(cases) do
           Enum.reduce(1..count, {stand, slots, bits, [], []}, fn _,
                                                                  {stand, slots, bits, drops,
                                                                   events} ->
-            {stand, slots, made} = Brewing.tick(stand, slots)
+            stand = %{stand | slots: List.to_tuple(for i <- 0..4, do: slots[i])}
+            {stand, made} = Brewing.tick(stand)
+
+            slots =
+              for {s, i} <- Enum.with_index(Tuple.to_list(stand.slots)),
+                  s != nil,
+                  into: %{},
+                  do: {i, s}
+
             drops = drops ++ for({:drop, d} <- made, do: spec.(d))
             events = events ++ for({:level_event, e} <- made, do: e)
             bits = Enum.find_value(made, bits, fn e -> match?({:bottles, _}, e) && elem(e, 1) end)

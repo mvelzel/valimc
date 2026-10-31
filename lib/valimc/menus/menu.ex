@@ -11,12 +11,13 @@ defmodule Valimc.Menus.Menu do
   45 the offhand; -1 and -999 outside the slots), `{:table, i}` a crafting
   table input, `{:container, i}` a chest's, a hopper's or a dispenser's slot
   and `{:cooking, i}` a furnace
-  slot (0 input, 1 fuel, 2 result), `{:payment, i}` a merchant's payment
+  slot (0 input, 1 fuel, 2 result), `{:brewing, i}` a brewing stand's (0..2
+  bottles, 3 the ingredient, 4 the fuel, VMC-034o), `{:payment, i}` a merchant's payment
   slot (VMC-044b2), whose result is address 0 as a grid's is (only drags
   and collects reach the engine there; `Valimc.Player.Merchant` takes it). The 2×2 grid and a table's grid share
   the result address 0: `Inventory.crafting_result/1` reads the open one.
   """
-  alias Valimc.Blocks.{Cooking, CookingBlocks, CookingRecipes}
+  alias Valimc.Blocks.{Brewing, Cooking, CookingBlocks, CookingRecipes}
   alias Valimc.Menus.Inventory
   alias Valimc.Protocol.{Data, ItemStack, ItemTypes}
 
@@ -42,6 +43,7 @@ defmodule Valimc.Menus.Menu do
   def hopper, do: %__MODULE__{kind: :hopper}
   def shulker_box, do: %__MODULE__{kind: :shulker_box}
   def merchant, do: %__MODULE__{kind: :merchant}
+  def brewing, do: %__MODULE__{kind: :brewing}
   def enchanting, do: %__MODULE__{kind: :enchanting}
   def anvil, do: %__MODULE__{kind: :anvil}
   def grindstone, do: %__MODULE__{kind: :grindstone}
@@ -80,6 +82,7 @@ defmodule Valimc.Menus.Menu do
   def type(%__MODULE__{kind: :grindstone}), do: {:ok, 15}
   def type(%__MODULE__{kind: :smithing}), do: {:ok, 21}
   def type(%__MODULE__{kind: :shulker_box}), do: {:ok, 20}
+  def type(%__MODULE__{kind: :brewing}), do: {:ok, 11}
   def type(_), do: {:error, :invalid_menu}
 
   @doc "The window type of a furnace-family block's kind."
@@ -109,8 +112,11 @@ defmodule Valimc.Menus.Menu do
   end
 
   def address(%__MODULE__{kind: kind}, slot)
-      when kind in [:cooking | @plain] and slot in [-1, -999],
+      when kind in [:cooking, :brewing | @plain] and slot in [-1, -999],
       do: {:ok, slot}
+
+  def address(%__MODULE__{kind: :brewing}, slot) when slot in 0..4, do: {:ok, {:brewing, slot}}
+  def address(%__MODULE__{kind: :brewing}, slot) when slot in 5..40, do: {:ok, slot + 4}
 
   def address(%__MODULE__{kind: :merchant}, slot) when slot in 0..1, do: {:ok, {:payment, slot}}
   def address(%__MODULE__{kind: :merchant}, 2), do: {:ok, 0}
@@ -167,6 +173,13 @@ defmodule Valimc.Menus.Menu do
       else: {:error, :invalid_menu_contents}
   end
 
+  def contents(%__MODULE__{kind: :brewing}, storage, %Inventory{} = inventory)
+      when is_tuple(storage) do
+    if Brewing.valid?(%Brewing{slots: storage}),
+      do: {:ok, Tuple.to_list(storage) ++ Enum.map(9..44, &Inventory.get(inventory, &1))},
+      else: {:error, :invalid_menu_contents}
+  end
+
   def contents(%__MODULE__{kind: :merchant}, nil, %Inventory{payments: {a, b}} = inventory),
     do: {:ok, [a, b, nil | Enum.map(9..44, &Inventory.get(inventory, &1))]}
 
@@ -198,6 +211,14 @@ defmodule Valimc.Menus.Menu do
       else: {:error, :invalid_cooking_properties}
   end
 
+  # A brewing stand's (`BrewingStandBlockEntity.dataAccess`): brew time, fuel,
+  # their totals.
+  def properties(%Brewing{} = brewing) do
+    if Brewing.valid?(brewing),
+      do: {:ok, [brewing.brew_time, brewing.fuel, brewing.total_brew_time, brewing.total_fuel]},
+      else: {:error, :invalid_brewing_properties}
+  end
+
   def properties(_), do: {:error, :invalid_cooking_properties}
 
   @doc "The slots a pick-all (double click) collects from, in window order."
@@ -209,6 +230,9 @@ defmodule Valimc.Menus.Menu do
 
   def visible(%__MODULE__{kind: :cooking}),
     do: Enum.map(0..2, &{:cooking, &1}) ++ Enum.to_list(9..44)
+
+  def visible(%__MODULE__{kind: :brewing}),
+    do: Enum.map(0..4, &{:brewing, &1}) ++ Enum.to_list(9..44)
 
   # `MerchantMenu.canTakeItemForPickAll` refuses every slot.
   def visible(%__MODULE__{kind: :merchant}), do: []
@@ -227,6 +251,13 @@ defmodule Valimc.Menus.Menu do
   def may_place?(_menu, 0, _stack), do: false
   def may_place?(_menu, {:cooking, 2}, _stack), do: false
   def may_place?(_menu, {:cooking, 1}, stack), do: stack.item_id == @bucket or fuel?(stack)
+
+  # `BrewingStandMenu`'s `PotionSlot`, `IngredientsSlot` and `FuelSlot`.
+  def may_place?(_menu, {:brewing, slot}, stack) when slot in 0..2,
+    do: Brewing.potion_input?(stack)
+
+  def may_place?(_menu, {:brewing, 3}, stack), do: Brewing.reagent?(stack)
+  def may_place?(_menu, {:brewing, 4}, stack), do: Brewing.fuel?(stack)
 
   def may_place?(%__MODULE__{kind: :inventory}, slot, stack) when slot in 5..8,
     do: equipment_slot(stack) == slot
@@ -271,6 +302,7 @@ defmodule Valimc.Menus.Menu do
   def limit(%__MODULE__{kind: :inventory}, slot, _stack) when slot in 5..8, do: 1
   def limit(%__MODULE__{kind: :enchanting}, {:payment, 0}, _stack), do: 1
   def limit(_menu, {:cooking, 1}, %{item_id: @bucket}), do: 1
+  def limit(_menu, {:brewing, slot}, _stack) when slot in 0..2, do: 1
   def limit(_menu, _address, stack), do: ItemStack.max_stack_size(stack)
 
   @doc """
@@ -348,6 +380,23 @@ defmodule Valimc.Menus.Menu do
 
   def routes(%__MODULE__{kind: :merchant}, _inventory, _slot, _stack),
     do: [Enum.to_list(9..35)]
+
+  # `BrewingStandMenu.quickMoveStack`: its slots to the inventory from the
+  # end; fuel to the fuel slot then the ingredient's (blaze powder is both),
+  # reagents to the ingredient's, bottles to the bottles'.
+  def routes(%__MODULE__{kind: :brewing}, _inventory, {:brewing, _}, _stack),
+    do: [Enum.to_list(44..9//-1)]
+
+  def routes(%__MODULE__{kind: :brewing}, _inventory, slot, stack) do
+    cond do
+      Brewing.fuel?(stack) and Brewing.reagent?(stack) -> [[{:brewing, 4}], [{:brewing, 3}]]
+      Brewing.fuel?(stack) -> [[{:brewing, 4}]]
+      Brewing.reagent?(stack) -> [[{:brewing, 3}]]
+      Brewing.potion_input?(stack) -> [Enum.map(0..2, &{:brewing, &1})]
+      slot in 9..35 -> [Enum.to_list(36..44)]
+      true -> [Enum.to_list(9..35)]
+    end
+  end
 
   def routes(%__MODULE__{kind: :cooking}, _inventory, {:cooking, 2}, _stack),
     do: [Enum.to_list(44..9//-1)]

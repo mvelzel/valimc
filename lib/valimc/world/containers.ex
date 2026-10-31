@@ -3,6 +3,8 @@ defmodule Valimc.World.Containers do
   alias Valimc.Data.Grid
   alias Valimc.Protocol.ItemStack
 
+  import Bitwise, only: [&&&: 2]
+  alias Valimc.Blocks.Brewing
   alias Valimc.World.{Chunk, CookingEntry}
 
   # Experience orbs are entities (VMC-077h), not container state.
@@ -145,8 +147,33 @@ defmodule Valimc.World.Containers do
   def create_owned(%__MODULE__{} = state, key, position, kind) when is_map_key(@storage, kind),
     do: create_storage(state, key, position, kind)
 
+  def create_owned(%__MODULE__{} = state, key, position, :brewing_stand),
+    do: create_entry(state, key, position, %{kind: :brewing_stand, brewing: %Brewing{}})
+
   def create_owned(%__MODULE__{} = state, key, position, kind),
     do: create_cooking(state, key, position, kind)
+
+  @doc """
+  A brewing stand's next state (VMC-034o), fenced on `revision`. Its slots
+  changing bumps the revision; its times alone keep it, as a furnace's
+  progress does.
+  """
+  def replace_brewing(%__MODULE__{} = state, position, revision, %Brewing{} = brewing) do
+    with {:ok, %{revision: ^revision, brewing: old} = entry} <- observe(state, position),
+         true <- Brewing.valid?(brewing) and valid_slots?(brewing.slots) do
+      next = %{entry | brewing: brewing}
+
+      if old.slots == brewing.slots,
+        do: {:ok, %{state | entries: Map.put(state.entries, position, next)}, next},
+        else: change(state, position, next)
+    else
+      :error -> {:error, :missing_container}
+      {:ok, _} -> {:error, :stale_container}
+      false -> {:error, :invalid_container_contents}
+    end
+  end
+
+  def replace_brewing(_, _, _, _), do: {:error, :invalid_container_contents}
 
   def create_cooking(%__MODULE__{} = state, key, position, kind) do
     with {:ok, entry} <- CookingEntry.new(kind),
@@ -355,6 +382,21 @@ defmodule Valimc.World.Containers do
     <<3, Map.fetch!(@storage_ids, kind), byte_size(bytes)::32, bytes::binary>>
   end
 
+  # A brewing stand (VMC-034o): its times, ingredient, shown bottles, slots.
+  defp entry_bytes(%{kind: :brewing_stand, brewing: %Brewing{} = b} = entry, 3)
+       when map_size(entry) == 3 do
+    true = Brewing.valid?(b)
+    bytes = slot_bytes(b.slots)
+
+    shown =
+      if b.shown == nil,
+        do: 8,
+        else: Integer.undigits(Enum.map(b.shown, &if(&1, do: 1, else: 0)), 2)
+
+    <<5, b.brew_time::32, b.total_brew_time::32, b.fuel::32, b.total_fuel::32, b.speed::float-32,
+      b.ingredient || -1::signed-32, shown, byte_size(bytes)::32, bytes::binary>>
+  end
+
   defp entry_bytes(%{cooking: _} = entry, 3) do
     {:ok, bytes} = CookingEntry.encode(entry)
     <<1, byte_size(bytes)::32, bytes::binary>>
@@ -420,6 +462,27 @@ defmodule Valimc.World.Containers do
         <<bytes::binary-size(^length), rest::binary>> = rest
         {slots, <<>>} = take_slots(bytes, @storage[kind], [])
         {%{revision: revision, kind: kind, slots: List.to_tuple(Enum.reverse(slots))}, rest}
+
+      {5,
+       <<brew::32, total_brew::32, fuel::32, total_fuel::32, speed::float-32,
+         ingredient::signed-32, shown, length::32, rest::binary>>} ->
+        true = length in 5..@contents_bytes and shown in 0..8
+        <<bytes::binary-size(^length), rest::binary>> = rest
+        {slots, <<>>} = take_slots(bytes, 5, [])
+
+        brewing = %Brewing{
+          slots: List.to_tuple(Enum.reverse(slots)),
+          brew_time: brew,
+          total_brew_time: total_brew,
+          fuel: fuel,
+          total_fuel: total_fuel,
+          speed: speed,
+          ingredient: if(ingredient == -1, do: nil, else: ingredient),
+          shown: if(shown == 8, do: nil, else: for(bit <- [4, 2, 1], do: (shown &&& bit) != 0))
+        }
+
+        true = Brewing.valid?(brewing)
+        {%{revision: revision, kind: :brewing_stand, brewing: brewing}, rest}
 
       {4, <<length::32, rest::binary>>} when length in 1..@max_name_bytes ->
         <<bytes::binary-size(^length), tag, rest::binary>> = rest

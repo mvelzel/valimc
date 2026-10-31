@@ -522,6 +522,17 @@ defmodule Valimc.Storage.Anvil.Import do
     end
   end
 
+  defp own(key, position, {:brewing, brewing}, containers) do
+    with {:ok, containers, created} <-
+           Containers.create_owned(containers, key, position, :brewing_stand),
+         {:ok, containers, _} <-
+           Containers.replace_brewing(containers, position, created.revision, brewing) do
+      {:ok, containers}
+    else
+      _ -> :preserve
+    end
+  end
+
   defp own(key, position, {:machine, entry}, containers) do
     with {:ok, containers, created} <-
            Containers.create_machine(containers, key, position, entry.kind),

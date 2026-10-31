@@ -690,6 +690,10 @@ defmodule Valimc.World.RegionData do
 
     state = release_now(state, Enum.map(plan.content, &{:container_changed, &1}))
 
+    # A finished brew's sound and particles (level event 1035, VMC-034o).
+    events = Map.get(plan, :level_events, [])
+    if events != [], do: publish_level_events(state, events)
+
     Enum.reduce(plan.changed, state, fn position, state ->
       generation = Map.get(state.cooking_progress, position, 0) + 1
 
@@ -6499,6 +6503,9 @@ defmodule Valimc.World.RegionData do
   defp container_matches?(%{cooking: _, kind: kind}, block),
     do: Valimc.Blocks.CookingBlocks.kind(block) == kind
 
+  defp container_matches?(%{brewing: _}, block),
+    do: Valimc.Blocks.block_entity(block) == :brewing_stand
+
   defp container_matches?(%{rows: 3}, block), do: Valimc.Blocks.block_entity(block) == :chest
 
   defp container_matches?(%{kind: kind, slots: _}, block),
@@ -6992,6 +6999,11 @@ defmodule Valimc.World.RegionData do
                      entry.cooking,
                      entry.recipes
                    ),
+                 do: {:ok, next, [position | content]}
+
+          match?(%{brewing: _}, entry) ->
+            with {:ok, next, _} <-
+                   Containers.replace_brewing(acc, position, old.revision, entry.brewing),
                  do: {:ok, next, [position | content]}
 
           entry.slots != old.slots ->
@@ -8805,6 +8817,14 @@ defmodule Valimc.World.RegionData do
                    Valimc.Blocks.CookingBlocks.kind(original) == entry.kind and
                    Valimc.Blocks.CookingBlocks.kind(block) != entry.kind)
 
+        # A brewing stand's bottles keep its entry; ending it with contents
+        # spills them in the same commit.
+        %{brewing: brewing} = entry ->
+          original = Blocks.get(state.blocks, position)
+
+          block != original and Enum.any?(Tuple.to_list(brewing.slots), &(&1 != nil)) and
+            Valimc.Blocks.block_entity(block) != :brewing_stand and retired[position] != entry
+
         # A chest's or a machine's state that keeps its container (a hopper's
         # `enabled`, a dispenser's `triggered`) keeps its entry; one that
         # ends it with contents must spill them in the same commit.
@@ -9310,6 +9330,19 @@ defmodule Valimc.World.RegionData do
             preserved_use?(state, position, block) ->
               Valimc.Menus.MenuAccess.refuse_use(block, position, grant, now)
 
+            # Brewing stands (VMC-034o); a generated one holding potions is preserved.
+            Valimc.Blocks.BrewingStand.stand?(block) or
+                (is_map(grant) and grant[:menu] == :brewing) ->
+              Valimc.Menus.MenuAccess.authorize(
+                :brewing,
+                block,
+                state.containers.entries[position],
+                nil,
+                position,
+                grant,
+                now
+              )
+
             # Hoppers, droppers and dispensers (VMC-049a), barrels (VMC-032c1)
             # and shulker boxes (VMC-032c2).
             Valimc.Menus.MenuAccess.menu(block) in [:hopper, :dispenser, :storage] or
@@ -9361,8 +9394,11 @@ defmodule Valimc.World.RegionData do
 
     decision =
       case decision do
-        {:cooking, block, entry} -> {:cooking, block, Map.put(entry, :generation, generation)}
-        _ -> decision
+        {kind, block, entry} when kind in [:cooking, :brewing] ->
+          {kind, block, Map.put(entry, :generation, generation)}
+
+        _ ->
+          decision
       end
 
     if is_map(grant) and grant[:menu] in Valimc.Menus.MenuAccess.containers() and
@@ -9388,7 +9424,7 @@ defmodule Valimc.World.RegionData do
                ) do
             {:ok, viewers, retired, lids} ->
               viewers =
-                if grant.menu == :cooking,
+                if grant.menu in [:cooking, :brewing],
                   do: ContainerViewers.observed_progress(viewers, connection, ref, generation),
                   else: viewers
 
@@ -9411,7 +9447,7 @@ defmodule Valimc.World.RegionData do
             )
 
           viewers =
-            if grant.menu == :cooking,
+            if grant.menu in [:cooking, :brewing],
               do: ContainerViewers.observed_progress(viewers, connection, ref, generation),
               else: viewers
 

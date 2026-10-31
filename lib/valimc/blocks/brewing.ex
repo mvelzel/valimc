@@ -6,10 +6,10 @@ defmodule Valimc.Blocks.Brewing do
   `BrewingStandBlockEntity.serverTick` as a pure step over the five slots (three
   bottles, the ingredient, the fuel) and the stand's times.
 
-  A stand's state is `%Brewing{}`: the brew time left and its total, the fuel
-  uses left and their total, the fuel's speed, the ingredient a brew started
-  with (`ingredient`, an item id) and the bottle bits last shown on the block
-  (`shown`, nil before the first tick).
+  A stand's state is `%Brewing{}`: its five slots, the brew time left and its
+  total, the fuel uses left and their total, the fuel's speed, the ingredient
+  a brew started with (`ingredient`, an item id) and the bottle bits last
+  shown on the block (`shown`, nil before the first tick).
   """
   use Valimc.Data.Facts, "crafting/brewing.json"
   alias Valimc.Data.PotionTypes
@@ -17,7 +17,8 @@ defmodule Valimc.Blocks.Brewing do
 
   # A placed stand's totals start at 0; a saved one without them reads 400
   # and 20 (`loadAdditional`).
-  defstruct brew_time: 0,
+  defstruct slots: {nil, nil, nil, nil, nil},
+            brew_time: 0,
             total_brew_time: 0,
             fuel: 0,
             total_fuel: 0,
@@ -43,6 +44,31 @@ defmodule Valimc.Blocks.Brewing do
   @remainders Map.new(@facts["reagent_remainders"], fn {item, rest} ->
                 {ItemTypes.id(item), ItemTypes.id(rest)}
               end)
+
+  @int_max 2_147_483_647
+
+  @doc "Whether a stand's state is in its bounds (slots, times, speed, ingredient, bottles)."
+  def valid?(%__MODULE__{slots: slots} = b) do
+    is_tuple(slots) and tuple_size(slots) == 5 and
+      Enum.all?(
+        Tuple.to_list(slots),
+        &(&1 == nil or match?(%ItemStack{count: c} when c >= 1, &1))
+      ) and
+      Enum.all?(
+        [b.brew_time, b.total_brew_time, b.fuel, b.total_fuel],
+        &(is_integer(&1) and &1 in 0..@int_max)
+      ) and
+      is_float(b.speed) and Valimc.Data.Float32.round(b.speed) == b.speed and
+      (b.ingredient == nil or (is_integer(b.ingredient) and b.ingredient in 0..@int_max)) and
+      (b.shown == nil or
+         (is_list(b.shown) and length(b.shown) == 3 and Enum.all?(b.shown, &is_boolean/1)))
+  end
+
+  def valid?(_), do: false
+
+  @doc "Whether a stand holds nothing and runs nothing (an empty entry)."
+  def empty?(%__MODULE__{slots: {nil, nil, nil, nil, nil}, brew_time: 0, fuel: 0}), do: true
+  def empty?(_), do: false
 
   @doc "Whether `stack` is a reagent (`RecipePropertySet.BREWING_REAGENTS`)."
   def reagent?(%ItemStack{item_id: id}), do: MapSet.member?(@reagents, id)
@@ -98,13 +124,24 @@ defmodule Valimc.Blocks.Brewing do
   end
 
   @doc """
-  One `serverTick`: `{stand, slots, events}` with `slots` a map of the five
-  slots (0..2 bottles, 3 the ingredient, 4 the fuel; absent is empty).
-  Events, in order: `:changed` (`setChanged`), `{:drop, stack}` (a
-  remainder dropped at the stand), `{:level_event, 1035}` (a brew finished)
-  and `{:bottles, [b0, b1, b2]}` (the `has_bottle_*` states to set).
+  One `serverTick`: `{stand, events}`. The slots are 0..2 the bottles, 3 the
+  ingredient and 4 the fuel. Events, in order: `:changed` (`setChanged`),
+  `{:drop, stack}` (a remainder dropped at the stand), `{:level_event, 1035}`
+  (a brew finished) and `{:bottles, [b0, b1, b2]}` (the `has_bottle_*`
+  states to set).
   """
-  def tick(%__MODULE__{} = stand, slots) when is_map(slots) do
+  def tick(%__MODULE__{slots: tuple} = stand) do
+    slots =
+      for {stack, i} <- Enum.with_index(Tuple.to_list(tuple)),
+          stack != nil,
+          into: %{},
+          do: {i, stack}
+
+    {stand, slots, events} = tick(stand, slots)
+    {%{stand | slots: List.to_tuple(for i <- 0..4, do: slots[i])}, events}
+  end
+
+  defp tick(%__MODULE__{} = stand, slots) do
     {stand, slots, events} = refuel(stand, slots, [])
     brewable = brewable?(slots)
     ingredient = slots[3]
