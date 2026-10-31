@@ -88,6 +88,17 @@ defmodule Valimc.WorldSettingsTest.Serial do
     Source.collect(source)
   end
 
+  test "execute in and positioned change the source the command after run sees (VMC-083)" do
+    previous = Settings.get(:spawn)
+    on_exit(fn -> Settings.put(spawn: previous) end)
+
+    run(:overworld, "execute in minecraft:the_nether positioned 5 80 6 run setworldspawn ~ ~1 ~")
+    assert Spawn.dimension() == :the_nether
+    assert Spawn.position() == {5, 81, 6}
+    assert run(:overworld, "execute in minecraft:nowhere run seed") =~ "nowhere"
+    assert run(:overworld, "execute in minecraft:the_end") =~ "Unknown or incomplete"
+  end
+
   test "setworldspawn keeps the executing dimension and pitch; defaultgamemode persists" do
     previous = Settings.get(:spawn)
     mode = Settings.get(:default_game_mode)

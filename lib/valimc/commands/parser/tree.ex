@@ -45,7 +45,8 @@ defmodule Valimc.Commands.Parser.Tree do
   @doc """
   The tree for `commands`: name => options (`except:` paths, `only:` paths,
   `own: true` for a ValiMC command without a vanilla node, with an optional
-  `tree:` callback for its subtree). Executable nodes
+  `tree:` callback for its subtree, `branches:` the paths a forking command
+  keeps). Executable nodes
   run their command's name; redirects are kept when their target is.
   """
   def build(commands) do
@@ -57,7 +58,8 @@ defmodule Valimc.Commands.Parser.Tree do
       |> Enum.map(&prune(&1, [], commands[&1["name"]], &1["name"]))
       |> Enum.reject(&is_nil/1)
 
-    kept = MapSet.new(paths(children))
+    # The root is kept: `execute run` redirects to it.
+    kept = MapSet.new([[] | paths(children)])
     children = Enum.map(children, &drop_dangling(&1, kept))
 
     # Aliases (`tp`, `xp`, `tell`, `w`) are top-level redirects to kept commands.
@@ -100,10 +102,22 @@ defmodule Valimc.Commands.Parser.Tree do
     command = if json["executable"] && runs?(options, path), do: name
 
     cond do
+      # A forking command (`execute`) keeps only the branches it runs.
+      not branch?(options, path) -> nil
       # A redirect stays when its target does (`drop_dangling/2`).
       json["redirect"] -> node(json, path, command, [])
       command != nil or children != [] -> node(json, path, command, children)
       true -> nil
+    end
+  end
+
+  defp branch?(options, path) do
+    case Keyword.fetch(options, :branches) do
+      {:ok, branches} ->
+        Enum.any?(branches, &(List.starts_with?(&1, path) or List.starts_with?(path, &1)))
+
+      :error ->
+        true
     end
   end
 

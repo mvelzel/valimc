@@ -170,6 +170,26 @@ defmodule Valimc.EntityBodiesTest do
 
     defp pid_of({pid, _}), do: pid
 
+    test "/summon with entity data equips, ages and stills the mob (VMC-083)", ctx do
+      {rx, rz} = ctx.key
+      {x, z} = {rx * 128 + 60.5, rz * 128 + 60.5}
+      source = %{Valimc.Commands.Source.rcon() | dimension: :overworld, position: {x, 64.0, z}}
+
+      Valimc.Commands.run(
+        source,
+        ~s(summon zombie ~ ~ ~ {equipment:{head:{id:"iron_helmet"},mainhand:{id:"minecraft:iron_sword",count:1}},IsBaby:1b,NoAI:true,Health:5.0f})
+      )
+
+      assert Valimc.Commands.Source.collect(source) =~ "Summoned new Zombie"
+      Valimc.TestWait.until(fn -> map_size(store(ctx.owner).entries) == 1 end)
+      [entry] = Map.values(store(ctx.owner).entries)
+      body = Valimc.TestBodies.entry(entry).body
+      helmet = Valimc.Protocol.ItemTypes.id("iron_helmet")
+      assert %{head: %{item_id: ^helmet}, mainhand: %{count: 1}} = body.mob.equipment
+      assert body.data.baby and body.mob.no_ai and body.mob.living.health.value == 5.0
+      assert body.mob.finalize == nil
+    end
+
     test "/summon makes modelled types, /kill and /tp select bodies", ctx do
       {rx, rz} = ctx.key
       {x, z} = {rx * 128 + 60.5, rz * 128 + 60.5}
@@ -188,7 +208,7 @@ defmodule Valimc.EntityBodiesTest do
       assert run.("summon zombie") =~ "Summoned new Zombie"
       assert run.("summon tnt ~1 ~ ~") =~ "Summoned new Primed TNT"
       assert run.("summon snow_golem") =~ "not supported yet"
-      assert run.("summon zombie ~ ~ ~ {NoAI:1b}") =~ "not supported yet"
+      assert run.("summon zombie ~ ~ ~ {Fire:20s}") =~ "The entity data Fire is not supported yet"
       Valimc.TestWait.until(fn -> map_size(store(ctx.owner).entries) == 2 end)
 
       Valimc.TestWait.until(fn ->

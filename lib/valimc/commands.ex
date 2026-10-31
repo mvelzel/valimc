@@ -45,6 +45,7 @@ defmodule Valimc.Commands do
       "dialog" => {C.Effects, :dialog},
       "difficulty" => {C.World, :difficulty},
       "effect" => {C.Players, :effect},
+      "execute" => {C.Execute, :fork, branches: C.Execute.branches()},
       "experience" => {C.Players, :experience},
       "fill" =>
         {C.World, :fill,
@@ -116,8 +117,10 @@ defmodule Valimc.Commands do
       {module, function} = handler(name)
       Code.ensure_loaded!(module)
 
+      # A forking command (`execute`) runs the command its branches lead to.
       unless function_exported?(module, function, 2) and
-               Enum.any?(nodes, &(elem(&1, 1).command == name)),
+               (Enum.any?(nodes, &(elem(&1, 1).command == name)) or
+                  Keyword.has_key?(options(entry), :branches)),
              do: raise("Command #{name} runs no vanilla node or has no handler")
 
       for path <- Keyword.get(options(entry), :only, []),
@@ -193,8 +196,12 @@ defmodule Valimc.Commands do
   """
   def run(%Source{} = source, input) do
     case parse(input, source) do
-      {:ok, {module, function}, arguments, _context} ->
+      {:ok, {module, function}, arguments, %{child: nil}} ->
         execute(source, module, function, arguments)
+
+      # Through `/execute`'s modifiers (VMC-083), once per source they make.
+      {:ok, handler, arguments, context} ->
+        execute(source, Valimc.Commands.Execute, :fork, {context, handler, arguments})
 
       {:error, error} ->
         for message <- Error.feedback(error, input), do: Feedback.success(source, message, false)

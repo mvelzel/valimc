@@ -17,7 +17,7 @@ defmodule Valimc.Player.Attack do
   (Strength, Weakness, Haste, Mining Fatigue) and post-attack enchantment
   effects (Fire Aspect, Bane of Arthropods' slowness) are VMC-037's.
   """
-  alias Valimc.Data.{EntityTypes, Float32, Grid}
+  alias Valimc.Data.{EffectTypes, EntityTypes, Float32, Grid}
   alias Valimc.Living.{Attributes, DamageSource, Durability, Melee, Weapons}
   alias Valimc.Menus.Inventory
   alias Valimc.Player.{CreativeInventory, Input, Movement, Vitals}
@@ -229,7 +229,7 @@ defmodule Valimc.Player.Attack do
     effects = player.living.effects
     enchantments = enchantments(mainhand)
     target = EntityTypes.id(view.type)
-    damage = attribute(mainhand, "minecraft:attack_damage")
+    damage = attack_damage(mainhand, effects)
     sprinting = Attributes.sprinting?(player.input.shared_flags)
     motion = player.motion
     {:ok, movement} = Attributes.movement_speed(effects, sprinting)
@@ -482,12 +482,26 @@ defmodule Valimc.Player.Attack do
     derived.value
   end
 
-  defp attribute(mainhand, name) do
+  @doc """
+  The player's `minecraft:attack_damage` with `mainhand` held under
+  `effects`: the weapon's modifiers, then Strength's and Weakness's
+  (`MobEffect.createModifiers`).
+  """
+  def attack_damage(mainhand, effects),
+    do: attribute(mainhand, "minecraft:attack_damage", effects)
+
+  defp attribute(mainhand, name, effects \\ %{}) do
     modifiers =
       for {^name, id, amount, op} <- Weapons.modifiers(mainhand, :mainhand),
           do: {id, amount, op}
 
-    Attributes.value(name, Weapons.player_base(name), modifiers)
+    from_effects =
+      for {effect, [{_, amplifier, _, _, _} | _]} <- Enum.sort(effects),
+          {^name, id, amount, op} <-
+            Valimc.Data.HostileFacts.effect_modifiers(EffectTypes.name(effect), amplifier),
+          do: {id, amount, op}
+
+    Attributes.value(name, Weapons.player_base(name), modifiers ++ from_effects)
   end
 
   defp enchantments(nil), do: %{}

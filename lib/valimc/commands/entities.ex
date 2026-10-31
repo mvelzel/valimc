@@ -28,14 +28,13 @@ defmodule Valimc.Commands.Entities do
     if difficulty.level == 0 and not facts.peaceful,
       do: Error.fail!("commands.summon.failed.peaceful")
 
-    if Map.has_key?(arguments, "nbt"),
-      do: Error.refuse!("Summoning with entity data is not supported yet")
-
     body =
-      case Body.new(type) do
-        {:ok, %Body{mob: nil} = body} -> body
-        {:ok, body} -> %{body | mob: %{body.mob | finalize: :command}}
-        {:error, :unmodelled_type} -> Error.refuse!("Summoning #{type} is not supported yet")
+      case {Body.new(type), arguments["nbt"]} do
+        {{:error, :unmodelled_type}, _} -> Error.refuse!("Summoning #{type} is not supported yet")
+        {{:ok, %Body{mob: nil} = body}, nil} -> body
+        {{:ok, body}, nil} -> %{body | mob: %{body.mob | finalize: :command}}
+        # With entity data a mob does not finish its spawn (`initialize` false).
+        {{:ok, body}, {:compound, tags}} -> Enum.reduce(Enum.sort(tags), body, &entity_data/2)
       end
 
     record = Store.body_record(body, :crypto.strong_rand_bytes(16), position)
@@ -53,6 +52,68 @@ defmodule Valimc.Commands.Entities do
       _ -> Error.fail!("commands.summon.failed")
     end
   end
+
+  # `/summon`'s entity data a mob reads (`Mob.readAdditionalSaveData`, VMC-083):
+  # its equipment, name, `NoAI`, persistence and health, a zombie's `IsBaby`;
+  # other keys are refused.
+  @equipment Map.new(Valimc.Entity.Mob.slots(), fn {slot, _} -> {Atom.to_string(slot), slot} end)
+
+  defp entity_data({"equipment", {:compound, slots}}, %Body{mob: %{} = mob} = body) do
+    equipment =
+      Enum.reduce(slots, mob.equipment, fn {name, item}, equipment ->
+        slot = @equipment[name] || Error.refuse!("Unknown equipment slot #{name}")
+        Map.put(equipment, slot, item_stack(item))
+      end)
+
+    %{body | mob: %{mob | equipment: equipment}}
+  end
+
+  defp entity_data({"CustomName", name}, %Body{mob: %{}} = body), do: Body.name(body, name)
+
+  defp entity_data({"NoAI", flag}, %Body{mob: %{} = mob} = body),
+    do: %{body | mob: %{mob | no_ai: truthy(flag)}}
+
+  defp entity_data({"PersistenceRequired", flag}, %Body{mob: %{} = mob} = body),
+    do: %{body | mob: %{mob | persistent: truthy(flag)}}
+
+  defp entity_data({"Health", {kind, value}}, %Body{mob: %{} = mob} = body)
+       when kind in [:float, :double, :int, :short, :byte] do
+    value =
+      case value do
+        <<v::float-32>> -> v
+        <<v::float-64>> -> v
+        v -> v * 1.0
+      end
+
+    health = %{mob.living.health | value: min(value, mob.living.health.maximum)}
+    %{body | mob: %{mob | living: %{mob.living | health: health}}}
+  end
+
+  defp entity_data({"IsBaby", flag}, %Body{data: %{baby: _} = data} = body),
+    do: %{body | data: %{data | baby: truthy(flag)}}
+
+  defp entity_data({key, _}, _body),
+    do: Error.refuse!("The entity data #{key} is not supported yet")
+
+  defp item_stack({:compound, %{"id" => {:string, id}} = item}) do
+    if Map.keys(item) -- ["id", "count"] != [],
+      do: Error.refuse!("Item components in entity data are not supported yet")
+
+    count =
+      case item["count"] do
+        nil -> 1
+        {_, count} when is_integer(count) and count > 0 -> count
+        _ -> Error.refuse!("Invalid item count")
+      end
+
+    unless Valimc.Protocol.ItemTypes.known?(id), do: Error.refuse!("Unknown item #{id}")
+    Valimc.Protocol.ItemStack.new(id, count)
+  end
+
+  defp item_stack(_), do: Error.refuse!("Invalid item in entity data")
+
+  defp truthy({_, value}) when is_integer(value), do: value != 0
+  defp truthy(_), do: Error.refuse!("Expected a boolean in entity data")
 
   defp position(%{"pos" => coordinates}, source), do: Source.position(source, coordinates)
   defp position(_arguments, source), do: source.position
