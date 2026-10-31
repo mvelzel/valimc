@@ -721,6 +721,7 @@ pub fn hurt_body(
     let hit = taken.as_ref().unwrap_or(hit);
     let mut replaced = family.before_hurt(&mob.body, hit);
     let uuid = mob.uuid;
+    let position = mob.position;
     let body: &mut Body = match replaced.as_mut() {
         Some(b) => b,
         None => &mut mob.body,
@@ -817,6 +818,36 @@ pub fn hurt_body(
     // a hit that lands adds its effect, even a killing one.
     if let Some((id, rung)) = hit.effect {
         living_mob::add_effect(rules.facts, ty.id, &mut body.mob, id, rung);
+    }
+    // `InfestedMobEffect.onMobHurt`: silverfish from the middle of its box,
+    // which its owner spawns.
+    if body
+        .mob
+        .living
+        .effects
+        .get(rules.living.effects.infested)
+        .is_some()
+    {
+        let (pitch, yaw) = (body.pitch, body.yaw);
+        let velocities = super::living::removal::infested(random(&mut body.mob, &uuid), pitch, yaw);
+        if !velocities.is_empty() {
+            let [_, height, _] = super::living::body::dimensions(rules, ty, body);
+            let at = [
+                position[0],
+                position[1] + f64::from(height as f32) / 2.0,
+                position[2],
+            ];
+            for v in velocities {
+                body.mob.spawns.push(Value::tuple([
+                    Value::Binary(b"minecraft:silverfish".to_vec()),
+                    Value::vec3(at),
+                    Value::Map(Map::from_atoms([
+                        ("velocity", Value::vec3(v)),
+                        ("hurt_sound", Value::bool(true)),
+                    ])),
+                ]));
+            }
+        }
     }
     if outcome.died {
         died(rules, ty, family, body, &uuid, Some(hit));

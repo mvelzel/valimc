@@ -512,6 +512,10 @@ impl Kind for Cube {
     fn fresh_data(&self, _type_id: u16) -> Vec<(Atom, Value)> {
         Cube::data_of()
     }
+
+    fn resize(&self, rules: &Rules, body: &mut Body, size: i64) {
+        self.set_size(rules.facts, &mut body.mob, &mut body.data, size);
+    }
 }
 
 impl Cube {

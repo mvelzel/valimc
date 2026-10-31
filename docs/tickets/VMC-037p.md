@@ -1,6 +1,6 @@
 # VMC-037p — Every status effect
 
-Status: In progress
+Status: Awaiting client
 Milestone: M4
 Depends on: [VMC-037n](VMC-037n.md), [VMC-043b](VMC-043b.md) (mobs and their
 effects), [VMC-085](VMC-085.md) (Saturation, Strength, Weakness).
@@ -95,9 +95,113 @@ Acceptance:
 
 ## Results
 
-- `player_mining` covers Haste, Conduit Power and Mining Fatigue: 144 effect
-  rows, 16 contexts each.
+### 037p1
+
+- **The gate is gone.** `Effects.live/0` and the login refusal of unknown
+  saved effects are removed. `/effect give` and `/effect clear` take mobs
+  (`Region.effect_entities/3`, the section's `mob_section_effect` `add`,
+  `remove` and `clear`).
+- **Mobs.** One `living::mob::add_effect` serves every path: the NIF, drinks,
+  spawn effects, witches, gifts and play-dead. It does the following:
+  - refuses the generated immunities;
+  - merges the effect in;
+  - refreshes its modifiers from `effect_modifiers`;
+  - fills Absorption's pool.
+
+  On the tick, a promoted or ended effect refreshes its modifiers, and an
+  empty pool ends Absorption. Health Boost's maximum follows `max_health`;
+  lowering it clamps health. A lower maximum absorption clamps the pool.
+  Timed Instant Health and Damage act each tick and invert for
+  `inverted_healing_and_harm`. The dragon still refuses everything (its own
+  `addEffect`).
+- **Hit effects.** A hit's `effect` (tipped arrows, a wither skeleton's
+  wither, a cave spider's poison) reaches mobs through `Hit.effect`, even on
+  a killing hit.
+- **Players.**
+  - Haste and Conduit Power join `MiningSpeed`.
+  - Health Boost sets `health.maximum` and sends `max_health`. The maximum is
+    restored with the effects; a removal clamps health, and a respawn starts
+    at 20.
+  - Luck and Bad Luck send `luck` and feed chest unpacking (the opener's
+    grant) and kill loot (the killing player's `Attacker.luck`, as
+    `Death.luck`).
+- **Oracles.**
+  - `mob_effects` (`HostileOracle effects`, `mob_effect_parity`): 12 vanilla
+    scripts on fresh zombies, skeletons, cows, spiders, cave spiders, wither
+    skeletons, silverfish and slimes. They cover refusals, refresh, promotion
+    and expiry with movement speed, the Health Boost and Absorption clamps, and
+    undead instant effects. They equal ours after every operation.
+  - `player_mining`'s effect rows equal `getDestroySpeed` bit for bit.
+  - `effect_metadata` and `hostile_facts` regenerate equal.
+
+### 037p2
+
+- **Flags.** The shared flags carry Invisibility (0x20) and Glowing (0x40)
+  for players (`Player.Packets.shared_flags/1`) and native mobs
+  (`living::body::values`).
+- **Particles.** `Living.Effects.particles/1` and its native twin give
+  `effect_particles` and `effect_ambience`. A tinted `entity_effect` is the
+  effect's colour at alpha 255, or 38 when ambient; the omens, Wind Charged,
+  Weaving, Oozing and Infested show their own particles; hidden effects
+  show none. Players send them to observers (the tracker) and to themselves;
+  mobs send them with their entity data. The `entity` stage checks the
+  encoding against vanilla's packets.
+- **Targeting.** A mob targeting an invisible mob sees it at `0.7 ×` its
+  armour cover (`sensing::visibility`).
+- **Sounds.** The omens play their sound when first added, from the player
+  or the mob (`EffectFacts`' sound ids).
+
+### 037p3
+
+- **Rules.** `living::removal` holds the death and hurt rules, drawn from
+  the entity's own random.
+- **Mobs.** A dead native mob's removal (after its death's 20 ticks) and an
+  exploded creeper (`explodeCreeper` goes as killed) run them through
+  `mob_section_removed`. The owner then:
+  - bursts Wind Charged (`Explosion.wind/2`: no damage, a plain push, the
+    gust particles and the breeze's sound);
+  - weaves cobwebs on the first replaceable cells over a sturdy floor, only
+    with `mob_griefing` (with level event 3018);
+  - oozes size-2 slimes (`mob_section_fresh_sized`, capped by
+    `max_entity_cramming` and the slimes near it).
+
+  Infested queues silverfish on the mob, which leave with the section's next
+  step, moving along its look and crying out.
+- **Players.** A player's death animation ends with the same effects
+  (`effect_removal`, Weaving whatever the rules), sent to its owner, and an
+  Infested player's hurts release silverfish (`effect_infested`).
+- **Movement.** Weaving's `(0.5, 0.25, 0.5)` cobweb motion is on for
+  players and mobs.
+- **Oracles.** `effect_removal` (`HostileOracle removal`) checks Weaving's
+  count and 15 cells and Wind Charged's strength over 200 seeds, and
+  Infested's silverfish motion over 800 hurts, 92 of them releasing (JOML's
+  `rotateY` in floats). The region test "a killed zombie under Weaving and
+  Oozing leaves cobwebs and two slimes" runs the owner's side.
+- **Digests.** `mob_kernel_parity`'s digests were renewed: `Ticked` prints
+  the kernel mob, which gained `weaving`. Its traces are otherwise identical
+  to main's.
+
+## Left for later
+
+- Wind Charged's burst does not trigger blocks (doors, buttons, bells);
+  that comes with wind charges.
+- The cobweb and silverfish level-random draws (a slime's or silverfish's
+  facing) use the owner's random.
+- A boosted mob's saved health is restored up to its type's maximum.
 
 ## Awaiting client
 
-To be filled as slices land.
+In M4's batched run:
+- **Health Boost** gives extra hearts that stay through a rejoin and go,
+  clamping health, when it ends.
+- **Glowing** outlines the player and a mob for other players.
+  **Invisibility** hides them, and mobs lose track of an invisible zombie.
+- **Swirls:** effect particles show around other players and mobs (faint
+  from a beacon or `/effect … true`); Wind Charged, Weaving, Oozing and
+  Infested show their own.
+- **Omens:** Bad Omen, Trial Omen and Raid Omen play their sound.
+- **Death effects:** a Weaving zombie's death leaves cobwebs, an Oozing
+  one's two slimes, and a Wind Charged one's a gust that pushes the player.
+- **Infested:** a hit on an Infested player or zombie sometimes releases
+  silverfish.
+- **Haste** mines faster, and the client's mining matches the server's.

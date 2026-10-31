@@ -521,6 +521,49 @@ public class HostileOracle {
     };
   }
 
+  // VMC-037p: the draws of `WeavingMobEffect.spawnCobwebsRandomlyAround`
+  // (its count, then `BlockPos.randomInCube(random, 15, pos, 1)`),
+  // `WindChargedMobEffect.onMobRemoved`'s strength and
+  // `InfestedMobEffect.onMobHurt`'s silverfish motion along a zombie's look,
+  // each from an entity random seeded alike.
+  static JsonObject removal(Level level) {
+    var weaving = new JsonArray(); var wind = new JsonArray(); var infested = new JsonArray();
+    var zombie = MobAiOracle.mob("minecraft:zombie", level);
+    var at = new BlockPos(5, 64, -3);
+    float[][] looks = {{0, 0}, {30.5f, -135.25f}, {-89.9f, 270f}, {12f, 45f}};
+    // Seeds from a master random: neighbouring seeds begin alike.
+    var seeds = new java.util.Random(370);
+    for (int n = 0; n < 200; n++) {
+      long seed = seeds.nextLong();
+      var r = net.minecraft.util.RandomSource.create(seed);
+      var row = new JsonObject(); row.addProperty("seed", seed);
+      row.addProperty("count", net.minecraft.util.Mth.randomBetweenInclusive(r, 2, 3));
+      var cells = new JsonArray();
+      for (var p : BlockPos.randomInCube(r, 15, at, 1)) { var c = new JsonArray(); c.add(p.getX()); c.add(p.getY()); c.add(p.getZ()); cells.add(c); }
+      row.add("cells", cells); weaving.add(row);
+      r = net.minecraft.util.RandomSource.create(seed);
+      var w = new JsonObject(); w.addProperty("seed", seed); w.addProperty("strength", (double)(3.0F + r.nextFloat() * 2.0F)); wind.add(w);
+      for (var look : looks) {
+        zombie.setXRot(look[0]); zombie.setYRot(look[1]);
+        r = net.minecraft.util.RandomSource.create(seed);
+        var row2 = new JsonObject(); row2.addProperty("seed", seed); row2.addProperty("pitch", look[0]); row2.addProperty("yaw", look[1]);
+        var vs = new JsonArray();
+        if (r.nextFloat() <= 0.1F) {
+          int count = net.minecraft.util.Mth.randomBetweenInclusive(r, 1, 2);
+          for (int i = 0; i < count; i++) {
+            float angle = net.minecraft.util.Mth.randomBetween(r, (float)(-Math.PI / 2), (float)(Math.PI / 2));
+            var v = zombie.getLookAngle().toVector3f().mul(0.3F).mul(1.0F, 1.5F, 1.0F).rotateY(angle);
+            var c = new JsonArray(); c.add((double)v.x); c.add((double)v.y); c.add((double)v.z); vs.add(c);
+          }
+        }
+        row2.add("velocities", vs); infested.add(row2);
+      }
+    }
+    var out = new JsonObject(); out.add("weaving", weaving); out.add("wind", wind); out.add("infested", infested);
+    out.add("at", new Gson().toJsonTree(new int[] {at.getX(), at.getY(), at.getZ()}));
+    return out;
+  }
+
   static JsonArray effects(Level level) throws Exception {
     var tick = LivingEntity.class.getDeclaredMethod("tickEffects"); tick.setAccessible(true);
     var hidden = net.minecraft.world.effect.MobEffectInstance.class.getDeclaredField("hiddenEffect"); hidden.setAccessible(true);
@@ -885,7 +928,12 @@ public class HostileOracle {
           Files.writeString(Path.of(args[1]), json.create().toJson(out));
           System.out.println("PASS: " + out.size() + " vanilla effect scripts on fresh mobs (refusals, modifiers through refresh, promotion and expiry, Health Boost and Absorption clamps, undead instant effects).");
         }
-        default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases|effects OUT.json");
+        case "removal" -> {
+          var out = removal(level);
+          Files.writeString(Path.of(args[1]), json.create().toJson(out));
+          System.out.println("PASS: vanilla Weaving, Wind Charged and Infested draws over " + out.getAsJsonArray("weaving").size() + " seeds.");
+        }
+        default -> throw new IllegalArgumentException("usage: HostileOracle facts|spawns|cases|effects|removal OUT.json");
       }
     }
   }

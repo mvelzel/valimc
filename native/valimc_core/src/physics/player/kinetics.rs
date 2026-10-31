@@ -483,7 +483,7 @@ impl Player {
                     feet: position,
                     flying: self.flying,
                     spectator: self.spectator(),
-                    weaving: false,
+                    weaving: self.weaving,
                 },
                 grounded: motion.physical_ground,
                 careful: self.shift,
@@ -627,7 +627,7 @@ impl Player {
                 feet: moved,
                 flying: self.flying,
                 spectator,
-                weaving: false,
+                weaving: self.weaving,
             },
         )?;
         let grounded = actual[1] != step.requested[1] && step.requested[1] < 0.0;

@@ -142,6 +142,7 @@ fn mob(n: u8, position: [f64; 3]) -> NativeMob {
                 player_memory: 0,
                 hurt_by: None,
                 death: None,
+                spawns: Vec::new(),
                 persistent: false,
                 left_handed: false,
                 can_pick_up_loot: false,

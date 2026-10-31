@@ -991,6 +991,7 @@ fn restore_mob(record: &Value, type_facts: &TypeFacts, facts: &RecordFacts) -> R
         player_memory,
         hurt_by: None,
         death: None,
+        spawns: Vec::new(),
         persistent,
         left_handed,
         can_pick_up_loot,

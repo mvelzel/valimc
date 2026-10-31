@@ -22,6 +22,11 @@ defmodule Valimc.World.Explosion do
     again and planned from what stands there. Cells with a block entity
     are left standing (their contents need the container spill).
 
+  A wind burst (`wind`, a Wind Charged entity's death, VMC-037p) hurts
+  nothing and shows gusts (`AbstractWindCharge.EXPLOSION_DAMAGE_CALCULATOR`):
+  it only pushes. Its blocks' triggers (doors, buttons, bells) wait for wind
+  charges.
+
   An explosion with `fire` (a ghast's fireball, VMC-037o) lights a third
   of its air cells over a solid block (`createFire`). Entity sources (who
   lit the TNT) come with their sources. Its `source` is the damage type it
@@ -46,7 +51,9 @@ defmodule Valimc.World.Explosion do
     interacts: true,
     fire: false,
     source: :explosion,
-    blocks: true
+    blocks: true,
+    damages: true,
+    wind: false
   ]
 
   @tnt_offset Float32.round(0.98) * 0.0625
@@ -85,6 +92,20 @@ defmodule Valimc.World.Explosion do
       source: :bad_respawn_point,
       decay: GameRules.get(:block_explosion_drop_decay),
       blocks: blocks
+    }
+
+  @doc """
+  A Wind Charged entity's burst at `center` of `strength`
+  (`WindChargedMobEffect.onMobRemoved`: `ExplosionInteraction.TRIGGER`).
+  """
+  def wind(center, strength),
+    do: %__MODULE__{
+      center: center,
+      radius: strength * 1.0,
+      decay: false,
+      blocks: false,
+      damages: false,
+      wind: true
     }
 
   @doc "Whether the explosion shows its small particle (`ServerExplosion.isSmall`)."
@@ -139,7 +160,12 @@ defmodule Valimc.World.Explosion do
 
     cond do
       match?(%{body: %{type: "minecraft:end_crystal"}}, entry) ->
-        if entry.body.data.invulnerable, do: {:push, {0.0, 0.0, 0.0}}, else: :destroy
+        if entry.body.data.invulnerable or not explosion.damages,
+          do: {:push, {0.0, 0.0, 0.0}},
+          else: :destroy
+
+      not explosion.damages ->
+        {:push, impulse}
 
       kind == :mob ->
         {:hurt, damage, impulse, explosion.source}

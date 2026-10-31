@@ -139,6 +139,8 @@ pub struct Mob {
     pub size: Dimensions,
     pub attributes: Attributes,
     pub no_gravity: bool,
+    /// Weaving: cobwebs hold it at (0.5, 0.25, 0.5).
+    pub weaving: bool,
     pub slow_falling: bool,
     pub levitation: Option<i32>,
     pub jump_boost: i32,
@@ -1071,7 +1073,7 @@ pub fn tick(w: &World, mob: &Mob) -> Result<Ticked, Fault> {
         feet: m.position,
         flying: false,
         spectator: false,
-        weaving: false,
+        weaving: m.weaving,
     };
     let Slowing {
         multiplier,
@@ -1720,6 +1722,7 @@ impl Default for Mob {
             },
             attributes: Attributes::default(),
             no_gravity: false,
+            weaving: false,
             slow_falling: false,
             levitation: None,
             jump_boost: -1,

@@ -163,16 +163,6 @@ impl Shared {
 
 // ## Staring
 
-/// `Entity.calculateViewVector(pitch, yaw)`.
-fn view_vector(pitch: f64, yaw: f64) -> [f64; 3] {
-    let radians = f(std::f64::consts::PI / 180.0);
-    let x_rot = f(f(pitch) * radians);
-    let y_rot = f(-f(yaw) * radians);
-    let (y_cos, y_sin) = (fmath::cos(y_rot), fmath::sin(y_rot));
-    let (x_cos, x_sin) = (fmath::cos(x_rot), fmath::sin(x_rot));
-    [f(y_sin * x_cos), -x_sin, f(y_cos * x_cos)]
-}
-
 /// `Vec3.normalize`: zero below 1.0e-5.
 fn normalize([x, y, z]: [f64; 3]) -> [f64; 3] {
     let length = (x * x + y * y + z * z).sqrt();
@@ -193,7 +183,7 @@ impl Shared {
         {
             return false;
         }
-        let [lx, ly, lz] = normalize(view_vector(p.pitch, p.yaw));
+        let [lx, ly, lz] = normalize(fmath::view_vector(p.pitch, p.yaw));
         let [px, py, pz] = p.position;
         let peye = py + p.eye;
         let d = [position[0] - px, gaze - peye, position[2] - pz];

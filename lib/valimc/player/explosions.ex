@@ -36,7 +36,8 @@ defmodule Valimc.Player.Explosions do
           explosion.radius,
           count,
           knockback,
-          Explosion.small?(explosion)
+          Explosion.small?(explosion),
+          explosion.wind
         )
 
       send_packets(state, [packet])
@@ -58,7 +59,7 @@ defmodule Valimc.Player.Explosions do
     else
       {:ok, [seen]} = Kernel.exposure(Valimc.World.View.new(), center, [geometry.box])
       damage = Explosions.damage(radius, center, feet, seen)
-      state = hurt(state, damage, explosion.source)
+      state = if explosion.damages, do: hurt(state, damage, explosion.source), else: state
       # Blast Protection's `explosion_knockback_resistance` (VMC-037q).
       resistance =
         state.inventory
@@ -66,10 +67,15 @@ defmodule Valimc.Player.Explosions do
         |> Valimc.Living.Armor.attributes()
         |> Valimc.Living.Armor.enchanted_value("minecraft:explosion_knockback_resistance")
 
-      impulse = Explosions.knockback(center, geometry.eye, distance, seen, resistance)
-      state = push(state, impulse)
-
       flying = player.game_mode.current == :creative and player.abilities.flying
+
+      # A wind burst's calculator pushes no flying creative player.
+      impulse =
+        if explosion.wind and flying,
+          do: {0.0, 0.0, 0.0},
+          else: Explosions.knockback(center, geometry.eye, distance, seen, resistance)
+
+      state = push(state, impulse)
       {state, if(flying, do: nil, else: impulse)}
     end
   end

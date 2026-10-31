@@ -559,6 +559,7 @@ pub fn kernel_input(
         size: Dimensions { width, height, eye },
         attributes,
         no_gravity: body.no_gravity,
+        weaving: effects.get(e.weaving).is_some(),
         slow_falling: effects.amplifier(e.slow_falling).is_some(),
         levitation: effects.amplifier(e.levitation).map(|a| a as i32),
         jump_boost: effects.amplifier(e.jump_boost).map_or(-1, |a| a as i32),
@@ -1480,10 +1481,18 @@ pub fn finish(
             }
         }
         section.relocate(id);
+        // What its hurts released this tick or since the last (Infested).
+        let mut effects = state.out.effects;
+        let spawns = std::mem::take(&mut section.get_mut(id).expect("slot").mob.body.mob.spawns);
+        effects.extend(
+            spawns
+                .into_iter()
+                .map(|v| Effect::Ai(AiEffect::SpawnMob(v))),
+        );
         steps.push(Step {
             id,
             events: state.out.events,
-            effects: state.out.effects,
+            effects,
             moved,
             outside,
             from: state.start.position,

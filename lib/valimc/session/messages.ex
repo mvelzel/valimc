@@ -199,10 +199,11 @@ defmodule Valimc.Session.Messages do
           Metrics.add(:player_ticks)
           if late > 0, do: Metrics.add(:player_tick_lateness_ms, late)
 
-          player = %{
-            state.player
-            | living: Valimc.Living.tick(state.player.living, state.life_stage == :alive)
-          }
+          living = Valimc.Living.tick(state.player.living, state.life_stage == :alive)
+          ended = state.player.living.health.death_ticks < 20 and living.health.death_ticks == 20
+          player = %{state.player | living: living}
+          # The death animation's end removes the body (`tickDeath`): its effects act.
+          if ended, do: Vitals.death_effects(%{state | player: player})
 
           state = %{
             state

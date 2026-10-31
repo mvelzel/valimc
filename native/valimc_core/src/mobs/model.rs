@@ -88,6 +88,10 @@ pub struct Mob {
     pub hurt_by: Option<[u8; 16]>,
     /// What a death the owner has not dropped yet leaves (not saved).
     pub death: Option<Value>,
+    /// Mobs it releases that its owner has not spawned yet
+    /// (`{:spawn_mob, type, position, data}`: Infested's silverfish; not
+    /// saved).
+    pub spawns: Vec<Value>,
     /// `PersistenceRequired`.
     pub persistent: bool,
     pub left_handed: bool,

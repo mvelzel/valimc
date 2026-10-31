@@ -113,7 +113,11 @@ defmodule Valimc.Player.Menus do
         end,
       feet: {state.player.x, state.player.y, state.player.z},
       # The opener's luck, which loot an opened chest unpacks reads.
-      luck: Valimc.Living.Attributes.luck(state.player.living.effects)
+      luck:
+        case state.player do
+          %{living: living} -> Valimc.Living.Attributes.luck(living.effects)
+          _ -> 0.0
+        end
     }
 
     case state.table_menu do

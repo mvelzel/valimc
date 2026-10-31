@@ -24,7 +24,7 @@ use std::sync::{Mutex, OnceLock};
 use valimc_core::mobs::ai::think::Ctx;
 use valimc_core::mobs::combat::{self, AiMind, Attacker, Event, Hit, Rules, SoundRef};
 use valimc_core::mobs::living::mob::{self as living_mob, Type};
-use valimc_core::mobs::living::{body as living_body, health};
+use valimc_core::mobs::living::{body as living_body, effects, health};
 use valimc_core::mobs::model::{NativeMob, Rung, Slot as EquipSlot};
 use valimc_core::mobs::record::{self, RecordError, RecordFacts};
 use valimc_core::mobs::section::{chunk_of, MobSection, Slot, Written};
@@ -274,6 +274,160 @@ fn mob_section_fresh<'a>(env: Env<'a>, entity_type: String) -> NifResult<Term<'a
         }
     }
     Ok((atoms::ok(), mob_term::encode(env, &value)?).encode(env))
+}
+
+/// `mob_section_fresh/1`'s record of a fresh mob at `size` (`setSize(size,
+/// true)`: Oozing's slimes) facing `yaw`.
+#[rustler::nif]
+fn mob_section_fresh_sized<'a>(
+    env: Env<'a>,
+    entity_type: String,
+    size: i64,
+    yaw: f64,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let Some(ty) = rules.of(&entity_type).filter(|ty| ty.facts.living()) else {
+        return Ok((atoms::error(), atoms::invalid()).encode(env));
+    };
+    let mut body = living_body::fresh(&rules, ty);
+    if let Some(kind) = crate::mob_facts::kinds()?.kind(ty.id) {
+        kind.resize(&rules, &mut body, size);
+    }
+    body.yaw = yaw;
+    body.head_yaw = yaw;
+    let mob = NativeMob {
+        uuid: [0; 16],
+        position: [0.0; 3],
+        hops: 0,
+        body,
+    };
+    let mut value = record::record(&mob);
+    if let Value::Map(map) = &mut value {
+        for key in ["kind", "uuid", "x", "y", "z", "hops"] {
+            map.remove(&Value::atom(key));
+        }
+    }
+    Ok((atoms::ok(), mob_term::encode(env, &value)?).encode(env))
+}
+
+/// What dead mob `id`'s effects do as it is removed
+/// (`triggerOnDeathMobEffects`, `living::removal::removed`), from its own
+/// random: `{{x, y, z}, height, actions}`, each action `{:wind_burst,
+/// strength}`, `{:cobwebs, count, cells}` or `{:slimes, count}`; nil for a
+/// missing mob.
+#[rustler::nif]
+fn mob_section_removed<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    griefing: bool,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let mut inner = owned(env, &res)?;
+    let Some(slot) = inner.section.get_mut(id) else {
+        return Ok(rustler::types::atom::nil().encode(env));
+    };
+    let mob = &mut slot.mob;
+    let Some(ty) = rules.of(&mob.body.entity_type) else {
+        return Ok(rustler::types::atom::nil().encode(env));
+    };
+    let [_, height, _] = living_body::dimensions(&rules, ty, &mob.body);
+    let p = mob.position;
+    let cell = [
+        p[0].floor() as i32,
+        p[1].floor() as i32,
+        p[2].floor() as i32,
+    ];
+    let effects = mob.body.mob.living.effects.clone();
+    let uuid = mob.uuid;
+    let random = combat::random(&mut mob.body.mob, &uuid);
+    let actions = removal_terms(
+        &rules.living.effects,
+        &effects,
+        random,
+        cell,
+        false,
+        griefing,
+    );
+    let actions = mob_term::encode(env, &Value::List(actions))?;
+    Ok(((p[0], p[1], p[2]), height, actions).encode(env))
+}
+
+/// A player's effects `ids` as it goes (`mob_section_removed/3`'s actions,
+/// Weaving whatever the rules), drawn from a random seeded with `seed`.
+#[rustler::nif]
+fn effect_removal<'a>(
+    env: Env<'a>,
+    ids: Vec<i32>,
+    cell: (i32, i32, i32),
+    seed: i64,
+) -> NifResult<Term<'a>> {
+    let rules = rules()?;
+    let rung = Rung {
+        ticks: 1,
+        amplifier: 0,
+        ambient: false,
+        particles: true,
+        icon: true,
+    };
+    let mut effects = valimc_core::mobs::model::Effects::default();
+    for id in ids {
+        effects::add(&mut effects, id, rung);
+    }
+    let mut random = valimc_core::mobs::random::LegacyRandom::new(seed);
+    let cell = [cell.0, cell.1, cell.2];
+    let actions = removal_terms(
+        &rules.living.effects,
+        &effects,
+        &mut random,
+        cell,
+        true,
+        true,
+    );
+    mob_term::encode(env, &Value::List(actions))
+}
+
+/// `InfestedMobEffect.onMobHurt` on a player facing `pitch` and `yaw`, drawn
+/// from a random seeded with `seed`: the silverfish's velocities.
+#[rustler::nif]
+fn effect_infested(seed: i64, pitch: f64, yaw: f64) -> Vec<(f64, f64, f64)> {
+    let mut random = valimc_core::mobs::random::LegacyRandom::new(seed);
+    valimc_core::mobs::living::removal::infested(&mut random, pitch, yaw)
+        .into_iter()
+        .map(|[x, y, z]| (x, y, z))
+        .collect()
+}
+
+pub(crate) fn removal_terms(
+    ids: &valimc_core::mobs::living::facts::EffectIds,
+    effects: &valimc_core::mobs::model::Effects,
+    random: &mut valimc_core::mobs::random::LegacyRandom,
+    cell: [i32; 3],
+    player: bool,
+    griefing: bool,
+) -> Vec<Value> {
+    use valimc_core::mobs::living::removal::{self, Removed};
+    removal::removed(ids, effects, random, cell, player, griefing)
+        .into_iter()
+        .map(|r| match r {
+            Removed::WindBurst(strength) => {
+                Value::tuple([Value::atom("wind_burst"), Value::Float(f64::from(strength))])
+            }
+            Removed::Cobwebs { count, cells } => Value::tuple([
+                Value::atom("cobwebs"),
+                Value::Int(i64::from(count)),
+                Value::List(
+                    cells
+                        .into_iter()
+                        .map(|[x, y, z]| Value::tuple([x, y, z].map(|c| Value::Int(i64::from(c)))))
+                        .collect(),
+                ),
+            ]),
+            Removed::Slimes(count) => {
+                Value::tuple([Value::atom("slimes"), Value::Int(i64::from(count))])
+            }
+        })
+        .collect()
 }
 
 /// The entity properties loot tables read of mob `id` (its family's: a

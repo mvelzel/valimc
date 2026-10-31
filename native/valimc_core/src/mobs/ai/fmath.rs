@@ -158,6 +158,17 @@ pub fn distance_sq(a: [f64; 3], b: [f64; 3]) -> f64 {
     d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
 }
 
+/// `Entity.calculateViewVector(pitch, yaw)`: the facing unit vector, in
+/// floats (`Mth.sin` and `Mth.cos`).
+pub fn view_vector(pitch: f64, yaw: f64) -> [f64; 3] {
+    let radians = f(std::f64::consts::PI / 180.0);
+    let x_rot = f(f(pitch) * radians);
+    let y_rot = f(-f(yaw) * radians);
+    let (y_cos, y_sin) = (cos(y_rot), sin(y_rot));
+    let (x_cos, x_sin) = (cos(x_rot), sin(x_rot));
+    [f(y_sin * x_cos), -x_sin, f(y_cos * x_cos)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

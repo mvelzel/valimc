@@ -32,6 +32,7 @@ pub mod health;
 pub mod items;
 pub mod melee;
 pub mod mob;
+pub mod removal;
 
 pub use facts::LivingFacts;
 

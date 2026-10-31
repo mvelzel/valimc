@@ -328,6 +328,10 @@ pub trait Kind: Hooks + Family {
         Vec::new()
     }
 
+    /// `setSize(size, true)` on a fresh body of it (a cube's: Oozing's
+    /// slimes); a family without sizes keeps its own.
+    fn resize(&self, _rules: &Rules, _body: &mut Body, _size: i64) {}
+
     // ## Gear
 
     /// `wants?/2`: whether it picks item `item` up (`wantsToPickUp`).

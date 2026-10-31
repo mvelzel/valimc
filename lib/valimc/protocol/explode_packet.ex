@@ -13,15 +13,18 @@ defmodule Valimc.Protocol.ExplodePacket do
 
   @small Base.decode16!(@facts["small"], case: :lower)
   @large Base.decode16!(@facts["large"], case: :lower)
+  # A wind burst's gusts and the breeze's burst, without block particles.
+  @wind_small Base.decode16!(@facts["wind_small"], case: :lower)
+  @wind_large Base.decode16!(@facts["wind_large"], case: :lower)
   unless Data.id(:play, :clientbound, "explode") == @facts["id"],
     do: raise("Explode packet id differs from the oracle's")
 
   @doc """
   The packet for an explosion at `{x, y, z}` of `radius` whose rays reached
   `count` cells; `knockback` is `{x, y, z}` or nil, `small` picks the small
-  particle.
+  particle and `wind` a wind burst's.
   """
-  def packet({x, y, z}, radius, count, knockback, small) do
+  def packet({x, y, z}, radius, count, knockback, small, wind \\ false) do
     knockback =
       case knockback do
         nil -> <<0>>
@@ -33,7 +36,12 @@ defmodule Valimc.Protocol.ExplodePacket do
        <<x * 1.0::float-64, y * 1.0::float-64, z * 1.0::float-64, radius * 1.0::float-32,
          count::signed-32>>,
        knockback,
-       if(small, do: @small, else: @large),
+       case {wind, small} do
+         {false, true} -> @small
+         {false, false} -> @large
+         {true, true} -> @wind_small
+         {true, false} -> @wind_large
+       end,
        <<1>>
      ]}
   end

@@ -17,12 +17,12 @@ const TICKS: usize = 60;
 
 /// `(seed, mix, items)` and the digests of mobs and items.
 const EXPECTED: &[(u64, bool, u64, u64)] = &[
-    (1, false, 0xbd06494ae1a51b13, 0x60445ab62af69695),
-    (2, false, 0xc9b0cd1695486612, 0x4a66fe7f0022254d),
-    (3, false, 0x6a179cff1b3bedb4, 0x3ef2f9fcf7d53fc4),
-    (4, false, 0xd187cd0269392a56, 0x47ed4b72eeedba48),
-    (5, true, 0xfca66a8789632ff4, 0xb944d417bee5b62d),
-    (6, true, 0x27bd7c999ac3af3c, 0x40bf858d9fc18dc5),
+    (1, false, 0x5745af3456616a3f, 0x60445ab62af69695),
+    (2, false, 0x04f3714d88d2f346, 0x4a66fe7f0022254d),
+    (3, false, 0x5ab9b527a2234c38, 0x3ef2f9fcf7d53fc4),
+    (4, false, 0x8f89819cc238e4a6, 0x47ed4b72eeedba48),
+    (5, true, 0x718b42eaa90db478, 0xb944d417bee5b62d),
+    (6, true, 0x8af28603cb2ad230, 0x40bf858d9fc18dc5),
 ];
 
 fn run(seed: u64, crowded: bool) -> (u64, u64) {

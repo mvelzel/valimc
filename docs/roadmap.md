@@ -46,7 +46,7 @@ session per lane runs at once; a lane's slices run in order.
 | Lane | Owns | Slices |
 |---|---|---|
 | Rules and commands | Game rules, command gaps | 085 → 006a |
-| Effects and brewing | Status effects, potions, the brewing stand | 037p → 034o |
+| Effects and brewing | Status effects, potions, the brewing stand | [037p](tickets/VMC-037p.md) (client) → 034o |
 | Enchanting | Enchantment effects, the table, anvils, smithing | 037q → 038a → 038b → 038c |
 | Containers | Item components, remaining containers | 004b (client) → 032c1–6 |
 | Villages | Trades, villager life, illagers, raids | 044b (awaiting client) → 044c → 044d → 044e |
@@ -73,6 +73,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 [085](tickets/VMC-085.md): dolphin treasure guidance and the cat's cod, in M4's first client run.
 [044b](tickets/VMC-044b.md): trading with a librarian and a wandering trader, and a restock.
 [004b](tickets/VMC-004b.md): components on creative items, a burning shulker box and bundle spilling.
+[037p](tickets/VMC-037p.md): Health Boost, Glowing, Invisibility, swirls, omen sounds, death effects, Infested and Haste.
 
 ## Retrieve and update
 

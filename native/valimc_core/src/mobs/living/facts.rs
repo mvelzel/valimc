@@ -37,6 +37,10 @@ pub struct EffectIds {
     pub absorption: i32,
     pub invisibility: i32,
     pub glowing: i32,
+    pub wind_charged: i32,
+    pub weaving: i32,
+    pub oozing: i32,
+    pub infested: i32,
 }
 
 /// Damage type registry ids the rules name.
@@ -282,6 +286,10 @@ impl LivingFacts {
             absorption: effect("absorption")?,
             invisibility: effect("invisibility")?,
             glowing: effect("glowing")?,
+            wind_charged: effect("wind_charged")?,
+            weaving: effect("weaving")?,
+            oozing: effect("oozing")?,
+            infested: effect("infested")?,
         };
         let damage_id = |name: &str| {
             mob.damage_types

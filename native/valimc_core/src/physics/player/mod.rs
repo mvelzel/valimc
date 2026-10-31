@@ -98,6 +98,8 @@ pub struct Player {
     pub levitation: Option<i32>,
     /// Dolphin's Grace: its water drag is 0.96.
     pub dolphins_grace: bool,
+    /// Weaving: cobwebs hold it at (0.5, 0.25, 0.5).
+    pub weaving: bool,
     /// `water_movement_efficiency` (Depth Strider, VMC-037q).
     pub water_efficiency: f64,
 }

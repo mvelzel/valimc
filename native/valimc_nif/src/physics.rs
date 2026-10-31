@@ -697,6 +697,7 @@ pub(crate) fn mob(m: &MobT) -> NifResult<valimc_core::physics::mob::Mob> {
             air_drag_modifier: a.6,
         },
         no_gravity: m.no_gravity,
+        weaving: false,
         slow_falling: m.slow_falling,
         levitation: m.levitation,
         jump_boost: m.jump_boost,

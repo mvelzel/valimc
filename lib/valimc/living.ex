@@ -81,11 +81,8 @@ defmodule Valimc.Living do
         freezing: Freezing.tick(living.freezing, false)
     }
 
-  @doc "A respawned body: full health at the same maximum, nothing else carried over."
-  def respawn(%__MODULE__{} = living),
-    do: %__MODULE__{
-      health: %Health{maximum: living.health.maximum, value: living.health.maximum}
-    }
+  @doc "A respawned body: full health without effects (no Health Boost), nothing else carried over."
+  def respawn(%__MODULE__{}), do: %__MODULE__{}
 
   @doc "Whether something about the body needs the per-tick environment sample."
   def environment_active?(%__MODULE__{} = living),

@@ -252,6 +252,8 @@ defmodule Valimc.Player.Vitals do
         state =
           if health.value <= 0, do: Valimc.Player.Menus.close(state), else: state
 
+        # A hurt that took (`lastDamageSource` is set) wakes Infested.
+        if not Keyword.get(opts, :blocked, false), do: infested(state)
         PlayerList.update(state.connection, state.player)
 
         if selected.notify and not Keyword.get(opts, :blocked, false) do
@@ -465,6 +467,57 @@ defmodule Valimc.Player.Vitals do
       error ->
         error
     end
+  end
+
+  @infested EffectTypes.id("infested")
+
+  @doc """
+  What a dead player's effects do as its body goes (VMC-037p,
+  `triggerOnDeathMobEffects`): its owner runs Wind Charged's burst,
+  Weaving's cobwebs and Oozing's slimes at it.
+  """
+  def death_effects(%{player: %{living: %{effects: effects}} = player} = state)
+      when map_size(effects) > 0 do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    cell = {floor(player.x), floor(player.y), floor(player.z)}
+    actions = Valimc.Native.effect_removal(Map.keys(effects), cell, seed)
+
+    if actions != [] do
+      {:ok, dimensions} = Valimc.Data.PlayerPose.dimensions(:dying)
+      at = {player.x, player.y, player.z}
+      to_owner(state, {:effect_removal, at, dimensions["height"] * 1.0, actions})
+    end
+
+    :ok
+  end
+
+  def death_effects(_state), do: :ok
+
+  # `InfestedMobEffect.onMobHurt` after a hit that took: silverfish from the
+  # middle of the player's box, which its owner spawns.
+  defp infested(%{player: %{living: %{effects: %{@infested => _}}} = player} = state) do
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+
+    case Valimc.Native.effect_infested(seed, player.pitch * 1.0, player.yaw * 1.0) do
+      [] ->
+        :ok
+
+      velocities ->
+        {:ok, dimensions} = Valimc.Data.PlayerPose.dimensions(Map.get(player, :pose, :standing))
+        middle = player.y + Valimc.Data.Float32.round(dimensions["height"]) / 2.0
+        to_owner(state, {:infested, {player.x, middle, player.z}, velocities})
+    end
+  end
+
+  defp infested(_state), do: :ok
+
+  defp to_owner(state, message) do
+    {x, _, z} = {state.player.x, state.player.y, state.player.z}
+    key = Valimc.Data.Grid.chunk_key(floor(x), floor(z))
+
+    with {:ok, {pid, epoch}} <-
+           Valimc.World.existing_owner(Valimc.Data.Grid.section(state.player.dimension, key)),
+         do: send(pid, {:resource, epoch, message})
   end
 
   # `MobEffect.onEffectAdded`: an omen's sound at the player, for it and

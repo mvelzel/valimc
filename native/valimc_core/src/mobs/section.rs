@@ -917,6 +917,7 @@ mod tests {
                     player_memory: 0,
                     hurt_by: None,
                     death: None,
+                    spawns: Vec::new(),
                     persistent: false,
                     left_handed: false,
                     can_pick_up_loot: false,

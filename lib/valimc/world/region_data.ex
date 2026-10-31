@@ -428,6 +428,10 @@ defmodule Valimc.World.RegionData do
               split <- cube_split(id, entry),
               do: split
 
+        # What their effects do as they go (VMC-037p, `triggerOnDeathMobEffects`).
+        removals =
+          for {_epoch, id, _revision} <- expired, r <- removed(id, items.entries[id]), do: r
+
         items =
           Enum.reduce(expired, items, fn {epoch, id, revision}, acc ->
             {:ok, next} = Store.remove(acc, epoch, id, revision)
@@ -436,12 +440,17 @@ defmodule Valimc.World.RegionData do
 
         {:noreply, state} = commit_items(items, :ok, nil, state)
 
-        Enum.reduce(splits, state, fn
-          {%Body{} = body, position}, state ->
-            create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
+        state =
+          Enum.reduce(splits, state, fn
+            {%Body{} = body, position}, state ->
+              create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
 
-          {record, _position}, state ->
-            create_body(state, %{record | uuid: :crypto.strong_rand_bytes(16)})
+            {record, _position}, state ->
+              create_body(state, %{record | uuid: :crypto.strong_rand_bytes(16)})
+          end)
+
+        Enum.reduce(removals, state, fn {at, height, actions}, state ->
+          removal_effects(state, at, height, actions)
         end)
       end
     else
@@ -1945,9 +1954,32 @@ defmodule Valimc.World.RegionData do
     create_body(state, Store.body_record(body, uuid, center))
   end
 
+  # Infested's silverfish (VMC-037p) come moving, facing a random way, and
+  # cry out.
   defp mob_spawns({_e, {:spawn_mob, type, position, data}}, state) do
     {:ok, body} = Body.new(type)
-    body = %{body | data: Map.merge(body.data, data)}
+    {velocity, data} = Map.pop(data, :velocity, body.velocity)
+    {cry, data} = Map.pop(data, :hurt_sound, false)
+    body = %{body | data: Map.merge(body.data, data), velocity: velocity}
+    body = if cry, do: %{body | yaw: :rand.uniform() * 360.0}, else: body
+    sounds = Valimc.Protocol.CombatPackets.mob_sounds(type)
+
+    if cry and sounds["hurt_sound"] do
+      <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+
+      packet =
+        Valimc.Protocol.CombatPackets.sound(
+          sounds["hurt_sound"],
+          sounds["sound_source"],
+          position,
+          1.0,
+          1.0,
+          seed
+        )
+
+      Valimc.World.publish(route_key(state), {:sound, position, 16.0, packet})
+    end
+
     create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), position))
   end
 
@@ -2080,6 +2112,13 @@ defmodule Valimc.World.RegionData do
   end
 
   defp discard_mobs(state, steps) do
+    # A creeper that blew up goes as killed (`explodeCreeper`): its effects act.
+    removals =
+      for %{id: id} <- steps,
+          %{body: %{type: "minecraft:creeper"}} = entry <- [state.entities.store.entries[id]],
+          r <- removed(id, entry, true),
+          do: r
+
     store =
       Enum.reduce(steps, state.entities.store, fn %{id: id}, store ->
         with %{revision: revision} <- store.entries[id],
@@ -2090,7 +2129,11 @@ defmodule Valimc.World.RegionData do
         end
       end)
 
-    publish_item_views(%{state | entities: %{state.entities | store: store}})
+    state = publish_item_views(%{state | entities: %{state.entities | store: store}})
+
+    Enum.reduce(removals, state, fn {at, height, actions}, state ->
+      removal_effects(state, at, height, actions)
+    end)
   end
 
   # A mob's interaction (VMC-081d): its section's (`kinds::interact`) with
@@ -3173,6 +3216,99 @@ defmodule Valimc.World.RegionData do
     do: Native.mob_section_split(ref, id)
 
   defp cube_split(_id, _entry), do: []
+
+  # A dead (or exploded, `killed`) native mob's removal effects:
+  # `[{position, height, actions}]`.
+  defp removed(id, entry, killed \\ false)
+
+  defp removed(id, %{native: ref, body: %NativeBody{alive: alive}}, killed)
+       when ref != nil and (killed or not alive) do
+    case Native.mob_section_removed(ref, id, Valimc.World.GameRules.get(:mob_griefing)) do
+      {_, _, []} -> []
+      {at, height, actions} -> [{at, height, actions}]
+      _ -> []
+    end
+  end
+
+  defp removed(_id, _entry, _killed), do: []
+
+  # What a living entity's effects do as it goes (VMC-037p,
+  # `MobEffect.onMobRemoved`): Wind Charged's burst at the middle of its box,
+  # Weaving's cobwebs, Oozing's slimes.
+  defp removal_effects(state, {x, y, z} = at, height, actions) do
+    Enum.reduce(actions, state, fn
+      {:wind_burst, strength}, state ->
+        middle = y + Valimc.Data.Float32.round(height / 2.0)
+        explode(state, Explosion.wind({x, middle, z}, strength))
+
+      {:cobwebs, count, cells}, state ->
+        weave(state, count, cells)
+
+      {:slimes, count}, state ->
+        ooze(state, at, height, count)
+    end)
+  end
+
+  # `WeavingMobEffect.spawnCobwebsRandomlyAround`: the first `count` distinct
+  # cells that can be replaced over a sturdy floor take cobwebs (with their
+  # particles, level event 3018).
+  defp weave(state, count, cells) do
+    view = Valimc.World.View.new()
+    cobweb = Valimc.Data.Blocks.default_state("cobweb")
+
+    chosen =
+      cells
+      |> Enum.uniq()
+      |> Enum.reduce_while([], fn {x, y, z} = cell, chosen ->
+        from = Valimc.World.View.block(view, cell)
+        below = Valimc.World.View.block(view, {x, y - 1, z})
+
+        chosen =
+          if from != nil and below != nil and Valimc.Blocks.PortalBlocks.replaceable?(from) and
+               Valimc.Blocks.PortalBlocks.sturdy_up?(below),
+             do: [{cell, from} | chosen],
+             else: chosen
+
+        if length(chosen) >= count, do: {:halt, chosen}, else: {:cont, chosen}
+      end)
+      |> Enum.reverse()
+
+    if chosen == [] do
+      state
+    else
+      actions = for {cell, from} <- chosen, do: {:edit, cell, from, cobweb, nil, [:updates]}
+      {state, _} = rule_run(state, %{actions: actions})
+      publish_level_events(state, for({cell, _} <- chosen, do: {cell, 3018, 0}))
+      state
+    end
+  end
+
+  # `OozingMobEffect`: size-2 slimes half a block up, as many as asked while
+  # the slimes within two blocks of its box stay under `max_entity_cramming`.
+  defp ooze(state, {x, y, z}, height, count) do
+    cramming = Valimc.World.GameRules.get(:max_entity_cramming)
+
+    count =
+      if cramming < 1 do
+        count
+      else
+        box = {x - 2.3, y - 2.0, z - 2.3, x + 2.3, y + height + 2.0, z + 2.3}
+
+        nearby =
+          for {_, %{kind: :mob, body: %{type: "minecraft:slime"}} = entry} <- group_entries(state),
+              Explosion.box_hit?(entry, box),
+              do: 1
+
+        min(count, max(0, cramming - min(length(nearby), cramming)))
+      end
+
+    Enum.reduce(List.duplicate(nil, count), state, fn _, state ->
+      yaw = :rand.uniform() * 360.0
+      {:ok, record} = Native.mob_section_fresh_sized("minecraft:slime", 2, yaw)
+      {:ok, body} = Body.restore(record)
+      create_body(state, Store.body_record(body, :crypto.strong_rand_bytes(16), {x, y + 0.5, z}))
+    end)
+  end
 
   # The record of the mob a mob becomes, from its section (VMC-081d), at
   # its entity's place.
@@ -8935,6 +9071,19 @@ defmodule Valimc.World.RegionData do
   # players (the user too) are hit through their sessions as by TNT.
   def handle_info({:explode, %Explosion{} = explosion}, state),
     do: {:noreply, explode(state, explosion)}
+
+  # A player's effects as its body goes (VMC-037p): `removal_effects/4`.
+  def handle_info({:effect_removal, at, height, actions}, state),
+    do: {:noreply, removal_effects(state, at, height, actions)}
+
+  # Infested's silverfish from a hurt player (VMC-037p).
+  def handle_info({:infested, at, velocities}, state) do
+    spawns =
+      for v <- velocities,
+          do: {nil, {:spawn_mob, "minecraft:silverfish", at, %{velocity: v, hurt_sound: true}}}
+
+    {:noreply, Enum.reduce(spawns, state, &mob_spawns/2)}
+  end
 
   def handle_info({:container_unsubscribe, connection, ref}, state) do
     {:noreply,

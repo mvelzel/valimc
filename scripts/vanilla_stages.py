@@ -979,6 +979,10 @@ STAGES = [
         ('regen', 'AttributeMetadata', '@attributes.json'),
         ('same', '@attributes.json', 'priv/protocol/attributes.json'),
     ]),
+    ('effect_removal', [
+        ('java', 'HostileOracle', 'removal', '@effect-removal.json'),
+        ('check', 'check_effect_removal.exs', '@effect-removal.json'),
+    ]),
     ('mob_effects', [
         ('java', 'HostileOracle', 'effects', '@mob-effects.json'),
         ('check', 'check_mob_effects.exs', '@mob-effects.json'),

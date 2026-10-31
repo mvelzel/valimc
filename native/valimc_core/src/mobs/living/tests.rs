@@ -33,7 +33,7 @@ const DAMAGE: [&str; 17] = [
     "falling_anvil",
 ];
 
-const EFFECTS: [&str; 20] = [
+const EFFECTS: [&str; 24] = [
     "speed",
     "slowness",
     "regeneration",
@@ -54,6 +54,10 @@ const EFFECTS: [&str; 20] = [
     "absorption",
     "invisibility",
     "glowing",
+    "wind_charged",
+    "weaving",
+    "oozing",
+    "infested",
 ];
 
 /// `(name, id, default, min, max)`.

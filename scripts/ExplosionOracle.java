@@ -75,6 +75,13 @@ public class ExplosionOracle {
           .encode(buffer,(net.minecraft.network.protocol.Packet)packet);
       var bytes=new byte[buffer.readableBytes()];buffer.readBytes(bytes);return bytes;}finally{buffer.release();}
   }
+  // VMC-037p: a Wind Charged burst (`WindChargedMobEffect.onMobRemoved`): the
+  // gust emitters, the breeze's burst and no block particles.
+  static Object windPacket(boolean small){
+    return new net.minecraft.network.protocol.game.ClientboundExplodePacket(Vec3.ZERO,4.0f,0,Optional.empty(),
+        small?net.minecraft.core.particles.ParticleTypes.GUST_EMITTER_SMALL:net.minecraft.core.particles.ParticleTypes.GUST_EMITTER_LARGE,
+        net.minecraft.sounds.SoundEvents.BREEZE_WIND_CHARGE_BURST,net.minecraft.util.random.WeightedList.of(),true);
+  }
   static Object explodePacket(Vec3 center,float radius,int count,Optional<Vec3> knockback,boolean small)throws Exception{
     var particles=field(Level.class,"DEFAULT_EXPLOSION_BLOCK_PARTICLES").get(null);
     @SuppressWarnings("unchecked") var list=(net.minecraft.util.random.WeightedList<net.minecraft.core.particles.ExplosionParticleInfo>)particles;
@@ -91,6 +98,8 @@ public class ExplosionOracle {
       int prefix=1+24+4+4+1;
       if(bytes[prefix-1]!=0||bytes[bytes.length-1]!=1)throw new AssertionError("Unexpected explode packet layout");
       out.addProperty(small?"small":"large",hex.formatHex(Arrays.copyOfRange(bytes,prefix,bytes.length-1)));
+      var wind=encode(windPacket(small));
+      out.addProperty(small?"wind_small":"wind_large",hex.formatHex(Arrays.copyOfRange(wind,prefix,wind.length-1)));
     }
     out.addProperty("id",encode(explodePacket(Vec3.ZERO,4.0f,0,Optional.empty(),true))[0]);
     var cases=new JsonArray();

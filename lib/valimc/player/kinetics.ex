@@ -11,6 +11,7 @@ defmodule Valimc.Player.Kinetics do
   alias Valimc.Physics.Kernel
 
   @dolphins_grace Valimc.Data.EffectTypes.id("dolphins_grace")
+  @weaving Valimc.Data.EffectTypes.id("weaving")
 
   def velocity(player), do: Map.get(player, :motion, %Motion{}).velocity
 
@@ -159,6 +160,7 @@ defmodule Valimc.Player.Kinetics do
       slow_falling: slow,
       levitation: levitation,
       dolphins_grace: Map.has_key?(effects, @dolphins_grace),
+      weaving: Map.has_key?(effects, @weaving),
       water_efficiency: water_efficiency(Map.get(player, :equipment, %{}))
     }
   end

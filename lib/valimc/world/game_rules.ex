@@ -23,6 +23,8 @@ defmodule Valimc.World.GameRules do
     mob_drops: true,
     # VMC-037o: fireballs' fire and craters, a pearl's endermites.
     mob_griefing: true,
+    # VMC-037p: Oozing's slimes stop at the cramming limit.
+    max_entity_cramming: 24,
     spawn_mobs: true,
     spawn_monsters: true,
     # VMC-042b: spawner blocks tick.
