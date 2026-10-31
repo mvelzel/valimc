@@ -338,7 +338,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     tick(pid)
     Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
     client = quiet_attributes_until_stats(client)
-    assert state(pid).movement_speed_view == {[0, nil], false}
+    assert state(pid).movement_speed_view == {{[0, nil], false}, []}
 
     Client.send_packet(client, :play, "player_command", [
       Wire.varint(state(pid).player.entity_id),
@@ -346,7 +346,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     ])
 
     client = speed_attribute(client, pid)
-    assert state(pid).movement_speed_view == {[0, nil], true}
+    assert state(pid).movement_speed_view == {{[0, nil], true}, []}
 
     Client.send_packet(client, :play, "player_command", [
       Wire.varint(state(pid).player.entity_id),
@@ -359,7 +359,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = speed_attribute(client, pid)
     tick(pid)
     client = speed_attribute(client, pid)
-    assert state(pid).movement_speed_view == {[0, nil], false}
+    assert state(pid).movement_speed_view == {{[0, nil], false}, []}
     client = use_hand(client, pid, :off, 2)
     assert state(pid).active_use != nil
     ticks(pid, 32)
@@ -370,7 +370,7 @@ defmodule Valimc.PlayerUseConnectionTest do
     client = speed_attribute(client, pid)
     tick(pid)
     _client = speed_attribute(client, pid)
-    assert state(pid).movement_speed_view == {[nil, nil], false}
+    assert state(pid).movement_speed_view == {{[nil, nil], false}, []}
   end
 
   for {hand, slot} <- [{:off, 45}] do
