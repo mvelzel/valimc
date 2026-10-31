@@ -55,9 +55,8 @@ session per lane runs at once; a lane's slices run in order.
 Current order:
 
 1. [085](tickets/VMC-085.md): M3's leftovers are cleared; two client checks wait for M4's first run.
-2. The lanes, in parallel, paused on October 31. Each resumes from its row:
-   037q's rest, 032c4, 032c6 and 004b9, and 044d1 (on branch
-   `claude/m4-villages-3404c4`, its vanilla stages still to run).
+2. The lanes, paused October 31, resume from their rows; 044d1 waits on branch
+   `claude/m4-villages-3404c4` for its vanilla stages.
 3. M4's first client run: every pending gate below in one handoff.
 4. Later: SIMD where data-parallel work dominates ([082](tickets/VMC-082.md)) and the performance items left in [081](tickets/VMC-081.md#closure).
 
@@ -65,10 +64,6 @@ Done: none yet.
 
 Later: vehicles and riding, taming and the remaining mob families, the wither and warden, maps and
 books, advancements, commands/admin, certification.
-
-## Paused
-
-None.
 
 ## Pending client gates
 
