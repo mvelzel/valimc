@@ -88,6 +88,17 @@ defmodule Valimc.WorldSettingsTest.Serial do
     Source.collect(source)
   end
 
+  test "gamerule mob_griefing is stored with the world's settings (VMC-085)" do
+    rules = Settings.get(:game_rules)
+    on_exit(fn -> Settings.put(game_rules: rules) end)
+
+    assert run(:overworld, "gamerule mob_griefing") =~ "mob_griefing is currently set to true"
+    assert run(:overworld, "gamerule minecraft:mob_griefing false") =~ "is now set to false"
+    assert Valimc.World.GameRules.get(:mob_griefing) == false
+    assert Settings.get(:game_rules) == Map.put(rules, :mob_griefing, false)
+    assert run(:overworld, "gamerule mob_griefing false") =~ "is already set to false"
+  end
+
   test "execute in and positioned change the source the command after run sees (VMC-083)" do
     previous = Settings.get(:spawn)
     on_exit(fn -> Settings.put(spawn: previous) end)
@@ -97,6 +108,7 @@ defmodule Valimc.WorldSettingsTest.Serial do
     assert Spawn.position() == {5, 81, 6}
     assert run(:overworld, "execute in minecraft:nowhere run seed") =~ "nowhere"
     assert run(:overworld, "execute in minecraft:the_end") =~ "Unknown or incomplete"
+    assert run(:overworld, "item replace entity @s nowhere.1 with stone") =~ "Unknown slot"
   end
 
   test "setworldspawn keeps the executing dimension and pitch; defaultgamemode persists" do

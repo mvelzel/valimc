@@ -2,9 +2,11 @@ defmodule Valimc.World.Settings do
   @moduledoc """
   The world's small durable settings (VMC-077a), kept in its `settings.json`:
   the world spawn (vanilla's `RespawnData`: dimension, block, yaw and pitch),
-  the default game mode (`/defaultgamemode`) and the admin switches
+  the default game mode (`/defaultgamemode`), the admin switches
   `white-list` (`/whitelist on|off`) and `player-idle-timeout`
-  (`/setidletimeout`); vanilla keeps the last three in `server.properties`.
+  (`/setidletimeout`), which vanilla keeps in `server.properties`, and the
+  game rules `/gamerule` changed that the clock does not hold
+  (`Valimc.World.GameRules`).
 
   One owner serialises changes. It writes the whole file crash-safely
   (`Valimc.Storage.DurableFile`) and only then publishes the new values in
@@ -25,7 +27,8 @@ defmodule Valimc.World.Settings do
       spawn: %{dimension: :overworld, position: {0, 64, 0}, yaw: 0.0, pitch: 0.0},
       default_game_mode: Valimc.config(:default_game_mode),
       white_list: Valimc.config(:white_list) == true,
-      idle_timeout: Valimc.config(:player_idle_timeout)
+      idle_timeout: Valimc.config(:player_idle_timeout),
+      game_rules: %{}
     }
   end
 
@@ -131,6 +134,10 @@ defmodule Valimc.World.Settings do
   defp valid?(:default_game_mode, mode), do: mode in @modes
   defp valid?(:white_list, on), do: is_boolean(on)
   defp valid?(:idle_timeout, minutes), do: is_integer(minutes) and minutes >= 0
+
+  defp valid?(:game_rules, rules),
+    do: is_map(rules) and Enum.all?(rules, fn {rule, value} -> valid_rule?(rule, value) end)
+
   defp valid?(_key, _value), do: false
 
   defp encode(values) do
@@ -155,6 +162,9 @@ defmodule Valimc.World.Settings do
 
       {:idle_timeout, minutes} ->
         {"player_idle_timeout", minutes}
+
+      {:game_rules, rules} ->
+        {"game_rules", Map.new(rules, fn {rule, value} -> {Atom.to_string(rule), value} end)}
     end)
     |> Map.new()
     |> JSON.encode!()
@@ -190,5 +200,23 @@ defmodule Valimc.World.Settings do
   defp decode("player_idle_timeout", minutes) when is_integer(minutes) and minutes >= 0,
     do: {:ok, :idle_timeout, minutes}
 
+  defp decode("game_rules", rules) when is_map(rules) do
+    known = Map.new(Valimc.World.GameRules.names(), &{Atom.to_string(&1), &1})
+
+    decoded =
+      for {name, value} <- rules, rule = known[name], valid_rule?(rule, value), do: {rule, value}
+
+    if length(decoded) == map_size(rules), do: {:ok, :game_rules, Map.new(decoded)}, else: :error
+  end
+
   defp decode(_key, _value), do: :error
+
+  # A rule keeps its default's type.
+  defp valid_rule?(rule, value) do
+    case Valimc.World.GameRules.default(rule) do
+      default when is_boolean(default) -> is_boolean(value)
+      default when is_integer(default) -> is_integer(value)
+      _ -> false
+    end
+  end
 end

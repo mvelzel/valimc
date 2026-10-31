@@ -304,10 +304,15 @@ defmodule Valimc.Commands.Players do
   defp effect_give(%{"targets" => selector, "effect" => effect} = arguments, source) do
     id = live_effect!(effect)
 
+    # An instantaneous effect's duration is in ticks, one by default.
+    instant = Valimc.Living.Effects.instantaneous?(id)
+
     ticks =
       cond do
+        Map.has_key?(arguments, "seconds") and instant -> arguments["seconds"]
         Map.has_key?(arguments, "seconds") -> arguments["seconds"] * 20
         "infinite" in arguments.literals -> -1
+        instant -> 1
         true -> 600
       end
 

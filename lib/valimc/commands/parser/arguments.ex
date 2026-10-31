@@ -21,7 +21,8 @@ defmodule Valimc.Commands.Parser.Arguments do
     minecraft:resource minecraft:resource_or_tag minecraft:resource_location
     minecraft:nbt_compound_tag minecraft:nbt_tag minecraft:component minecraft:particle
     minecraft:dialog minecraft:column_pos minecraft:dimension minecraft:game_profile minecraft:resource_or_tag_key
-    minecraft:feature minecraft:resource_key minecraft:template_rotation minecraft:template_mirror)
+    minecraft:feature minecraft:resource_key minecraft:template_rotation minecraft:template_mirror
+    minecraft:slot_source)
 
   @configured_features Valimc.Worldgen.Facts.features()
 
@@ -254,6 +255,9 @@ defmodule Valimc.Commands.Parser.Arguments do
     do: Valimc.Text.Snbt.parse_compound(reader)
 
   def parse("minecraft:nbt_tag", _props, reader, _source), do: Valimc.Text.Snbt.parse(reader)
+
+  def parse("minecraft:slot_source", _props, reader, _source),
+    do: Valimc.Commands.Items.parse_slots(reader)
 
   def parse("minecraft:particle", _props, reader, _source),
     do: Valimc.Commands.Parser.ParticleInput.parse(reader)

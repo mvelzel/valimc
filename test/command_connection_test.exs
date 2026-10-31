@@ -145,6 +145,32 @@ defmodule Valimc.CommandConnectionTest do
     assert Valimc.TestConn.state(pid).life_stage != :alive
   end
 
+  test "an operator's item replace and saturation (VMC-085)" do
+    {client, pid} = join()
+
+    # `/item replace` fills the player's slots.
+    client =
+      command(
+        client,
+        "item replace entity @s weapon.mainhand with diamond_sword",
+        "commands.item.entity.replace.success.single.known_item"
+      )
+
+    inventory = Valimc.TestConn.state(pid).inventory
+    sword = Valimc.Protocol.ItemTypes.id("diamond_sword")
+    assert %{item_id: ^sword} = inventory.slots[36 + inventory.selected]
+
+    # Saturation lasts ticks, not seconds, and feeds each one.
+    before = Valimc.TestConn.state(pid).player.food.saturation
+    client = command(client, "effect give @s saturation 3", "commands.effect.give.success.single")
+
+    Valimc.TestWait.until(fn ->
+      Valimc.TestConn.state(pid).player.food.saturation == min(before + 6.0, 20.0)
+    end)
+
+    _ = client
+  end
+
   test "commands reach other players through their own connections" do
     first = name("Op")
     second = name("Target")

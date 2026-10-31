@@ -188,6 +188,17 @@ defmodule Valimc.EntityBodiesTest do
       assert %{head: %{item_id: ^helmet}, mainhand: %{count: 1}} = body.mob.equipment
       assert body.data.baby and body.mob.no_ai and body.mob.living.health.value == 5.0
       assert body.mob.finalize == nil
+
+      # `/item replace` puts a stack in a mob's slot (VMC-085).
+      Valimc.Commands.run(
+        source,
+        "item replace entity @e[type=zombie,distance=..2] armor.feet with golden_boots"
+      )
+
+      assert Valimc.Commands.Source.collect(source) =~ "Replaced 1 slot(s) on Zombie"
+      boots = Valimc.Protocol.ItemTypes.id("golden_boots")
+      [entry] = Map.values(store(ctx.owner).entries)
+      assert %{feet: %{item_id: ^boots}} = Valimc.TestBodies.entry(entry).body.mob.equipment
     end
 
     test "/summon makes modelled types, /kill and /tp select bodies", ctx do

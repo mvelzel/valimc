@@ -54,7 +54,7 @@ session per lane runs at once; a lane's slices run in order.
 
 Current order:
 
-1. [085](tickets/VMC-085.md): M3's leftovers.
+1. [085](tickets/VMC-085.md): M3's leftovers are cleared; two client checks wait for M4's first run.
 2. The lanes, in parallel, starting with 037p, 037q, 004b and 044b. A lane's
    first slice refines its tickets from the backlog row.
 3. Later: SIMD where data-parallel work dominates ([082](tickets/VMC-082.md)) and the performance items left in [081](tickets/VMC-081.md#closure).

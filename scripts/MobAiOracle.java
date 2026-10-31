@@ -1379,6 +1379,11 @@ public class MobAiOracle {
     cases.add(run(level, "axolotl_play_dead", pool, List.of(new Spawn("minecraft:axolotl", new Vec3(.5, 60, .5), 0, 134L)),
       List.of(new Stand(new Vec3(3.5, 60, .5), "survival", null)),
       List.of(new Hit(10, 0, 0, 3.0F), new Hit(40, 0, 0, 3.0F), new Hit(70, 0, 0, 3.0F), new Hit(100, 0, 0, 3.0F)), 300));
+    // VMC-085: one played dead in a two-deep pool, where it bobs to the top.
+    var shallow = scene(box(-4, 59, -4, 4, 61, 4, stone), box(-3, 60, -3, 3, 61, 3, water));
+    cases.add(run(level, "axolotl_play_dead_shallow", shallow, List.of(new Spawn("minecraft:axolotl", new Vec3(.5, 60, .5), 0, 136L)),
+      List.of(new Stand(new Vec3(4.5, 62, .5), "survival", null)),
+      List.of(new Hit(10, 0, 0, 3.0F), new Hit(40, 0, 0, 3.0F), new Hit(70, 0, 0, 3.0F), new Hit(100, 0, 0, 3.0F)), 400));
     cases.add(run(level, "axolotl_land", scene(floor(63, 12, stone), box(-12, 59, -12, -6, 59, 12, stone), box(-12, 60, -12, -6, 63, 12, water)),
       List.of(new Spawn("minecraft:axolotl", new Vec3(4.5, 64, .5), 0, 135L)), List.of(new Stand(new Vec3(11.5, 64, 11.5), "creative", null)), List.of(), 300));
     var out = new JsonObject(); out.addProperty("version", "26.3");

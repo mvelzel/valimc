@@ -281,7 +281,8 @@ defmodule Valimc.Commands.World do
 
   # ---- game rules ----
 
-  def live_rules, do: Map.keys(Valimc.World.GameRules.stored())
+  def live_rules,
+    do: Map.keys(Valimc.World.GameRules.stored()) ++ Valimc.World.GameRules.settings()
 
   @doc "The `/gamerule` paths ValiMC runs: each live rule, short and namespaced, queried or set."
   def gamerule_paths do
@@ -294,6 +295,7 @@ defmodule Valimc.Commands.World do
   defp rule_value("advance_time"), do: Clock.snapshot().advance_time
   defp rule_value("advance_weather"), do: Clock.snapshot().weather.advance_weather
   defp rule_value("natural_health_regeneration"), do: Clock.snapshot().natural_regeneration
+  defp rule_value(rule), do: Valimc.World.GameRules.get(String.to_existing_atom(rule))
 
   @doc "`/gamerule <rule> [<value>]`: the rule's value, or a new one."
   def gamerule(%{literals: [name]} = arguments, source) do
@@ -321,8 +323,18 @@ defmodule Valimc.Commands.World do
     if rule_value(rule) == value,
       do: Error.fail!("commands.gamerule.not_set", [rule, to_string(value)])
 
-    operation = Map.fetch!(Valimc.World.GameRules.stored(), rule)
-    configure!({operation, value})
+    case Valimc.World.GameRules.stored() do
+      %{^rule => operation} ->
+        configure!({operation, value})
+
+      _ ->
+        key = String.to_existing_atom(rule)
+        rules = Map.put(Valimc.World.Settings.get(:game_rules), key, value)
+
+        if Valimc.World.Settings.put(game_rules: rules) not in [:ok, :unchanged],
+          do: Error.fail!("commands.gamerule.not_set", [rule, to_string(value)])
+    end
+
     Feedback.success(source, Text.translatable("commands.gamerule.set", [rule, to_string(value)]))
     if(value, do: 1, else: 0)
   end

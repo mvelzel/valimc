@@ -509,6 +509,13 @@ defmodule Valimc.World.Region do
   def name_entity({pid, epoch}, uuid, name),
     do: call(pid, {:name_entity, epoch, uuid, name}, budget(pid, 1000))
 
+  @doc """
+  `/item replace` (VMC-085): the living mob `uuid`'s equipment `slot` holds
+  `stack` (nil empties it). `:ok`, or `{:error, reason}` for no such mob.
+  """
+  def set_entity_slot({pid, epoch}, uuid, slot, stack),
+    do: call(pid, {:set_entity_slot, epoch, uuid, slot, stack}, budget(pid, 1000))
+
   @doc "`/kill` of the entities `uuids` of a section: `{:ok, killed}` (VMC-043a)."
   def kill_entities({pid, epoch}, uuids),
     do: call(pid, {:kill_entities, epoch, uuids}, budget(pid, 1000))

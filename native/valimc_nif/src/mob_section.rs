@@ -1164,6 +1164,29 @@ fn mob_section_equip<'a>(
     })
 }
 
+/// `/item replace` on mob `id` (`Mob.setItemSlot` through its slot access):
+/// a living mob's `slot` holds `stack` (nil empties it), its drop chance as
+/// it was. `{:ok, {set, events, {position, row}}}`.
+#[rustler::nif]
+fn mob_section_set_slot<'a>(
+    env: Env<'a>,
+    res: ResourceArc<MobSectionRes>,
+    id: i32,
+    slot: &str,
+    stack: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let slot = EquipSlot::from_name(slot).ok_or(rustler::Error::BadArg)?;
+    let stack = mob_term::decode(stack)?;
+    let stack = (!stack.is_nil()).then_some(stack);
+    act(env, &res, id, |_, mob, _| {
+        if !living_mob::alive(&mob.body.mob) {
+            return false;
+        }
+        mob.body.mob.equipment.set(slot, stack);
+        true
+    })
+}
+
 /// A player's use of an item on mob `id` (`RegionData`'s `{:interact_entity}`,
 /// `kinds::interact`): its lead part, then its family's. `player` is
 /// `{uuid, position, entity id, width, height}` (nil: unknown, no lead

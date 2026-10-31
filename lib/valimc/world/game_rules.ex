@@ -3,8 +3,8 @@ defmodule Valimc.World.GameRules do
   Game rules (VMC-053, VMC-077o), read by gameplay (portals) and command
   feedback without depending on the command layer. The rules ValiMC stores
   are owned by the environment owner (`Valimc.World.Clock`), which `/gamerule`
-  changes through `stored/0`'s operations; the others keep vanilla's defaults
-  until they are stored.
+  changes through `stored/0`'s operations; `settings/0`'s are kept in the
+  world's settings; the others keep vanilla's defaults.
   """
   @defaults %{
     send_command_feedback: true,
@@ -44,8 +44,29 @@ defmodule Valimc.World.GameRules do
     "natural_health_regeneration" => :natural_regeneration
   }
 
-  @doc "A default-valued rule's value (tests may set one in `:persistent_term`)."
-  def get(rule), do: :persistent_term.get({__MODULE__, rule}, Map.fetch!(@defaults, rule))
+  # The rules `/gamerule` changes beyond the clock's, kept in the world's
+  # settings (`Valimc.World.Settings`'s `game_rules`).
+  @settings ~w(mob_griefing)
+
+  @doc """
+  A rule's value: a test's override in `:persistent_term`, else the world's
+  stored value (`Valimc.World.Settings`), else vanilla's default.
+  """
+  def get(rule) do
+    case :persistent_term.get({__MODULE__, rule}, nil) do
+      nil -> Map.get(Valimc.World.Settings.get(:game_rules), rule, Map.fetch!(@defaults, rule))
+      value -> value
+    end
+  end
+
+  @doc "Every rule with a default, by name."
+  def names, do: Map.keys(@defaults)
+
+  @doc "A rule's vanilla default (nil for an unknown rule)."
+  def default(rule), do: Map.get(@defaults, rule)
+
+  @doc "The rules kept in the world's settings, as `/gamerule` names them."
+  def settings, do: @settings
 
   @doc "The rules the environment owner stores, each with its configure operation."
   def stored, do: @stored

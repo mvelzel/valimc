@@ -137,7 +137,13 @@ defmodule Valimc.MobTravelRegionTest do
     {:ok, trader} = Body.new("minecraft:wandering_trader")
     id = Valimc.Data.EffectTypes.id("invisibility")
     living = %{trader.mob.living | effects: %{id => [{9600, 0, false, true, true}]}}
-    trader = %{trader | mob: %{trader.mob | living: living}, data: %{trader.data | invisible: true}}
+
+    trader = %{
+      trader
+      | mob: %{trader.mob | living: living},
+        data: %{trader.data | invisible: true}
+    }
+
     :ok = Region.drop_items(ctx.owner, [Store.body_record(trader, <<1::128>>, {x, 64.0, z})])
     step(ctx, 60)
     e = entry(ctx, <<1::128>>)

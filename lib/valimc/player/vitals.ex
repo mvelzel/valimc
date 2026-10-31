@@ -27,6 +27,7 @@ defmodule Valimc.Player.Vitals do
   import Bitwise
   @hunger EffectTypes.id("hunger")
   @absorption EffectTypes.id("absorption")
+  @saturation EffectTypes.id("saturation")
 
   def apply_landing(state, nil), do: state
 
@@ -504,6 +505,17 @@ defmodule Valimc.Player.Vitals do
         end
       end)
 
+    # Saturation (`SaturationMobEffect`) feeds a player each tick it has left.
+    next =
+      case effects[@saturation] do
+        [{ticks, amplifier, _, _, _} | _] when ticks >= 1 or ticks == -1 ->
+          {:ok, eat} = Effects.instant(@saturation, amplifier)
+          if next.life_stage == :alive, do: apply_effect_action(next, eat), else: next
+
+        _ ->
+          next
+      end
+
     living = next.player.living
 
     {next, events} =
@@ -571,6 +583,13 @@ defmodule Valimc.Player.Vitals do
       if food != state.player.food, do: PlayerList.update(state.connection, player)
       %{state | player: player}
     end
+  end
+
+  def apply_effect_action(state, {:eat, nutrition, saturation}) do
+    food = Food.eat(state.player.food, nutrition, saturation)
+    player = %{state.player | food: food}
+    if food != state.player.food, do: PlayerList.update(state.connection, player)
+    %{state | player: player}
   end
 
   def apply_effect_action(state, {:heal, amount}) do

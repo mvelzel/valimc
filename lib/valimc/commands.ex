@@ -59,6 +59,7 @@ defmodule Valimc.Commands do
       "gamerule" => {C.World, :gamerule, only: C.World.gamerule_paths()},
       "give" => {C.Players, :give},
       "help" => {C.Chat, :help},
+      "item" => {C.Items, :item, only: C.Items.paths()},
       "kick" => {C.Admin, :kick},
       "kill" => {C.Players, :kill},
       "list" => {C.Chat, :list},

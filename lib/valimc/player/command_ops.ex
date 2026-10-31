@@ -58,6 +58,24 @@ defmodule Valimc.Player.CommandOps do
     {:ok, state |> CreativeInventory.resync_inventory() |> ItemUse.publish_equipment()}
   end
 
+  # `/item replace` (VMC-085): each menu slot (`:selected` the held one)
+  # holds a copy of `stack`; the number set.
+  def apply(state, {:replace_slots, slots, stack}) do
+    inventory =
+      Enum.reduce(slots, state.inventory, fn slot, inventory ->
+        slot = if slot == :selected, do: 36 + inventory.selected, else: slot
+        {:ok, inventory} = Inventory.creative(inventory, slot, stack)
+        inventory
+      end)
+
+    state =
+      %{state | inventory: inventory}
+      |> CreativeInventory.resync_inventory()
+      |> ItemUse.publish_equipment()
+
+    {length(slots), state}
+  end
+
   def apply(state, {:clear, predicate, max_count}) do
     counting = max_count == 0
     # Vanilla order: hotbar, main, armour feet to head, offhand, crafting grid.

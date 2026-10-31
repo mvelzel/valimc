@@ -4129,6 +4129,39 @@ defmodule Valimc.World.RegionData do
     end
   end
 
+  def handle_call({:set_entity_slot, epoch, uuid, slot, stack}, _from, state) do
+    store = state.entities.store
+
+    with true <- epoch == state.epoch or Error.retry(:stale_owner),
+         nil <- write_busy(state),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{kind: :mob, body: body} = entry <- store.entries[id] || {:error, :missing_item},
+         true <- Valimc.Entity.Body.alive?(body) or {:error, :not_alive} do
+      if Store.native_entry?(entry) do
+        case Native.mob_section_set_slot(entry.native, id, Atom.to_string(slot), stack) do
+          {:ok, {true, events, {position, row}}} ->
+            {:reply, :ok,
+             put_entities(state, Store.native_change(store, id, position, row, events))}
+
+          _ ->
+            {:reply, {:error, :not_alive}, state}
+        end
+      else
+        equipment =
+          if stack,
+            do: Map.put(body.mob.equipment, slot, stack),
+            else: Map.delete(body.mob.equipment, slot)
+
+        body = %{body | mob: %{body.mob | equipment: equipment}}
+        {:reply, :ok, put_entities(state, Store.change_body(store, id, body))}
+      end
+    else
+      {:retry, _} = busy -> {:reply, {:error, busy}, state}
+      {:error, _} = error -> {:reply, error, state}
+      _ -> {:reply, {:error, :not_living}, state}
+    end
+  end
+
   # A teleported entity (VMC-043a): it moves here, to a sibling section in
   # the same group commit, or to another group by the durable handoff.
   def handle_call({:move_entity, epoch, uuid, position, rotation}, _from, state) do

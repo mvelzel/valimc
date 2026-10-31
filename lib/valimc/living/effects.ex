@@ -29,7 +29,7 @@ defmodule Valimc.Living.Effects do
   @live Enum.map(
           ~w(fire_resistance resistance absorption water_breathing speed slowness nausea
             jump_boost slow_falling levitation night_vision blindness darkness mining_fatigue
-            dolphins_grace strength weakness),
+            dolphins_grace strength weakness saturation),
           &EffectTypes.id/1
         ) ++ @periodic
   @heal EffectTypes.id("instant_health")
@@ -63,11 +63,18 @@ defmodule Valimc.Living.Effects do
   effects whose only role without mobs is to be stored, ticked and sent: night
   vision, blindness and darkness are drawn by the client; Mining Fatigue
   slows mining and attacks, Dolphin's Grace swimming (VMC-043e), Strength
-  and Weakness a player's melee damage. Glowing and invisibility need
+  and Weakness a player's melee damage, and Saturation feeds a player each
+  tick it lasts. Glowing and invisibility need
   replicated entity flags; haste and the like need their mechanics, so they
   stay out.
   """
   def live, do: @live
+
+  @doc """
+  Whether effect `id` is instantaneous (`InstantenousMobEffect`: instant
+  health and damage, saturation): `/effect` counts its duration in ticks.
+  """
+  def instantaneous?(id), do: id in [@heal, @harm, @saturation]
 
   @doc "Effects with periodic actions, in the native action order."
   def periodic_ids, do: @periodic

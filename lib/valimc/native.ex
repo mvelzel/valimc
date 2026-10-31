@@ -369,6 +369,7 @@ defmodule Valimc.Native do
 
   def mob_section_name(_section, _id, _name), do: :erlang.nif_error(:nif_not_loaded)
   def mob_section_equip(_section, _id, _slot, _stack), do: :erlang.nif_error(:nif_not_loaded)
+  def mob_section_set_slot(_section, _id, _slot, _stack), do: :erlang.nif_error(:nif_not_loaded)
 
   def mob_section_sync(_section, _id, _position, _rotation, _velocity, _on_ground, _cooldown),
     do: :erlang.nif_error(:nif_not_loaded)
