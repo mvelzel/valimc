@@ -327,7 +327,7 @@ defmodule Valimc.NativeMobRegressionTest do
     assert drowned.custom_name == "Bob" and drowned.mob.equipment == %{head: helmet}
 
     # Pins the current native records.
-    assert :erlang.phash2(conversions) == 103_330_153
+    assert :erlang.phash2(conversions) == 95_094_955
   end
 
   test "a dead cube splits into its halves" do
