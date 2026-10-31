@@ -32,11 +32,11 @@ defmodule Valimc.Blocks.BlockEntityTypes do
   # Signs, banners, mob heads, decorated pots and bells a player places hold
   # nothing yet either (VMC-029d): a blank sign, a plain banner; a daylight
   # detector's never holds anything (VMC-047a); a comparator's output lives
-  # with the section's redstone (VMC-048a). Chunk packets list them either
-  # way.
+  # with the section's redstone (VMC-048a); an ender chest's items live with
+  # each player (VMC-032c3). Chunk packets list them either way.
   @plain_types ~w(minecraft:sign minecraft:hanging_sign minecraft:banner minecraft:skull
                   minecraft:decorated_pot minecraft:bell minecraft:daylight_detector
-                  minecraft:comparator)
+                  minecraft:comparator minecraft:ender_chest)
   @plain [
            Valimc.Data.Blocks.default_state("end_portal"),
            Valimc.Data.Blocks.default_state("end_gateway")

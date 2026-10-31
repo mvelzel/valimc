@@ -15,12 +15,15 @@ defmodule Valimc.Menus.MenuAccess do
   A chest opens only when nothing solid sits on it (`provider?/4`, vanilla's
   `ChestBlock.isChestBlockedAt` from the generated opening facts); a closed
   shulker box only when its lid has room (VMC-032c2, `ShulkerBoxBlock.canOpen`),
-  which its owner reads from the blocks.
+  which its owner reads from the blocks. An ender chest (VMC-032c3) opens the
+  player's own slots under the same grants; its block holds no entry, and a
+  redstone conductor on it keeps it shut as on a chest
+  (`EnderChestBlock.useWithoutItem`), a sitting cat does not.
   """
   import Bitwise
   alias Valimc.Blocks.{Cooking, CookingBlocks}
   alias Valimc.Living.Interaction
-  alias Valimc.Blocks.{Chest, Machine, Storage}
+  alias Valimc.Blocks.{Chest, EnderChest, Machine, Storage}
   alias Valimc.Protocol.Data
   use Valimc.Data.Facts, "protocol/chest_opening.json"
 
@@ -37,18 +40,26 @@ defmodule Valimc.Menus.MenuAccess do
     hopper: [:open, :subscribe, :check, :click, :refresh],
     dispenser: [:open, :subscribe, :check, :click, :refresh],
     storage: [:open, :subscribe, :check, :click, :refresh],
+    ender_chest: [:open, :subscribe, :check, :click, :refresh],
     table: [:open, :click, :check]
   }
 
-  @doc "The menus over an owned container entry."
-  def containers, do: [:chest, :cooking, :hopper, :dispenser, :storage]
+  @doc """
+  The menus a block's owner keeps a view of: those over an owned container
+  entry, and an ender chest's (its viewers counted, its slots the player's).
+  """
+  def containers, do: [:chest, :cooking, :hopper, :dispenser, :storage, :ender_chest]
 
-  @doc "The menus whose viewers open the block (`ContainerOpenersCounter`): chests and storage."
-  def openers, do: [:chest, :storage]
+  @doc """
+  The menus whose viewers open the block (`ContainerOpenersCounter`): chests,
+  storage and ender chests. Opening one angers piglins (`PiglinAi`).
+  """
+  def openers, do: [:chest, :storage, :ender_chest]
 
   @doc """
   The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser`
-  (droppers too), `:storage` (a barrel or a shulker box), `:table` or nil.
+  (droppers too), `:storage` (a barrel or a shulker box), `:ender_chest`,
+  `:table` or nil.
   """
   def menu(nil), do: nil
 
@@ -59,6 +70,7 @@ defmodule Valimc.Menus.MenuAccess do
       Machine.kind(block) == :hopper -> :hopper
       Machine.kind(block) != nil -> :dispenser
       Storage.kind(block) != nil -> :storage
+      EnderChest.ender_chest?(block) -> :ender_chest
       block == @table -> :table
       true -> nil
     end
@@ -97,8 +109,8 @@ defmodule Valimc.Menus.MenuAccess do
   A grant's decision for `menu`'s block: `:pass` (not a menu use; placement
   goes on), `:open` (a table opens), `:valid` (the entry is the one the grant
   saw), `{menu, block, entry}` (open or refresh with this entry) or an error.
-  `above` is the block on a chest; for a storage block, `:blocked` when a
-  shulker box's lid has no room to open.
+  `above` is the block on a chest or an ender chest; for a storage block,
+  `:blocked` when a shulker box's lid has no room to open.
   """
   def authorize(menu, block, entry, above, position, grant, now)
       when is_map_key(@kinds, menu) and is_map(grant) and is_integer(now) do
@@ -135,6 +147,11 @@ defmodule Valimc.Menus.MenuAccess do
       opening and not opens?(grant) ->
         :pass
 
+      # A spectator opens only a block entity that is a menu provider
+      # (`ServerPlayerGameMode.useItemOn`); an ender chest's is not.
+      menu == :ender_chest and opening and grant.mode == :spectator ->
+        {:error, :no_menu_provider}
+
       menu == :table and opening ->
         if block == @table and Interaction.within_block?(grant.mode, grant.eye, position),
           do: :open,
@@ -147,6 +164,9 @@ defmodule Valimc.Menus.MenuAccess do
         {:error, :invalid_menu_context}
 
       menu == :chest and opening and not provider?(block, true, above, false) ->
+        {:error, :blocked_chest}
+
+      menu == :ender_chest and opening and obstructed?(above, false) ->
         {:error, :blocked_chest}
 
       menu == :storage and opening and above == :blocked ->
@@ -233,6 +253,9 @@ defmodule Valimc.Menus.MenuAccess do
     do: kind != nil and Storage.kind(block) == kind
 
   defp entry?(:storage, _block, _entry), do: false
+
+  defp entry?(:ender_chest, block, entry),
+    do: EnderChest.ender_chest?(block) and entry == EnderChest.view()
 
   defp entry?(:cooking, block, entry) do
     kind = CookingBlocks.kind(block)

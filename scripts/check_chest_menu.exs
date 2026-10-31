@@ -114,6 +114,24 @@ IO.puts(
   "PASS: the native shulker box menu (#{length(shulkers)} boxes, 63 slot identities, the slots' refusal of shulker boxes) and its titled open body"
 )
 
+# Ender chests (VMC-032c3): a three-row chest menu over the player's 27 ender slots.
+[ender] = facts["ender_chests"]
+true = ender["chest_menu"] and ender["size"] == 27 and length(ender["slots"]) == 63
+{:ok, type} = Menu.type(Menu.storage(:ender_chest))
+true = type == ender["type"]
+
+for {[kind, index], wire} <- Enum.with_index(ender["slots"]) do
+  expected = if kind == "container", do: {:container, index}, else: index
+  {:ok, ^expected} = Menu.address(Menu.storage(:ender_chest), wire)
+end
+
+{_, body} = Valimc.Menus.Packets.open_storage(17, :ender_chest)
+true = IO.iodata_to_binary(body) == Base.decode16!(ender["open_hex"], case: :lower)
+
+IO.puts(
+  "PASS: the native ender chest menu (a three-row chest menu over the player's 27 slots, 63 slot identities) and its titled open body"
+)
+
 IO.puts(
   "PASS: six native chest layouts/405 slot identities, open/content bodies/hotbar pickup input and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

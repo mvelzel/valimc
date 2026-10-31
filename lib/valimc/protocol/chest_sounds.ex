@@ -1,5 +1,5 @@
 defmodule Valimc.Protocol.ChestSounds do
-  @moduledoc "Pinned ordinary chest, barrel and shulker box sound bodies and native float32 pitch; delivery belongs to viewer ownership."
+  @moduledoc "Pinned ordinary chest, barrel, shulker box and ender chest sound bodies and native float32 pitch; delivery belongs to viewer ownership."
   alias Valimc.Data.Float32
   alias Valimc.Protocol.{Packets, Wire}
   use Valimc.Data.Facts, "protocol/chest_sounds.json"
@@ -10,8 +10,11 @@ defmodule Valimc.Protocol.ChestSounds do
   @barrel_close @facts["sounds"]["minecraft:block.barrel.close"]
   @shulker_open @facts["sounds"]["minecraft:block.shulker_box.open"]
   @shulker_close @facts["sounds"]["minecraft:block.shulker_box.close"]
+  @ender_open @facts["sounds"]["minecraft:block.ender_chest.open"]
+  @ender_close @facts["sounds"]["minecraft:block.ender_chest.close"]
   unless @source == 4 and @open == 349 and @close == 347 and @barrel_open == 141 and
-           @barrel_close == 140 and @shulker_open == 1469 and @shulker_close == 1468,
+           @barrel_close == 140 and @shulker_open == 1469 and @shulker_close == 1468 and
+           @ender_open == 588 and @ender_close == 587,
          do: raise("Wrong ordinary chest sound facts")
 
   def pitch(draw) when is_number(draw) and draw >= 0 and draw < 1,
@@ -23,13 +26,15 @@ defmodule Valimc.Protocol.ChestSounds do
 
   @doc """
   A chest's (or, with `:shulker_box`, a shulker box's,
-  `ShulkerBoxBlockEntity.startOpen/stopOpen`) open or close sound at the
-  centre of cell `{x, y, z}`: volume 0.5, pitch `0.9 + draw * 0.1`.
+  `ShulkerBoxBlockEntity.startOpen/stopOpen`, and with `:ender_chest` an ender
+  chest's, `EnderChestBlockEntity`'s `onOpen`/`onClose`) open or close sound
+  at the centre of cell `{x, y, z}`: volume 0.5, pitch `0.9 + draw * 0.1`.
   """
   def packet(open?, position, draw, seed, kind \\ :chest)
 
   def packet(open?, {x, y, z}, draw, seed, kind)
-      when kind in [:chest, :shulker_box] and is_boolean(open?) and is_number(x) and is_integer(y) and
+      when kind in [:chest, :shulker_box, :ender_chest] and is_boolean(open?) and is_number(x) and
+             is_integer(y) and
              is_number(z) and
              abs(x) <= 29_999_984 and abs(z) <= 29_999_984 and y in -64..319 and
              is_integer(seed) and seed >= -9_223_372_036_854_775_808 and
@@ -51,6 +56,8 @@ defmodule Valimc.Protocol.ChestSounds do
   defp sound(:chest, false), do: @close
   defp sound(:shulker_box, true), do: @shulker_open
   defp sound(:shulker_box, false), do: @shulker_close
+  defp sound(:ender_chest, true), do: @ender_open
+  defp sound(:ender_chest, false), do: @ender_close
 
   @doc """
   A barrel's open or close sound at `at`, the centre of its front face

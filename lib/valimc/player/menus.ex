@@ -1,11 +1,13 @@
 defmodule Valimc.Player.Menus do
   @moduledoc """
   A player's block menus (VMC-069, VMC-077i3): crafting tables, chests,
-  barrels, furnaces, hoppers, droppers and dispensers. The block's owner is the player's own group, so opening, every
-  click and each refresh is a plain call to it (`Region.menu/4`,
-  `Region.container_click/6`) answered at once; a crafting table's clicks
-  stay in the session, and what a click or a close throws out drops at once
-  (`Valimc.Player.Items`).
+  barrels, furnaces, hoppers, droppers, dispensers and ender chests. The
+  block's owner is the player's own group, so opening, every click and each
+  refresh is a plain call to it (`Region.menu/4`,
+  `Region.container_click/6`) answered at once; a crafting table's and an
+  ender chest's clicks stay in the session (an ender chest's slots are the
+  player's, `Valimc.Player.EnderChest`), and what a click or a close throws
+  out drops at once (`Valimc.Player.Items`).
 
   An open container view is subscribed at its owner: another player's click,
   a furnace's progress or the block's removal arrive as events that mark the
@@ -13,7 +15,7 @@ defmodule Valimc.Player.Menus do
   """
   alias Valimc.Data.Grid
   alias Valimc.Protocol.{Data, ItemStack, Packets, Wire}
-  alias Valimc.Player.{CreativeInventory, Items, ItemUse, Mining}
+  alias Valimc.Player.{CreativeInventory, EnderChest, Items, ItemUse, Mining}
   alias Valimc.Menus.{Inventory, Menu, Click}
   alias Valimc.Player.Input
   alias Valimc.World
@@ -163,8 +165,8 @@ defmodule Valimc.Player.Menus do
   end
 
   defp open_container_menu(state, kind, position, owner, block, view, sequence) do
-    # Opening a chest or barrel angers the piglins that see it (VMC-043d,
-    # `PiglinAi.angerNearbyPiglins`).
+    # Opening a chest, a barrel or an ender chest angers the piglins that see
+    # it (VMC-043d, `PiglinAi.angerNearbyPiglins`).
     if kind in @openers, do: Region.mob_event(owner, {:anger, {:player, state.player.uuid}, true})
 
     id = rem(state.table_counter, 127) + 1
@@ -180,6 +182,15 @@ defmodule Valimc.Player.Menus do
         :storage ->
           {Valimc.Menus.Packets.open_storage(id, view.kind),
            Valimc.Menus.Packets.storage_inventory(id, view.kind, view.slots, inventory), []}
+
+        :ender_chest ->
+          {Valimc.Menus.Packets.open_storage(id, :ender_chest),
+           Valimc.Menus.Packets.storage_inventory(
+             id,
+             :ender_chest,
+             EnderChest.slots(state.player),
+             inventory
+           ), []}
 
         machine when machine in [:hopper, :dispenser] ->
           {Valimc.Menus.Packets.open_machine(id, view.kind),
@@ -377,6 +388,24 @@ defmodule Valimc.Player.Menus do
 
       {:error, _} ->
         CreativeInventory.resync_inventory(state)
+    end
+  end
+
+  # An ender chest's click (VMC-032c3) changes the player's own slots and
+  # inventory together, once its owner confirms the chest and the view.
+  defp menu_click(%{table_menu: %{kind: :ender_chest} = menu} = state, click) do
+    case Region.menu(menu.owner, state.connection, menu.position, grant(state, :check)) do
+      :valid ->
+        with {:ok, player, inventory, drops} <-
+               EnderChest.click(state.player, state.inventory, click),
+             {:ok, next} <- Items.drop(%{state | player: player}, inventory, drops) do
+          CreativeInventory.resync_inventory(next, drag: :keep)
+        else
+          _ -> CreativeInventory.resync_inventory(state)
+        end
+
+      _ ->
+        refresh(state, :refresh)
     end
   end
 

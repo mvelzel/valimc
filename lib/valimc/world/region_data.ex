@@ -9253,6 +9253,22 @@ defmodule Valimc.World.RegionData do
                 now
               )
 
+            # An ender chest (VMC-032c3) holds no entry: its menu shows the
+            # player's own slots, and its owner only counts the viewers.
+            Valimc.Blocks.EnderChest.ender_chest?(block) or
+                (is_map(grant) and grant[:menu] == :ender_chest) ->
+              {x, y, z} = position
+
+              Valimc.Menus.MenuAccess.authorize(
+                :ender_chest,
+                block,
+                Valimc.Blocks.EnderChest.view(),
+                Blocks.get(state.blocks, {x, y + 1, z}),
+                position,
+                grant,
+                now
+              )
+
             preserved_use?(state, position, block) ->
               Valimc.Menus.MenuAccess.refuse_use(block, position, grant, now)
 
@@ -9307,8 +9323,6 @@ defmodule Valimc.World.RegionData do
           monitor =
             if view && view.ref == ref, do: view.monitor, else: Process.monitor(connection)
 
-          entry = state.containers.entries[position]
-
           case ContainerViewers.register(
                  state.container_viewers,
                  connection,
@@ -9316,7 +9330,7 @@ defmodule Valimc.World.RegionData do
                  monitor,
                  position,
                  opener,
-                 entry.revision
+                 viewed_revision(state, position, grant)
                ) do
             {:ok, viewers, retired, lids} ->
               viewers =
@@ -9339,7 +9353,7 @@ defmodule Valimc.World.RegionData do
               state.container_viewers,
               connection,
               ref,
-              state.containers.entries[position].revision
+              viewed_revision(state, position, grant)
             )
 
           viewers =
@@ -9356,6 +9370,12 @@ defmodule Valimc.World.RegionData do
       {decision, state}
     end
   end
+
+  # The revision a view sees: its entry's; an ender chest's never moves.
+  defp viewed_revision(_state, _position, %{menu: :ender_chest}),
+    do: Valimc.Blocks.EnderChest.view().revision
+
+  defp viewed_revision(state, position, _grant), do: state.containers.entries[position].revision
 
   def notify_container_changed(state, position) do
     case state.containers.entries[position] do
@@ -9438,11 +9458,14 @@ defmodule Valimc.World.RegionData do
       frame = Packets.frame(lid_packet(state, position, open), threshold)
       block = Blocks.get(state.blocks, position)
 
-      # A shulker box sounds at its own centre (`ShulkerBoxBlockEntity.startOpen`).
+      # A shulker box and an ender chest sound at their own centre
+      # (`ShulkerBoxBlockEntity.startOpen`, `EnderChestBlockEntity.onOpen`).
       {sound_position, kind} =
-        if Valimc.Blocks.ShulkerBox.shulker_box?(block),
-          do: {position, :shulker_box},
-          else: {Valimc.Blocks.Chest.sound_position(block, position), :chest}
+        cond do
+          Valimc.Blocks.ShulkerBox.shulker_box?(block) -> {position, :shulker_box}
+          Valimc.Blocks.EnderChest.ender_chest?(block) -> {position, :ender_chest}
+          true -> {Valimc.Blocks.Chest.sound_position(block, position), :chest}
+        end
 
       sound =
         if sound? and sound_position != nil do
@@ -9465,14 +9488,21 @@ defmodule Valimc.World.RegionData do
     if sound?, do: Enum.reduce(barrels, state, &barrel_opened/2), else: state
   end
 
-  # A container's lid event: a chest's, or a shulker box's for its own block
-  # (both block event 1, VMC-032c2).
+  # A container's lid event: a chest's, or a shulker box's or an ender
+  # chest's for its own block (all block event 1, VMC-032c2, VMC-032c3).
   defp lid_packet(state, position, open) do
     block = Blocks.get(state.blocks, position)
 
-    if Valimc.Blocks.ShulkerBox.shulker_box?(block),
-      do: Valimc.Blocks.ShulkerBox.lid_event(block, position, open),
-      else: Packets.chest_lid(position, open)
+    cond do
+      Valimc.Blocks.ShulkerBox.shulker_box?(block) ->
+        Valimc.Blocks.ShulkerBox.lid_event(block, position, open)
+
+      Valimc.Blocks.EnderChest.ender_chest?(block) ->
+        Valimc.Blocks.EnderChest.lid_event(position, open)
+
+      true ->
+        Packets.chest_lid(position, open)
+    end
   end
 
   # The first viewer opens a barrel and the last one leaving closes it

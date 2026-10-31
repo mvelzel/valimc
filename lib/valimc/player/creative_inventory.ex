@@ -107,6 +107,15 @@ defmodule Valimc.Player.CreativeInventory do
         %{kind: :storage, id: id, view: view} ->
           Valimc.Menus.Packets.storage_inventory(id, view.kind, view.slots, inventory)
 
+        # The player's own ender slots (VMC-032c3).
+        %{kind: :ender_chest, id: id} ->
+          Valimc.Menus.Packets.storage_inventory(
+            id,
+            :ender_chest,
+            Valimc.Player.EnderChest.slots(state.player),
+            inventory
+          )
+
         %{kind: kind, id: id, view: view} when kind in [:hopper, :dispenser] ->
           Valimc.Menus.Packets.machine_inventory(id, view.kind, view.slots, inventory)
 
@@ -149,6 +158,7 @@ defmodule Valimc.Player.CreativeInventory do
       case state.table_menu do
         %{kind: :chest, view: view} -> view.rows * 9 + 36
         %{kind: :storage, view: view} -> tuple_size(view.slots) + 36
+        %{kind: :ender_chest} -> 63
         %{kind: :cooking} -> 39
         %{kind: :hopper} -> 41
         %{kind: :dispenser} -> 45

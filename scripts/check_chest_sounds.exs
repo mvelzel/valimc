@@ -133,3 +133,57 @@ end
 IO.puts(
   "PASS: 12 native shulker box lid event/sound traces (first and last of three viewers, spectator silent) for the box's own block id"
 )
+
+# Ender chests (VMC-032c3): the same viewer counting for the ender chest's own
+# block id, `block.ender_chest.open`/`close` at the centre; ValiMC sends the
+# first opening and the last closing.
+enders = raw["ender_chests"]
+true = length(enders) == 8 and length(raw["ender_packets"]) == 36
+
+for row <- enders do
+  state = row["state"]
+  position = {-1, 64, 15}
+  block = Valimc.Data.Blocks.block_id(state)
+  true = Valimc.Blocks.EnderChest.ender_chest?(state)
+  true = row["events"] == [[block, 1, 1], [block, 1, 2], [block, 1, 1], [block, 1, 0]]
+
+  for {open, [_, b0, b1]} <- [{true, hd(row["events"])}, {false, List.last(row["events"])}] do
+    {_, ours} = Valimc.Blocks.EnderChest.lid_event(position, open)
+    {_, native} = Valimc.Protocol.Packets.block_event(position, b0, b1, block)
+    true = IO.iodata_to_binary(ours) == IO.iodata_to_binary(native)
+  end
+
+  # `ContainerOpenersCounter` sounds before the count's event (`onOpen`,
+  # `onClose`); ValiMC publishes the event and the sound together.
+  true =
+    Enum.map(row["sounds"], &{&1["sound"], &1["after_events"]}) == [
+      {"minecraft:block.ender_chest.open", 0},
+      {"minecraft:block.ender_chest.close", 3}
+    ]
+
+  for {draw, sound} <- Enum.zip(row["draws"], row["sounds"]) do
+    {:ok, pitch} = ChestSounds.pitch(draw)
+    true = <<pitch::float-32>> == <<sound["pitch"]::float-32>>
+    true = sound["volume"] == 0.5 and sound["at"] == [-0.5, 64.5, 15.5]
+  end
+end
+
+for row <- raw["ender_packets"] do
+  draw = if row["pitch"] == 1, do: 16_777_215 / 16_777_216, else: 0.0
+  cell = row["position"] |> Enum.map(&floor/1) |> List.to_tuple()
+
+  {:ok, {_id, body}} =
+    ChestSounds.packet(
+      row["sound"] == "minecraft:block.ender_chest.open",
+      cell,
+      draw,
+      row["seed"],
+      :ender_chest
+    )
+
+  true = IO.iodata_to_binary(body) == Base.decode16!(row["hex"], case: :lower)
+end
+
+IO.puts(
+  "PASS: 8 native ender chest lid event/sound traces (first and last of three viewers, spectator silent) and 36 ender chest sound bodies"
+)

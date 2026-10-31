@@ -102,6 +102,8 @@ defmodule Valimc.Net.LoginFlow do
       death_dimension: :overworld,
       portal_cooldown: 0,
       seen_credits: false,
+      # VMC-032c3: the player's ender chest slots (`Valimc.Player.EnderChest`).
+      ender_items: %{},
       respawn: nil,
       sleeping: nil,
       time_since_rest: 0,
@@ -160,6 +162,7 @@ defmodule Valimc.Net.LoginFlow do
               death_dimension: snapshot.death_dimension,
               portal_cooldown: snapshot.portal_cooldown,
               seen_credits: snapshot.seen_credits,
+              ender_items: snapshot.ender_items,
               respawn: snapshot.respawn,
               # A sleeper saved in its bed gets up once it plays (VMC-040a).
               sleeping: snapshot.sleeping && %{bed: snapshot.sleeping, ticks: 0},

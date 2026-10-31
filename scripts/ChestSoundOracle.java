@@ -21,7 +21,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.server.level.ServerLevel;
 
-/** Original actual chest and barrel sound call/pitch, barrel open-state and registered sound packet observations. */
+/** Original actual chest, barrel, shulker box and ender chest sound call/pitch, lid event, barrel open-state and registered sound packet observations. */
 public class ChestSoundOracle {
   /** One barrel's level: its state writes, sounds and rechecks, nothing else. */
   static class BarrelWorld extends ServerLevel {
@@ -59,6 +59,15 @@ public class ChestSoundOracle {
       if(channel!=SoundSource.BLOCKS||source!=null)throw new AssertionError("Wrong sound audience");sounds.add(row);
     }
     public void gameEvent(Holder<GameEvent> event,Vec3 pos,GameEvent.Context context){}
+  }
+
+  /** One ender chest's level: its block events, sounds and rechecks, nothing else. */
+  static class EnderWorld extends ShulkerWorld {
+    int scheduled;
+    private EnderWorld(){}
+    public void scheduleTick(BlockPos pos,Block block,int delay){
+      if(!pos.equals(position)||block!=Blocks.ENDER_CHEST||delay!=5)throw new AssertionError("Unexpected recheck");scheduled++;
+    }
   }
 
   public static void main(String[] args)throws Exception {
@@ -130,9 +139,26 @@ public class ChestSoundOracle {
       if(world.sounds.size()!=2||draws.size()!=2)throw new AssertionError("Shulker box viewer lifecycle changed");
       var row=new JsonObject();row.addProperty("state",Block.getId(state));row.add("events",world.events);row.add("draws",draws);row.add("sounds",world.sounds);shulkers.add(row);
     }
+    // Ender chests (VMC-032c3): `ContainerOpenersCounter` sends block event 1 with the opener
+    // count for every viewer that is not a spectator; the first and last sound at the centre.
+    var enderChests=new JsonArray();
+    for(var state:Blocks.ENDER_CHEST.getStateDefinition().getPossibleStates()){
+      var world=(EnderWorld)unsafe.allocateInstance(EnderWorld.class);
+      world.position=new BlockPos(-1,64,15);world.sounds=new JsonArray();world.events=new JsonArray();
+      var draws=new JsonArray(); var delegate=RandomSource.create(Block.getId(state));
+      random.set(world,(RandomSource)Proxy.newProxyInstance(RandomSource.class.getClassLoader(),new Class<?>[]{RandomSource.class},(proxy,method,values)->{
+        if(!method.getName().equals("nextFloat"))throw new AssertionError("Unexpected ender chest sound RNG "+method);
+        float value=delegate.nextFloat(); draws.add(value); return value;
+      }));
+      var chest=new net.minecraft.world.level.block.entity.EnderChestBlockEntity(world.position,state);chest.setLevel(world);
+      chest.startOpen(actor);chest.startOpen(spectator);chest.startOpen(other);
+      chest.stopOpen(actor);chest.stopOpen(spectator);chest.stopOpen(other);
+      if(world.sounds.size()!=2||draws.size()!=2||world.scheduled!=1)throw new AssertionError("Ender chest viewer lifecycle changed");
+      var row=new JsonObject();row.addProperty("state",Block.getId(state));row.add("events",world.events);row.add("draws",draws);row.add("sounds",world.sounds);enderChests.add(row);
+    }
     var events=List.of(SoundEvents.CHEST_OPEN,SoundEvents.CHEST_CLOSE);
     var registry=new JsonArray();
-    for(var event:List.of(SoundEvents.CHEST_OPEN,SoundEvents.CHEST_CLOSE,SoundEvents.BARREL_OPEN,SoundEvents.BARREL_CLOSE,SoundEvents.SHULKER_BOX_OPEN,SoundEvents.SHULKER_BOX_CLOSE)) {
+    for(var event:List.of(SoundEvents.CHEST_OPEN,SoundEvents.CHEST_CLOSE,SoundEvents.BARREL_OPEN,SoundEvents.BARREL_CLOSE,SoundEvents.SHULKER_BOX_OPEN,SoundEvents.SHULKER_BOX_CLOSE,SoundEvents.ENDER_CHEST_OPEN,SoundEvents.ENDER_CHEST_CLOSE)) {
       var row=new JsonObject(); row.addProperty("name",BuiltInRegistries.SOUND_EVENT.getKey(event).toString());
       row.addProperty("id",BuiltInRegistries.SOUND_EVENT.getId(event)); row.addProperty("range",event.getRange(0.5F)); registry.add(row);
     }
@@ -161,9 +187,20 @@ public class ChestSoundOracle {
           row.add("position",new Gson().toJsonTree(pos)); row.addProperty("pitch",pitch); row.addProperty("seed",seed); row.addProperty("hex",HexFormat.of().formatHex(bytes)); barrelPackets.add(row);
         } finally {buffer.release();}
       }
+    var enderPackets=new JsonArray();
+    for(var event:List.of(SoundEvents.ENDER_CHEST_OPEN,SoundEvents.ENDER_CHEST_CLOSE)) for(var pos:List.of(new double[]{0.5,64.5,0.5},new double[]{-0.5,-63.5,15.5},new double[]{29999984.5,319.5,-29999983.5}))
+      for(float pitch:new float[]{0.9F,1}) for(long seed:new long[]{Long.MIN_VALUE,0,Long.MAX_VALUE}) {
+        var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+        try {
+          ClientboundSoundPacket.STREAM_CODEC.encode(buffer,new ClientboundSoundPacket(BuiltInRegistries.SOUND_EVENT.wrapAsHolder(event),SoundSource.BLOCKS,pos[0],pos[1],pos[2],0.5F,pitch,seed));
+          var bytes=new byte[buffer.readableBytes()]; buffer.getBytes(0,bytes);
+          var row=new JsonObject(); row.addProperty("sound",BuiltInRegistries.SOUND_EVENT.getKey(event).toString());
+          row.add("position",new Gson().toJsonTree(pos)); row.addProperty("pitch",pitch); row.addProperty("seed",seed); row.addProperty("hex",HexFormat.of().formatHex(bytes)); enderPackets.add(row);
+        } finally {buffer.release();}
+      }
     var out=new JsonObject(); out.addProperty("version","26.3"); out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
-    out.addProperty("blocks_source",SoundSource.BLOCKS.ordinal()); out.add("registry",registry); out.add("traces",traces);out.add("halves",halves); out.add("packets",packets); out.add("barrels",barrels); out.add("barrel_packets",barrelPackets); out.add("shulker_boxes",shulkers);
+    out.addProperty("blocks_source",SoundSource.BLOCKS.ordinal()); out.add("registry",registry); out.add("traces",traces);out.add("halves",halves); out.add("packets",packets); out.add("barrels",barrels); out.add("barrel_packets",barrelPackets); out.add("shulker_boxes",shulkers); out.add("ender_chests",enderChests); out.add("ender_packets",enderPackets);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
-    System.out.println("PASS: "+traces.size()+" actual native chest sound RNG traces, "+barrels.size()+" barrel open-state/sound traces, "+shulkers.size()+" shulker box event/sound traces and "+(packets.size()+barrelPackets.size())+" registered sound codec bodies.");
+    System.out.println("PASS: "+traces.size()+" actual native chest sound RNG traces, "+barrels.size()+" barrel open-state/sound traces, "+shulkers.size()+" shulker box event/sound traces, "+enderChests.size()+" ender chest event/sound traces and "+(packets.size()+barrelPackets.size()+enderPackets.size())+" registered sound codec bodies.");
   }
 }

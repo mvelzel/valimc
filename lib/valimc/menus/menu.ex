@@ -51,9 +51,11 @@ defmodule Valimc.Menus.Menu do
 
   @doc """
   The menu of a storage kind (VMC-032c1): a barrel's is a three-row chest's
-  (`ChestMenu.threeRows`), a shulker box's its own (VMC-032c2).
+  (`ChestMenu.threeRows`), a shulker box's its own (VMC-032c2); an ender
+  chest's (VMC-032c3) is a three-row chest's over the player's ender slots.
   """
   def storage(:barrel), do: chest(3)
+  def storage(:ender_chest), do: chest(3)
   def storage(:shulker_box), do: shulker_box()
 
   @doc "The container slots of a plain menu."

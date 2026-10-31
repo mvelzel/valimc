@@ -4,9 +4,10 @@ defmodule Valimc.Player.State do
   struct with one codec.
 
   The file is a checkpoint of keyed records (`Valimc.Storage.Checkpoint`): one
-  record per field, `{:player, field}`, and one per occupied inventory slot,
-  `{:slot, n}`, so a player's changes diff into records as a section's do. No
-  other format is read (D4).
+  record per field, `{:player, field}`, one per occupied inventory slot,
+  `{:slot, n}`, and one per occupied ender chest slot, `{:ender, n}` (vanilla's
+  `EnderItems`, VMC-032c3), so a player's changes diff into records as a
+  section's do. No other format is read (D4).
 
   `game_mode` nil means the server's default.
   """
@@ -21,6 +22,9 @@ defmodule Valimc.Player.State do
   defstruct pose: %{x: 0.0, y: 64.0, z: 0.0, yaw: 0.0, pitch: 0.0},
             dimension: :overworld,
             inventory: %Inventory{},
+            # VMC-032c3: the 27 ender chest slots (`PlayerEnderChestContainer`),
+            # occupied ones only, by slot 0..26.
+            ender_items: %{},
             game_mode: nil,
             flying: false,
             health: %{value: 20.0, hurt_ticks: 0, death_ticks: 0},
@@ -67,6 +71,7 @@ defmodule Valimc.Player.State do
       Map.merge(living, %{
         pose: pose(player),
         inventory: inventory,
+        ender_items: Map.get(player, :ender_items, %{}),
         game_mode: Map.get(player, :game_mode),
         flying: flying,
         food: Map.get(player, :food, %Food{}),
@@ -110,7 +115,7 @@ defmodule Valimc.Player.State do
     fields =
       state
       |> Map.from_struct()
-      |> Map.delete(:inventory)
+      |> Map.drop([:inventory, :ender_items])
       |> Map.merge(%{
         selected: inventory.selected,
         carried: inventory.carried,
@@ -120,27 +125,36 @@ defmodule Valimc.Player.State do
 
     for({field, value} <- fields, into: %{}, do: {{:player, field}, value})
     |> Map.merge(for {slot, stack} <- inventory.slots, into: %{}, do: {{:slot, slot}, stack})
+    |> Map.merge(for {slot, stack} <- state.ender_items, into: %{}, do: {{:ender, slot}, stack})
   end
 
   @doc "The state of `records`, validated."
   def from_records(records, uuid) when is_map(records) do
-    {fields, slots} =
-      Enum.reduce(records, {%{}, %{}}, fn
-        {{:player, field}, value}, {fields, slots} -> {Map.put(fields, field, value), slots}
-        {{:slot, slot}, stack}, {fields, slots} -> {fields, Map.put(slots, slot, stack)}
-        _, _ -> throw(:invalid_player_file)
+    {fields, slots, ender} =
+      Enum.reduce(records, {%{}, %{}, %{}}, fn
+        {{:player, field}, value}, {fields, slots, ender} ->
+          {Map.put(fields, field, value), slots, ender}
+
+        {{:slot, slot}, stack}, {fields, slots, ender} ->
+          {fields, Map.put(slots, slot, stack), ender}
+
+        {{:ender, slot}, stack}, {fields, slots, ender} ->
+          {fields, slots, Map.put(ender, slot, stack)}
+
+        _, _ ->
+          throw(:invalid_player_file)
       end)
 
     {inventory_fields, fields} =
       Map.split(fields, [:selected, :carried, :table_inputs, :payments])
 
     {id, fields} = Map.pop(fields, :uuid)
-    keys = Map.keys(Map.from_struct(%__MODULE__{})) -- [:inventory]
+    keys = Map.keys(Map.from_struct(%__MODULE__{})) -- [:inventory, :ender_items]
 
     with true <- id == uuid and Enum.sort(Map.keys(fields)) == Enum.sort(keys),
          true <- map_size(inventory_fields) == 4 do
       inventory = struct(%Inventory{slots: slots}, inventory_fields)
-      state = struct(%__MODULE__{inventory: inventory}, fields)
+      state = struct(%__MODULE__{inventory: inventory, ender_items: ender}, fields)
       with :ok <- validate(uuid, state), do: {:ok, state}
     else
       _ -> {:error, :invalid_player_file}
@@ -178,6 +192,7 @@ defmodule Valimc.Player.State do
       invalid_pose: valid_pose?(state.pose),
       invalid_dimension: state.dimension in @dimensions and state.death_dimension in @dimensions,
       invalid_inventory: inventory?(state.inventory),
+      invalid_ender_items: ender_items?(state.ender_items),
       invalid_game_mode:
         state.game_mode == nil or match?({:ok, _}, GameMode.encode(state.game_mode)),
       invalid_flight_state: is_boolean(state.flying),
@@ -235,6 +250,19 @@ defmodule Valimc.Player.State do
   end
 
   defp inventory?(_), do: false
+
+  # Slots 0..26 hold real stacks, within the bytes an inventory may take.
+  defp ender_items?(slots) when is_map(slots) and map_size(slots) <= 27 do
+    Enum.all?(slots, fn {slot, stack} -> is_integer(slot) and slot in 0..26 and stack != nil end) and
+      Enum.reduce_while(Map.values(slots), 0, fn stack, size ->
+        case stack_bytes(stack) do
+          {:ok, bytes} when size + bytes <= @inventory_bytes -> {:cont, size + bytes}
+          _ -> {:halt, false}
+        end
+      end) != false
+  end
+
+  defp ender_items?(_), do: false
 
   defp stack_bytes(nil), do: {:ok, 0}
 

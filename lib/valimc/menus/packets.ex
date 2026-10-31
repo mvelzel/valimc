@@ -26,9 +26,16 @@ defmodule Valimc.Menus.Packets do
   end
 
   # A storage block's default name (`getDefaultName`).
-  @storage_titles %{barrel: "container.barrel", shulker_box: "container.shulkerBox"}
+  @storage_titles %{
+    barrel: "container.barrel",
+    shulker_box: "container.shulkerBox",
+    ender_chest: "container.enderchest"
+  }
 
-  @doc "A storage block's screen (VMC-032c1): its menu's type and its title."
+  @doc """
+  A storage block's screen (VMC-032c1): its menu's type and its title; an
+  ender chest's (VMC-032c3) as `EnderChestBlock`'s `CONTAINER_TITLE`.
+  """
   def open_storage(container, kind)
       when container in 1..127 and is_map_key(@storage_titles, kind) do
     {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.storage(kind))

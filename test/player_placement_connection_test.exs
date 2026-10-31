@@ -225,9 +225,9 @@ defmodule Valimc.PlayerPlacementConnectionTest do
   end
 
   test "unsupported block entities are corrected without a shell or item loss", c do
-    # Default states the 26.3 client sends for a copper chest and an ender chest; the owner
+    # Default states the 26.3 client sends for a copper chest and a crafter; the owner
     # refuses them too (placement_owner_test).
-    held = %{36 => ItemStack.new("copper_chest", 2), 45 => ItemStack.new("ender_chest", 3)}
+    held = %{36 => ItemStack.new("copper_chest", 2), 45 => ItemStack.new("crafter", 3)}
     seed(c, :survival, held)
     {x, y, z} = c.target
     floor = {x, y - 1, z}
