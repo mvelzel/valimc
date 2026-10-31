@@ -10,7 +10,7 @@
 //!
 //! The goals of a tamed cat are registered as vanilla's are and never
 //! start (`Idle`): taming is not modelled, so a stray takes the fish it is
-//! offered and nothing happens.
+//! offered and its taming always fails.
 
 use super::{variants, Animal, Species};
 use crate::mobs::ai::goal::{Goal, JUMP, LOOK, MOVE, TARGET};
@@ -23,7 +23,7 @@ use crate::mobs::ai::goals::{
 use crate::mobs::ai::turn::{Targeting, Turn};
 use crate::mobs::combat::{SoundKind, SoundRef};
 use crate::mobs::facts::MobFacts;
-use crate::mobs::kinds::interact::{Interaction, Outcome};
+use crate::mobs::kinds::interact::{Done, Hand, InteractEvent, Interaction, Outcome};
 use crate::mobs::kinds::{Registered, Registration};
 use crate::mobs::model::{Body, Control, FamilyData, Modifier, Number};
 use crate::mobs::sensing::Ref;
@@ -300,12 +300,18 @@ impl Species for Cat {
         self.variants.combat_sound(body, which)
     }
 
-    /// `Cat.mobInteract` of a stray with its food: taming is not modelled,
-    /// so it takes nothing.
+    /// `Cat.mobInteract` of a stray with its food: it takes one
+    /// (`usePlayerItem`) and `tryToTame` fails, with its smoke (event 6);
+    /// taming itself is not modelled.
     fn interact(&self, a: &Animal<Self>, i: &mut Interaction) -> Outcome {
         let food = i.rules.facts.animal.food(a.type_id, i.request.item_id());
         if !flag(&i.mob.body.data, "tame") && food {
-            Outcome::Consume
+            Outcome::Done(Done {
+                hand: Some(Hand::Use(1)),
+                swing: true,
+                events: vec![InteractEvent::Entity(6)],
+                ..Done::default()
+            })
         } else {
             Outcome::Pass
         }

@@ -95,6 +95,15 @@ defmodule Valimc.AnimalRegionTest do
     assert Enum.count(bodies, & &1.data.has_egg) == 1
   end
 
+  # The VMC-083 client run's stray cat never took the cod it was offered.
+  test "a stray cat takes the raw cod it is offered", ctx do
+    summon(ctx, "minecraft:cat", <<8::128>>, {0.0, 0.0})
+    request = %{item: ItemStack.new("minecraft:cod"), infinite: false, player: <<9::128>>}
+
+    assert {:ok, %{hand: {:use, 1}, swing: true}} =
+             Region.interact_entity(ctx.owner, <<8::128>>, request)
+  end
+
   test "shears shear a sheep's wool onto the ground and turn a mooshroom into a cow", ctx do
     summon(ctx, "minecraft:sheep", <<3::128>>, {0.0, 0.0}, %{color: 4})
     summon(ctx, "minecraft:mooshroom", <<4::128>>, {3.0, 0.0})
