@@ -181,9 +181,10 @@ public class VillageOracle {
     long gateSeed; int refreshes; JsonArray reseeded;
     Villager(MobAiOracle.Probe level) { super(EntityTypes.VILLAGER, level); }
     public net.minecraft.world.scores.PlayerTeam getTeam() { return null; }
-    // No trades (VMC-044): a trade set draws on its own random sequence only.
+    // No drawn trades: a trade set draws on its own random sequence only. A
+    // shop scene sets its offers (VMC-044b3).
     net.minecraft.world.item.trading.MerchantOffers none = new net.minecraft.world.item.trading.MerchantOffers();
-    public net.minecraft.world.item.trading.MerchantOffers getOffers() { return none; }
+    public net.minecraft.world.item.trading.MerchantOffers getOffers() { return offers != null ? offers : none; }
     public void refreshBrain(net.minecraft.server.level.ServerLevel level) {
       super.refreshBrain(level);
       try { reseeded = seedGates(this, gateSeed + 1000L * ++refreshes); } catch (Exception e) { throw new RuntimeException(e); }
@@ -303,6 +304,20 @@ public class VillageOracle {
     Spawn(String type, Vec3 position, float yaw, long seed, boolean noAi, int age, String profession) { this(type, position, yaw, seed, noAi, age, profession, -1L); }
   }
 
+  /**
+   * A villager's offers and restocks (VMC-044b3), with 5 experience: when it
+   * last restocked, how often today, and offers as `[buy, count, buy b | null, count b, sell, count,
+   * uses, max uses, demand, price multiplier, xp]`.
+   */
+  record Shop(long lastRestock, int restocks, List<Object[]> offers) {}
+  static final Map<Long, Shop> SHOPS = new HashMap<>();
+
+  static Field villagerField(String name) throws Exception {
+    var f = net.minecraft.world.entity.npc.villager.Villager.class.getDeclaredField(name); f.setAccessible(true); return f;
+  }
+
+  static net.minecraft.world.item.Item item(String name) { return BuiltInRegistries.ITEM.getValue(Identifier.parse(name)); }
+
   /** A wandering trader's setup (VMC-044a4): its wander target and home, despawn delay, and invisibility. */
   record Trader(BlockPos wander, int despawn, boolean invisible) {}
   static final Map<Long, Trader> TRADERS = new HashMap<>();
@@ -341,6 +356,21 @@ public class VillageOracle {
         v.setVillagerData(v.getVillagerData().withProfession(level.registryAccess(),
             ResourceKey.create(Registries.VILLAGER_PROFESSION, Identifier.parse(s.profession))));
         v.refreshBrain(level);
+      }
+      if (m instanceof Villager v && SHOPS.containsKey(s.seed)) {
+        var shop = SHOPS.get(s.seed);
+        var offers = new net.minecraft.world.item.trading.MerchantOffers();
+        for (var o : shop.offers) {
+          var b = o[2] == null ? Optional.<net.minecraft.world.item.trading.ItemCost>empty()
+              : Optional.of(new net.minecraft.world.item.trading.ItemCost(item((String)o[2]), (int)o[3]));
+          offers.add(new net.minecraft.world.item.trading.MerchantOffer(new net.minecraft.world.item.trading.ItemCost(item((String)o[0]), (int)o[1]), b,
+              new net.minecraft.world.item.ItemStack(item((String)o[4]), (int)o[5]), (int)o[6], (int)o[7], (int)o[10], (float)o[9], (int)o[8]));
+        }
+        v.setOffers(offers);
+        villagerField("lastRestockGameTime").setLong(v, shop.lastRestock);
+        villagerField("numberOfRestocksToday").setInt(v, shop.restocks);
+        // Experience keeps its profession until it claims the lectern.
+        v.setVillagerXp(5);
       }
       m.getRandom().setSeed(s.seed);
       m.setNoAi(s.noAi);
@@ -433,6 +463,11 @@ public class VillageOracle {
             r.add("walk_target", w);
           }
           r.add("look_target", tracker(brain.getMemory(MemoryModuleType.LOOK_TARGET).orElse(null)));
+          var offerRows = new JsonArray();
+          for (var o : v.getOffers()) { var a = new JsonArray(); a.add(o.getUses()); a.add(o.getDemand()); offerRows.add(a); }
+          r.add("offers", offerRows);
+          r.addProperty("restocks", villagerField("numberOfRestocksToday").getInt(v));
+          r.addProperty("last_restock", villagerField("lastRestockGameTime").getLong(v));
           r.add("sleeping", v.getSleepingPos().map(VillageOracle::pos).map(a -> (JsonElement)a).orElse(JsonNull.INSTANCE));
           var hostile = brain.getMemory(MemoryModuleType.NEAREST_HOSTILE);
           r.addProperty("hostile", hostile.map(h -> h.getId()).orElse(null));
@@ -498,6 +533,12 @@ public class VillageOracle {
       var o = new JsonObject(); o.addProperty("type", s.type); o.add("position", MobAiOracle.bits(s.position)); o.addProperty("yaw", Float.floatToRawIntBits(s.yaw));
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(i).getId()); o.addProperty("no_ai", s.noAi); o.addProperty("age", s.age);
       o.addProperty("profession", s.profession); o.addProperty("slept", s.slept);
+      if (SHOPS.containsKey(s.seed)) {
+        var shop = SHOPS.get(s.seed); var so = new JsonObject();
+        so.addProperty("last_restock", shop.lastRestock); so.addProperty("restocks", shop.restocks);
+        so.add("offers", new Gson().toJsonTree(shop.offers));
+        o.add("shop", so);
+      }
       if (s.type.equals("minecraft:wandering_trader") && TRADERS.containsKey(s.seed)) {
         var tr = TRADERS.get(s.seed); var to = new JsonObject();
         to.add("wander", tr.wander == null ? JsonNull.INSTANCE : pos(tr.wander));
@@ -564,6 +605,23 @@ public class VillageOracle {
     cases.add(run(level, "villager_job", scene(floor(63, 12, stone), List.of(new Block(-4, 64, 2, Blocks.LECTERN.defaultBlockState()))),
         List.of(new Spawn("minecraft:villager", start, 0, 43L)), 1900L, 700));
     // In the evening it meets at the bell.
+    // VMC-044b3: a librarian at its lectern restocks its used trades (demand
+    // follows), catches up a new day's demand, or may restock no more today.
+    var lectern = scene(floor(63, 12, stone), List.of(new Block(-4, 64, 2, Blocks.LECTERN.defaultBlockState())));
+    List<Object[]> stock = List.of(
+        new Object[]{"minecraft:paper", 24, null, 0, "minecraft:emerald", 1, 3, 16, 0, 0.05F, 2},
+        new Object[]{"minecraft:emerald", 9, null, 0, "minecraft:bookshelf", 1, 12, 12, 2, 0.05F, 1},
+        new Object[]{"minecraft:emerald", 5, "minecraft:book", 1, "minecraft:lantern", 1, 0, 12, -3, 0.2F, 1});
+    SHOPS.put(149L, new Shop(1800L, 0, stock));
+    cases.add(run(level, "librarian_restock", lectern,
+        List.of(new Spawn("minecraft:villager", start, 0, 149L, false, 0, "minecraft:librarian")), 1900L, 1500));
+    SHOPS.put(151L, new Shop(10000L, 1, stock));
+    cases.add(run(level, "librarian_new_day", lectern,
+        List.of(new Spawn("minecraft:villager", start, 0, 151L, false, 0, "minecraft:librarian")), 25900L, 1500));
+    SHOPS.put(157L, new Shop(1800L, 2, stock));
+    cases.add(run(level, "librarian_restocked_twice", lectern,
+        List.of(new Spawn("minecraft:villager", start, 0, 157L, false, 0, "minecraft:librarian")), 1900L, 1500));
+
     cases.add(run(level, "villager_meet", scene(floor(63, 12, stone), List.of(new Block(0, 64, -6, Blocks.BELL.defaultBlockState()))),
         List.of(new Spawn("minecraft:villager", start, 0, 47L)), 8900L, 700));
     // An iron golem strolls where there is no village; one guards a villager
@@ -602,6 +660,41 @@ public class VillageOracle {
         List.of(new Spawn("minecraft:villager", start, 0, 53L), new Spawn("minecraft:zombie", new Vec3(5.5, 64, .5), 90, 59L, true, 0, null)), 1000L, 300));
     var out = new JsonObject(); out.addProperty("version", "26.3");
     out.addProperty("server_sha1", "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c"); out.add("cases", cases);
+    out.add("prices", prices(level, stock));
+    return out;
+  }
+
+  /**
+   * `Villager.updateSpecialPrices` (VMC-044b3) for a player under Hero of the
+   * Village at each amplifier (or none): per offer its special price and its
+   * first cost's count (`getCostA`).
+   */
+  static JsonArray prices(MobAiOracle.Probe level, List<Object[]> stock) throws Exception {
+    var update = net.minecraft.world.entity.npc.villager.Villager.class.getDeclaredMethod("updateSpecialPrices", net.minecraft.world.entity.player.Player.class);
+    update.setAccessible(true);
+    var out = new JsonArray();
+    for (Integer amplifier : new Integer[]{null, 0, 1, 2, 4, 9}) {
+      var v = new Villager(level);
+      var offers = new net.minecraft.world.item.trading.MerchantOffers();
+      for (var o : stock) {
+        var b = o[2] == null ? Optional.<net.minecraft.world.item.trading.ItemCost>empty()
+            : Optional.of(new net.minecraft.world.item.trading.ItemCost(item((String)o[2]), (int)o[3]));
+        offers.add(new net.minecraft.world.item.trading.MerchantOffer(new net.minecraft.world.item.trading.ItemCost(item((String)o[0]), (int)o[1]), b,
+            new net.minecraft.world.item.ItemStack(item((String)o[4]), (int)o[5]), (int)o[6], (int)o[7], (int)o[10], (float)o[9], (int)o[8]));
+      }
+      v.setOffers(offers);
+      var player = new MobAiOracle.Fighter(level, 77, net.minecraft.world.level.GameType.SURVIVAL);
+      if (amplifier != null)
+        player.getActiveEffectsMap().put(net.minecraft.world.effect.MobEffects.HERO_OF_THE_VILLAGE,
+            new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.HERO_OF_THE_VILLAGE, 1000, amplifier));
+      update.invoke(v, player);
+      var row = new JsonArray();
+      row.add(amplifier == null ? JsonNull.INSTANCE : new JsonPrimitive(amplifier));
+      var rs = new JsonArray();
+      for (var o : v.getOffers()) { var a = new JsonArray(); a.add(o.getSpecialPriceDiff()); a.add(o.getCostA().getCount()); rs.add(a); }
+      row.add(rs);
+      out.add(row);
+    }
     return out;
   }
 

@@ -7,7 +7,8 @@
 # order. Every tick, each mob's motion, rotations and random, a villager's
 # running behaviours, activity, profession, POI, walk and look memories,
 # sleeping place and path, the level random, the tickets taken of each POI
-# and its block state must equal vanilla's.
+# and its block state, and its offers' uses and demand and its restocks
+# (VMC-044b3), must equal vanilla's.
 #
 # Every mob takes its turns in a native section (`MobTicks.native_steps/4`,
 # VMC-081d), a villager's brain built with the oracle's gates, activity
@@ -223,6 +224,40 @@ checked =
               "minecraft:villager" ->
                 data = %{body.data | age: m["age"]}
                 data = if m["profession"], do: %{data | profession: m["profession"]}, else: data
+
+                # A shop scene's offers and restocks, with 5 experience (VMC-044b3).
+                data =
+                  case m["shop"] do
+                    nil ->
+                      data
+
+                    shop ->
+                      offers =
+                        for [a, n, b, nb, sell, ns, uses, max, demand, multiplier, xp] <-
+                              shop["offers"] do
+                          %{
+                            buy: Valimc.Protocol.ItemStack.new(a, n),
+                            buy_b: b && Valimc.Protocol.ItemStack.new(b, nb),
+                            sell: Valimc.Protocol.ItemStack.new(sell, ns),
+                            uses: uses,
+                            max_uses: max,
+                            reward_exp: true,
+                            special_price: 0,
+                            demand: demand,
+                            price_multiplier: Valimc.Data.Float32.round(multiplier * 1.0),
+                            xp: xp
+                          }
+                        end
+
+                      %{
+                        data
+                        | offers: offers,
+                          last_restock: shop["last_restock"],
+                          restocks_today: shop["restocks"],
+                          xp: 5
+                      }
+                  end
+
                 %{body | data: data}
 
               _ ->
@@ -587,6 +622,9 @@ checked =
                        walk_target: walk,
                        look_target: tracker.(memory.(mind, :look_target)),
                        sleeping: body.data.sleeping && Tuple.to_list(body.data.sleeping),
+                       offers: Enum.map(body.data.offers || [], &[&1.uses, &1.demand]),
+                       restocks: body.data.restocks_today,
+                       last_restock: body.data.last_restock,
                        hostile:
                          case memory.(mind, :nearest_hostile) do
                            {_, <<n::64, _::64>>} -> n
@@ -604,6 +642,9 @@ checked =
                        walk_target: expected["walk_target"],
                        look_target: expected["look_target"],
                        sleeping: expected["sleeping"],
+                       offers: expected["offers"],
+                       restocks: expected["restocks"],
+                       last_restock: expected["last_restock"],
                        hostile: expected["hostile"]
                      })}
                   else
@@ -697,6 +738,49 @@ checked =
       count
   end
 
+# `updateSpecialPrices` under Hero of the Village (VMC-044b3): a native
+# villager with the restock scenes' offers starts trading with a player at
+# each amplifier; its offers' special prices and first costs must equal
+# vanilla's.
+stock = hd(for(c <- cases, m <- c["mobs"], m["shop"], do: m["shop"]["offers"]))
+
+for [amplifier, expected] <- fixtures["prices"] do
+  {:ok, body} = Body.new("minecraft:villager")
+
+  offers =
+    for [a, n, b, nb, sell, ns, uses, max, demand, multiplier, xp] <- stock do
+      %{
+        buy: Valimc.Protocol.ItemStack.new(a, n),
+        buy_b: b && Valimc.Protocol.ItemStack.new(b, nb),
+        sell: Valimc.Protocol.ItemStack.new(sell, ns),
+        uses: uses,
+        max_uses: max,
+        reward_exp: true,
+        special_price: 0,
+        demand: demand,
+        price_multiplier: Valimc.Data.Float32.round(multiplier * 1.0),
+        xp: xp
+      }
+    end
+
+  body = %{body | data: %{body.data | offers: offers, profession: "minecraft:librarian"}}
+  section = Valimc.Entity.NativeMobs.new({0, 0})
+  record = Store.body_record(body, <<5::128>>, {0.5, 64.0, 0.5})
+  {:ok, _} = Native.mob_section_insert(section.ref, [{1, record}], false)
+  {:ok, _} = Native.mob_section_merchant(section.ref, 1, {:start, <<7::128>>, amplifier})
+  {:ok, {view, _, _}} = Native.mob_section_merchant(section.ref, 1, :view)
+
+  actual =
+    for o <- view.offers,
+        do: [o.special_price, Valimc.Menus.Merchant.cost_count(o)]
+
+  unless actual == expected,
+    do:
+      raise(
+        "Hero of the Village #{inspect(amplifier)}: #{inspect(actual)} != #{inspect(expected)}"
+      )
+end
+
 IO.puts(
-  "PASS: #{checked} villager ticks of #{length(cases)} scenes equal vanilla's (brains, schedules, POIs, beds, professions, motion, randoms)"
+  "PASS: #{checked} villager ticks of #{length(cases)} scenes equal vanilla's (brains, schedules, POIs, beds, professions, motion, randoms, restocks); Hero of the Village's prices at #{length(fixtures["prices"])} amplifiers"
 )

@@ -587,6 +587,7 @@ pub fn effect(facts: &MobFacts, e: &Effect) -> Option<Value> {
         Effect::ElderCurse(at) => Value::tuple([Value::atom("elder_curse"), Value::vec3(*at)]),
         Effect::ShulkerPush(v) => tagged("shulker_push", v.clone()),
         Effect::Locate(v) => tagged("locate", v.clone()),
+        Effect::Merchant(v) => tagged("merchant", v.clone()),
         // The section applied these to its own mobs, or they are events.
         Effect::Alert { .. }
         | Effect::Bred(_)

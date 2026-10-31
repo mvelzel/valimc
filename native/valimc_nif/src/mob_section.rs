@@ -2454,8 +2454,8 @@ mod merchant_atoms {
 }
 
 /// A merchant's trading, for its owner (VMC-044b2, `village::merchant`):
-/// `:view` (its trading state), `{:start, uuid}` and `:stop` (its trading
-/// player; false before its mind first thought), `:unhappy`, `{:updated,
+/// `:view` (its trading state), `{:start, uuid, hero amplifier | nil}`
+/// and `:stop` (its trading player), `:unhappy`, `{:updated,
 /// valid}` (`notifyTradeUpdated`'s sound; whether it played), `{:trade,
 /// index, uuid}` (the result map, or `{:error, reason}`) and `{:offers,
 /// list}` (its offers made). `{:ok, {result, events, {position, row}}}`.
@@ -2491,8 +2491,9 @@ fn mob_section_merchant<'a>(
     };
     if tag == merchant_atoms::start() {
         let player = uuid(arg(1)?)?;
+        let hero: Option<i64> = arg(2)?.decode()?;
         act(env, &res, id, |_, mob, _| {
-            merchant::set_trading(mob, Some(player))
+            merchant::start(mob, player, hero)
         })
     } else if tag == merchant_atoms::updated() {
         let valid: bool = arg(1)?.decode()?;
@@ -2514,9 +2515,7 @@ fn mob_section_merchant<'a>(
         })
     } else if tag == merchant_atoms::offers() {
         let offers = mob_term::decode(arg(1)?)?;
-        act(env, &res, id, |_, mob, _| {
-            mob.body.data.set("offers", offers)
-        })
+        act(env, &res, id, |_, mob, _| merchant::set_offers(mob, offers))
     } else {
         Err(rustler::Error::BadArg)
     }

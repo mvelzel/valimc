@@ -121,11 +121,24 @@ defmodule Valimc.Player.Merchant do
     dx * dx + dy * dy + dz * dz < range * range
   end
 
-  @doc "A player tick's check: the menu closes once it is not valid."
+  @doc """
+  A player tick's check: the menu closes once it is not valid; offers the
+  merchant changed (a restock, new prices) are sent again, as
+  `updateSpecialPrices` sends them to its trading player.
+  """
   def check(state) do
     case valid(state) do
-      {:ok, _} -> state
-      :invalid -> Valimc.Player.Menus.close(state)
+      {:ok, %{offers: offers}} when is_list(offers) and offers != state.table_menu.offers ->
+        menu = %{state.table_menu | offers: offers}
+        state = %{state | table_menu: menu}
+        send_packets(state, [offers_packet(menu)])
+        sync(state)
+
+      {:ok, _} ->
+        state
+
+      :invalid ->
+        Valimc.Player.Menus.close(state)
     end
   end
 

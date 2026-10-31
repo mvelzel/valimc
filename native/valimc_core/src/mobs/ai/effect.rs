@@ -212,6 +212,9 @@ pub enum Effect {
     ShulkerPush(Value),
     /// `{:locate, uuid, request, query}`: a structure query.
     Locate(Value),
+    /// `{:merchant, request}`: a merchant's request of its owner
+    /// (VMC-044b3: `{:offers_wanted, uuid, demand updates}`).
+    Merchant(Value),
     /// An event of the living rules the AI made happen to the mob (a
     /// family's air drowning it), as its hurt path returns it.
     Living(crate::mobs::combat::Event),

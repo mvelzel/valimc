@@ -1703,6 +1703,12 @@ defmodule Valimc.World.RegionData do
 
       jockeys = for step <- steps, {:jockey, uuid} <- step.effects, do: uuid
 
+      # Merchants whose restock checks want their offers (VMC-044b3).
+      offers_wanted =
+        for step <- steps,
+            {:merchant, {:offers_wanted, uuid, owed}} <- step.effects,
+            do: {uuid, owed}
+
       # Arrows skeletons loosed (VMC-043b).
       arrows =
         for step <- steps, {:shoot, shot} <- step.effects, do: {step.id, shot}
@@ -1825,6 +1831,7 @@ defmodule Valimc.World.RegionData do
       state = Enum.reduce(blasts, state, &mob_blast/2)
       state = if gone == [], do: state, else: mob_discards(state, gone)
       state = if jockeys == [], do: state, else: mob_jockeys(state, jockeys)
+      state = Enum.reduce(offers_wanted, state, &offers_wanted/2)
       state = if conversions == [], do: state, else: mob_conversions(state, conversions)
 
       state =
@@ -2126,8 +2133,12 @@ defmodule Valimc.World.RegionData do
 
             {:merchant, taken, state}
 
-          {offers, state} ->
-            {_, state} = merchant_act(state, ref, id, {:start, request.player})
+          {_offers, state} ->
+            {_, state} =
+              merchant_act(state, ref, id, {:start, request.player, Map.get(request, :hero)})
+
+            # `updateSpecialPrices` priced them for the player.
+            {%{offers: offers}, state} = merchant_act(state, ref, id, :view)
 
             trade = %{
               uuid: e.uuid,
@@ -2296,6 +2307,29 @@ defmodule Valimc.World.RegionData do
           state
       end
     else
+      _ -> state
+    end
+  end
+
+  # `shouldRestock`'s `getOffers`: a merchant without offers draws them now,
+  # with the demand updates a new day's catch-up owes them (VMC-044b3).
+  defp offers_wanted({uuid, owed}, state) do
+    store = state.entities.store
+
+    with false <- Enum.any?(state.trade_waiting, &(&1.uuid == uuid)),
+         {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{native: ref, entity: e} when ref != nil <- store.entries[id],
+         {%{offers: nil} = view, state} <- merchant_act(state, ref, id, :view),
+         {offers, state} when is_list(offers) <- ensure_offers(state, ref, id, e, view) do
+      owed_offers =
+        Enum.reduce(1..owed//1, offers, fn _, o -> Valimc.Menus.Offers.update_demand(o) end)
+
+      if owed > 0,
+        do: elem(merchant_act(state, ref, id, {:offers, owed_offers}), 1),
+        else: state
+    else
+      {:pending, state} -> state
+      {_view, %{} = state} -> state
       _ -> state
     end
   end

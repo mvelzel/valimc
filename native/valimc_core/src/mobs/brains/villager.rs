@@ -223,6 +223,13 @@ impl Villager {
             ("offers", NIL),
             ("trading", NIL),
             ("last_traded", NIL),
+            // Its restocks (VMC-044b3): when it last restocked, how often
+            // today, the day it last checked and its trading player's Hero
+            // of the Village (the last two never restored).
+            ("last_restock", Value::Int(0)),
+            ("restocks_today", Value::Int(0)),
+            ("restock_day", Value::Int(0)),
+            ("trading_hero", NIL),
         ])
     }
 }
@@ -2070,6 +2077,20 @@ impl Timer for WorkAtPoi {
             .and_then(|s| t.level.facts.sounds.id(&s));
         if let Some(id) = sound {
             think::make_sound(t, id);
+        }
+        // `shouldRestock` and `restock` (VMC-044b3); offers it would have
+        // made first are drawn by its owner after its turn.
+        let (now, day) = (t.level.time, t.level.day / 24000);
+        match merchant::should_restock(t.mob, now, day) {
+            merchant::Restock::Yes => merchant::restock(t.mob, now),
+            merchant::Restock::Wanted { demand_updates } => {
+                t.effect(Effect::Merchant(Value::tuple([
+                    Value::atom("offers_wanted"),
+                    Value::Binary(t.uuid.to_vec()),
+                    Value::Int(demand_updates),
+                ])))
+            }
+            merchant::Restock::No => {}
         }
     }
 

@@ -71,7 +71,10 @@ defmodule Valimc.Player.Interact do
   end
 
   defp use(state, hand, stack, view, owner, sneaking) do
-    request = Map.put(request(state, stack, sneaking), :hand, hand)
+    request =
+      request(state, stack, sneaking)
+      |> Map.put(:hand, hand)
+      |> Map.put(:hero, hero(state.player.living.effects))
 
     case Region.interact_entity(owner, view.uuid, request) do
       # A merchant trades (VMC-044b2): its menu opens.
@@ -117,6 +120,15 @@ defmodule Valimc.Player.Interact do
         height: dimensions["height"] * 1.0
       }
     }
+  end
+
+  # Hero of the Village's amplifier, for a merchant's prices (VMC-044b3).
+  @hero Valimc.Data.EffectTypes.id("hero_of_the_village")
+  defp hero(effects) do
+    case effects[@hero] do
+      [{_ticks, amplifier, _, _, _} | _] -> amplifier
+      _ -> nil
+    end
   end
 
   defp answer(state, hand, stack, view, reply) do

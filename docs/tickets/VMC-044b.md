@@ -1,6 +1,6 @@
 # VMC-044b — Professions and trades
 
-Status: In progress
+Status: Awaiting client
 Milestone: M4
 Depends on: [VMC-044a](VMC-044a.md), [VMC-072](VMC-072.md) (the loot evaluator).
 
@@ -46,3 +46,12 @@ Ownership: a villager belongs to the group of its section; the trading
 player stands within 4 blocks of it (`stillValid`), so the player's session
 is hosted by the same group and a trade is a call inside it. Random
 sequences have one owner per world (VMC-044b1).
+
+## Handoff (October 31, 2026)
+
+All three slices are on main and wait on M4's client run; their scenarios
+make one handoff: a fresh world's village, a librarian traded with to its
+second level (the result slot following the payments, the new offers and
+particles at the level-up), a wandering trader's menu, and a trade
+exhausted and restocked as the librarian works at its lectern. Next:
+gossip and reputation fill the prices (VMC-044c).

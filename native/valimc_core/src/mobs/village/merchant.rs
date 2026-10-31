@@ -224,3 +224,175 @@ pub fn trade(
     );
     Ok(Value::Map(m))
 }
+
+// ## Restocks and prices (VMC-044b3)
+
+fn offers_of(mob: &NativeMob) -> Option<Vec<Value>> {
+    mob.body
+        .data
+        .get("offers")?
+        .as_list()
+        .map(<[Value]>::to_vec)
+}
+
+fn each_offer(offers: &mut [Value], mut f: impl FnMut(&mut Map)) {
+    for offer in offers.iter_mut() {
+        if let Value::Map(m) = offer {
+            f(m);
+        }
+    }
+}
+
+/// `MerchantOffer.updateDemand` of every offer: up by its uses, down by
+/// its uses left.
+fn update_demand(offers: &mut [Value]) {
+    each_offer(offers, |m| {
+        let (uses, max) = (offer_int(m, "uses"), offer_int(m, "max_uses"));
+        let demand = offer_int(m, "demand") + uses - (max - uses);
+        m.insert_atom("demand", Value::Int(demand));
+    });
+}
+
+fn reset_uses(offers: &mut [Value]) {
+    each_offer(offers, |m| m.insert_atom("uses", Value::Int(0)));
+}
+
+/// `Villager.updateSpecialPrices` for its trading player: special prices
+/// reset, less the player's reputation times each price multiplier and,
+/// under Hero of the Village (`trading_hero`, its amplifier), at least one
+/// of `0.3 + 0.0625 × amplifier` of the base cost.
+fn special_prices(mob: &mut NativeMob, offers: &mut [Value]) {
+    // Gossip and its reputation are VMC-044c's.
+    let reputation: i64 = 0;
+    let hero = mob.body.data.get("trading_hero").and_then(Value::as_int);
+    each_offer(offers, |m| {
+        let mut special = 0i64;
+        if reputation != 0 {
+            let multiplier = m
+                .get_atom("price_multiplier")
+                .and_then(Value::as_float)
+                .unwrap_or(0.0) as f32;
+            special -= ((reputation as f32) * multiplier).floor() as i64;
+        }
+        if let Some(amplifier) = hero {
+            let modifier = (0.3f32 + 0.0625f32 * amplifier as f32) as f64;
+            let base = m
+                .get_atom("buy")
+                .and_then(Value::as_map)
+                .and_then(|s| s.get_atom("count"))
+                .and_then(Value::as_int)
+                .unwrap_or(0);
+            let cut = (modifier * base as f64).floor() as i64;
+            special -= cut.max(1);
+        }
+        m.insert_atom("special_price", Value::Int(special));
+    });
+}
+
+/// Start trading with `player` (Hero of the Village at `hero`, or none):
+/// `updateSpecialPrices`, then `setTradingPlayer`.
+pub fn start(mob: &mut NativeMob, player: Uuid, hero: Option<i64>) -> bool {
+    mob.body
+        .data
+        .set("trading_hero", Value::or_nil(hero, Value::Int));
+    if let Some(mut offers) = offers_of(mob) {
+        special_prices(mob, &mut offers);
+        mob.body.data.set("offers", Value::List(offers));
+    }
+    set_trading(mob, Some(player))
+}
+
+/// Its offers made (`updateTrades`): priced for its trading player, if
+/// any (`updateSpecialPrices`).
+pub fn set_offers(mob: &mut NativeMob, offers: Value) -> bool {
+    match offers {
+        Value::List(mut list) if trading(mob).is_some() => {
+            special_prices(mob, &mut list);
+            mob.body.data.set("offers", Value::List(list))
+        }
+        other => mob.body.data.set("offers", other),
+    }
+}
+
+/// What a restock check found: whether to restock, or the offers it would
+/// have made first (`getOffers`), with the demand updates a new day's
+/// catch-up owes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restock {
+    No,
+    Yes,
+    Wanted { demand_updates: i64 },
+}
+
+/// `Villager.shouldRestock` at game time `now` on overworld day `day`: a new
+/// day (half a day since its last restock, or a later day than it last
+/// checked) catches up the demand it missed; then it may restock (none
+/// today yet, or one at least 2400 ticks ago) when a trade was used.
+pub fn should_restock(mob: &mut NativeMob, now: i64, day: i64) -> Restock {
+    let int = |mob: &NativeMob, k: &str| mob.body.data.get(k).and_then(Value::as_int).unwrap_or(0);
+    let mut new_day = now > int(mob, "last_restock") + 12000;
+    let checked = int(mob, "restock_day");
+    new_day |= checked > 0 && day > checked;
+    mob.body.data.set("restock_day", Value::Int(day));
+    let mut owed = 0;
+    if new_day {
+        mob.body.data.set("last_restock", Value::Int(now));
+        // `resetNumberOfRestocks`: `catchUpDemand`, then none today.
+        let missed = 2 - int(mob, "restocks_today");
+        match offers_of(mob) {
+            Some(mut offers) => {
+                if missed > 0 {
+                    reset_uses(&mut offers);
+                }
+                for _ in 0..missed.max(0) {
+                    update_demand(&mut offers);
+                }
+                if trading(mob).is_some() {
+                    special_prices(mob, &mut offers);
+                }
+                mob.body.data.set("offers", Value::List(offers));
+            }
+            None => owed = missed.max(0),
+        }
+        mob.body.data.set("restocks_today", Value::Int(0));
+    }
+    let today = int(mob, "restocks_today");
+    let allowed = today == 0 || (today < 2 && now > int(mob, "last_restock") + 2400);
+    match offers_of(mob) {
+        None if new_day || allowed => Restock::Wanted {
+            demand_updates: owed,
+        },
+        None => Restock::No,
+        Some(offers) => {
+            let used = offers
+                .iter()
+                .any(|o| o.as_map().is_some_and(|m| offer_int(m, "uses") > 0));
+            if allowed && used {
+                Restock::Yes
+            } else {
+                Restock::No
+            }
+        }
+    }
+}
+
+/// `Villager.restock` at game time `now`: demand, then every trade back.
+pub fn restock(mob: &mut NativeMob, now: i64) {
+    let Some(mut offers) = offers_of(mob) else {
+        return;
+    };
+    update_demand(&mut offers);
+    reset_uses(&mut offers);
+    if trading(mob).is_some() {
+        special_prices(mob, &mut offers);
+    }
+    mob.body.data.set("offers", Value::List(offers));
+    mob.body.data.set("last_restock", Value::Int(now));
+    let today = mob
+        .body
+        .data
+        .get("restocks_today")
+        .and_then(Value::as_int)
+        .unwrap_or(0);
+    mob.body.data.set("restocks_today", Value::Int(today + 1));
+}

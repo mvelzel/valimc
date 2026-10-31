@@ -895,8 +895,10 @@ fn restore_data(entity_type: &str, data: &Value, facts: &TypeFacts) -> Result<Fa
         "minecraft:villager" | "minecraft:wandering_trader"
     ) {
         for (key, value) in fields.iter_mut() {
-            if matches!(key.as_str(), "trading" | "last_traded") {
-                *value = Value::atom("nil");
+            match key.as_str() {
+                "trading" | "last_traded" | "trading_hero" => *value = Value::atom("nil"),
+                "restock_day" => *value = Value::Int(0),
+                _ => {}
             }
         }
     }

@@ -58,6 +58,13 @@ defmodule Valimc.Menus.Offers do
     end
   end
 
+  @doc "`MerchantOffer.updateDemand` of every offer (VMC-044b3)."
+  def update_demand(offers),
+    do:
+      Enum.map(offers, fn o ->
+        %{o | demand: o.demand + o.uses - (o.max_uses - o.uses)}
+      end)
+
   defp offer({buy, buy_b, sell, max_uses, xp, multiplier}) do
     %{
       buy: stack!(buy),
