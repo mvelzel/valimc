@@ -15,6 +15,8 @@ use std::collections::{HashMap, HashSet};
 use crate::worldgen::json::Json;
 use crate::worldgen::random::Random;
 
+pub mod trades;
+
 /// An item stack as loot tables build it: the item, its count and the
 /// components the functions set (unset ones keep the item's defaults).
 #[derive(Clone, Debug, PartialEq)]
@@ -35,6 +37,11 @@ pub struct Stack {
     pub map_decorations: Vec<(String, String, f64, f64, f32)>,
     /// `block_state` properties (`copy_state`).
     pub block_state: Vec<(String, String)>,
+    /// `minecraft:dyed_color` (`set_random_dyes`).
+    pub dyed_color: Option<i32>,
+    /// `minecraft:additional_trade_cost`, which a trade takes off its
+    /// result (VMC-044b1).
+    pub additional_trade_cost: Option<i32>,
 }
 
 impl Stack {
@@ -54,6 +61,8 @@ impl Stack {
             map_id: None,
             map_decorations: Vec::new(),
             block_state: Vec::new(),
+            dyed_color: None,
+            additional_trade_cost: None,
         }
     }
 
@@ -186,6 +195,8 @@ enum IntProvider {
     Constant(i32),
     Uniform(Box<IntProvider>, Box<IntProvider>),
     Binomial(Box<IntProvider>, Box<FloatProvider>),
+    /// `minecraft:add`: the sum of its inputs, in order.
+    Sum(Vec<IntProvider>),
 }
 
 #[derive(Debug)]
@@ -356,6 +367,9 @@ struct EntityPredicate {
     /// `type_specific/cube_mob`'s size bounds (VMC-043d): the victim's
     /// `cube_mob/size` property within them.
     size: Option<(Option<i32>, Option<i32>)>,
+    /// `minecraft:predicates`: a component's value within a holder set (a
+    /// merchant's `villager/variant`, VMC-044b1).
+    component_sets: Vec<(String, Vec<String>)>,
 }
 
 /// An entity's death as its loot table reads it (`LootContextParamSets.ENTITY`):
@@ -416,6 +430,7 @@ impl EntityPredicate {
             && self.properties.is_empty()
             && self.types.is_none()
             && self.size.is_none()
+            && self.component_sets.is_empty()
     }
 
     fn matches(&self, target: EntityTarget, death: &Death) -> bool {
@@ -447,12 +462,21 @@ impl EntityPredicate {
             || self.baby.is_some()
             || self.vehicle.is_some()
             || !self.properties.is_empty()
+            || !self.component_sets.is_empty()
             || self.size.is_some())
             && !this
         {
             return false;
         }
         if !self.properties.iter().all(|p| death.properties.contains(p)) {
+            return false;
+        }
+        if !self.component_sets.iter().all(|(component, set)| {
+            death
+                .properties
+                .iter()
+                .any(|(k, v)| k == component && set.contains(v))
+        }) {
             return false;
         }
         if let Some((min, max)) = self.size {
@@ -486,11 +510,18 @@ enum Function {
     EnchantRandomly {
         options: Option<Vec<usize>>,
         only_compatible: bool,
+        /// `include_additional_cost_component` (a trade's extra cost).
+        additional_cost: bool,
     },
     EnchantWithLevels {
         levels: IntProvider,
         options: Option<Vec<usize>>,
+        additional_cost: bool,
     },
+    /// `set_random_dyes`: that many random dyes mixed in.
+    SetRandomDyes(IntProvider),
+    /// `set_random_potion`: one of the potions (all when none).
+    SetRandomPotion(Option<Vec<String>>),
     SetEnchantments(Vec<(String, IntProvider)>, bool),
     SetDamage(FloatProvider, bool),
     SetPotion(String),
@@ -614,6 +645,29 @@ pub struct Loot {
     /// The named predicates (`minecraft:tool/can_silk_touch`...) conditions
     /// refer to.
     predicates: HashMap<String, Json>,
+    /// `DyeColor.VALUES`' texture diffuse colours, in order.
+    dyes: Vec<i32>,
+    /// The trade facts (VMC-044b1).
+    trades: trades::Trades,
+}
+
+/// `DyedItemColor.applyDyes`: the colours' average, scaled back to their
+/// mean intensity.
+fn apply_dyes(current: Option<i32>, dyes: &[i32]) -> i32 {
+    let (mut r, mut g, mut b, mut intensity, mut n) = (0i32, 0i32, 0i32, 0i32, 0i32);
+    for color in current.into_iter().chain(dyes.iter().copied()) {
+        let (cr, cg, cb) = ((color >> 16) & 255, (color >> 8) & 255, color & 255);
+        intensity += cr.max(cg).max(cb);
+        r += cr;
+        g += cg;
+        b += cb;
+        n += 1;
+    }
+    let (r, g, b) = (r / n, g / n, b / n);
+    let average = intensity as f32 / n as f32;
+    let result = r.max(g).max(b) as f32;
+    let scale = |c: i32| (c as f32 * average / result) as i32;
+    (scale(r) << 16) | (scale(g) << 8) | scale(b)
 }
 
 /// Where produced items go (vanilla's item consumers).
@@ -627,6 +681,8 @@ struct Ctx<'w> {
     visited: Vec<String>,
     death: Option<Death>,
     block: Option<BlockBreak>,
+    /// `ADDITIONAL_COST_COMPONENT_ALLOWED`: a trade's draw (VMC-044b1).
+    trade: bool,
 }
 
 /// `Mth.floor` of a float.
@@ -719,6 +775,28 @@ impl Loot {
             for (id, predicate) in predicates.entries()? {
                 loot.predicates.insert(id.clone(), predicate.clone());
             }
+        }
+        if let Some(trades) = registries.get("trades") {
+            loot.dyes = trades
+                .field("dyes")?
+                .as_array()?
+                .iter()
+                .map(|d| d.as_array().and_then(|d| d[1].as_i32()))
+                .collect::<Result<_, _>>()?;
+            for (registry, by_tag) in trades.field("tags")?.entries()? {
+                let map = loot.tags.entry(registry.clone()).or_default();
+                for (tag, members) in by_tag.entries()? {
+                    map.insert(
+                        tag.clone(),
+                        members
+                            .as_array()?
+                            .iter()
+                            .map(|m| m.as_str().map(str::to_string))
+                            .collect::<Result<_, _>>()?,
+                    );
+                }
+            }
+            loot.trades = trades::Trades::parse(&loot, trades)?;
         }
         if let Some(smelting) = registries.get("smelting") {
             for (input, result) in smelting.entries()? {
@@ -915,6 +993,13 @@ impl Loot {
             "minecraft:binomial" => IntProvider::Binomial(
                 Box::new(Self::int_provider(json.field("n")?)?),
                 Box::new(Self::float_provider(json.field("p")?)?),
+            ),
+            "minecraft:add" => IntProvider::Sum(
+                json.field("inputs")?
+                    .as_array()?
+                    .iter()
+                    .map(Self::int_provider)
+                    .collect::<Result<_, _>>()?,
             ),
             other => return Err(format!("int provider {other} is not implemented")),
         })
@@ -1239,6 +1324,21 @@ impl Loot {
                             .push((component.clone(), v.as_str()?.to_string()));
                     }
                 }
+                "minecraft:predicates" => {
+                    for (component, v) in value.entries()? {
+                        let set = match v {
+                            Json::String(s) => vec![s.clone()],
+                            Json::Array(items) => items
+                                .iter()
+                                .map(|i| i.as_str().map(str::to_string))
+                                .collect::<Result<_, _>>()?,
+                            other => {
+                                return Err(format!("component predicate {component} {other:?}"))
+                            }
+                        };
+                        predicate.component_sets.push((component.clone(), set));
+                    }
+                }
                 "minecraft:type_specific/cube_mob" => {
                     for (field, v) in value.entries()? {
                         if field != "size" {
@@ -1303,11 +1403,19 @@ impl Loot {
                 only_compatible: json
                     .get("only_compatible")
                     .map_or(Ok(true), Json::as_bool)?,
+                additional_cost: flag("include_additional_cost_component")?,
             },
             "minecraft:enchant_with_levels" => Function::EnchantWithLevels {
                 levels: int("levels")?,
                 options: self.enchantment_options(json.get("options"))?,
+                additional_cost: flag("include_additional_cost_component")?,
             },
+            "minecraft:set_random_dyes" => Function::SetRandomDyes(int("number_of_dyes")?),
+            "minecraft:set_random_potion" => Function::SetRandomPotion(
+                json.get("options")
+                    .map(|o| self.holder_set("minecraft:potion", o).map(|h| h.members))
+                    .transpose()?,
+            ),
             "minecraft:set_enchantments" => Function::SetEnchantments(
                 json.field("enchantments")?
                     .entries()?
@@ -1458,7 +1566,15 @@ impl Loot {
                 }
                 "predicates" => {
                     for (component, body) in value.entries()? {
-                        if !matches!(body, Json::Object(fields) if fields.is_empty()) {
+                        // `[{}]`: some enchantment, at any level.
+                        let any_enchantment = matches!(
+                            (component.as_str(), body),
+                            ("minecraft:enchantments" | "minecraft:stored_enchantments", Json::Array(list))
+                                if list.len() == 1 && matches!(&list[0], Json::Object(f) if f.is_empty())
+                        );
+                        if !any_enchantment
+                            && !matches!(body, Json::Object(fields) if fields.is_empty())
+                        {
                             return Err(format!(
                                 "component predicate {component} is not implemented"
                             ));
@@ -1485,6 +1601,9 @@ impl IntProvider {
                 let (n, p) = (n.get(ctx), p.get(ctx));
                 (0..n).filter(|_| ctx.random.next_float() < p).count() as i32
             }
+            IntProvider::Sum(inputs) => inputs
+                .iter()
+                .fold(0i32, |sum, i| sum.wrapping_add(i.get(ctx))),
         }
     }
 }
@@ -1684,6 +1803,7 @@ impl Loot {
             Function::EnchantRandomly {
                 options,
                 only_compatible,
+                additional_cost,
             } => {
                 let book = stack.is("minecraft:book");
                 let check = !book && *only_compatible;
@@ -1705,11 +1825,56 @@ impl Loot {
                     stack = Stack::new("minecraft:enchanted_book");
                 }
                 stack.enchant(&e.id, level);
+                if *additional_cost && ctx.trade {
+                    stack.additional_trade_cost =
+                        Some(2 + ctx.random.next_int_bounded(5 + level * 10) + 3 * level);
+                }
                 stack
             }
-            Function::EnchantWithLevels { levels, options } => {
+            Function::EnchantWithLevels {
+                levels,
+                options,
+                additional_cost,
+            } => {
                 let cost = levels.get(ctx);
-                self.enchant_item(ctx, stack, cost, options.as_deref())
+                let mut result = self.enchant_item(ctx, stack, cost, options.as_deref());
+                if *additional_cost && ctx.trade && !result.is_empty() && cost > 0 {
+                    result.additional_trade_cost = Some(cost);
+                }
+                result
+            }
+            Function::SetRandomDyes(count) => {
+                let rolls = count.get(ctx);
+                if rolls <= 0 {
+                    return Ok(stack);
+                }
+                let picks: Vec<i32> = (0..rolls)
+                    .map(|_| {
+                        let i = ctx.random.next_int_bounded(self.dyes.len() as i32) as usize;
+                        self.dyes[i]
+                    })
+                    .collect();
+                stack.count = stack.count.min(1);
+                stack.dyed_color = Some(apply_dyes(stack.dyed_color, &picks));
+                stack
+            }
+            Function::SetRandomPotion(options) => {
+                let all;
+                let list = match options {
+                    Some(o) => o,
+                    None => {
+                        all = self.tags.get("minecraft:potion").and_then(|t| t.get("all"));
+                        match all {
+                            Some(list) => list,
+                            None => return Err("set_random_potion without options".into()),
+                        }
+                    }
+                };
+                if !list.is_empty() {
+                    let i = ctx.random.next_int_bounded(list.len() as i32) as usize;
+                    stack.potion = Some(list[i].clone());
+                }
+                stack
             }
             Function::SetEnchantments(list, add) => {
                 if stack.is("minecraft:book") {
@@ -1787,6 +1952,9 @@ impl Loot {
                     .is_none_or(|items| items.contains(&stack.item))
                     && filter.present.iter().all(|c| match c.as_str() {
                         "minecraft:map_id" => stack.map_id.is_some(),
+                        "minecraft:dyed_color" => stack.dyed_color.is_some(),
+                        "minecraft:enchantments" => !stack.enchantments.is_empty(),
+                        "minecraft:stored_enchantments" => !stack.stored_enchantments.is_empty(),
                         _ => false,
                     });
                 match if pass { on_pass } else { on_fail } {
@@ -2245,6 +2413,7 @@ impl Loot {
             origin,
             world,
             visited: Vec::new(),
+            trade: false,
             death: None,
             block: None,
         };
@@ -2278,6 +2447,7 @@ impl Loot {
             origin,
             world,
             visited: Vec::new(),
+            trade: false,
             death: None,
             block: None,
         };
@@ -2301,6 +2471,7 @@ impl Loot {
             origin,
             world,
             visited: Vec::new(),
+            trade: false,
             death: Some(death),
             block: None,
         };
@@ -2327,6 +2498,7 @@ impl Loot {
             origin,
             world,
             visited: Vec::new(),
+            trade: false,
             death: None,
             block: Some(block),
         };

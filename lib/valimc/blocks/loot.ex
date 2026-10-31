@@ -59,14 +59,12 @@ defmodule Valimc.Blocks.Loot do
     Map.get(tags, tag, [])
   end
 
-  @doc "What evaluation reads: the loot registries and the furnace results."
+  @doc "What evaluation reads: the loot registries, the furnace results and the trades."
   def registries,
     do:
-      Map.put(
-        Valimc.Data.Facts.read!("loot/registries.json"),
-        "smelting",
-        Valimc.Blocks.CookingRecipes.smelting()
-      )
+      Valimc.Data.Facts.read!("loot/registries.json")
+      |> Map.put("smelting", Valimc.Blocks.CookingRecipes.smelting())
+      |> Map.put("trades", Valimc.Data.Facts.read!("loot/trades.json"))
 
   @doc "Whether the facts hold `table` (vanilla fills nothing from an unknown one)."
   def known?(table) do

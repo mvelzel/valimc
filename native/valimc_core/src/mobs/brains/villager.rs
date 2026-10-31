@@ -214,6 +214,8 @@ impl Villager {
             ("age", Value::Int(0)),
             ("xp", Value::Int(0)),
             ("sleeping", NIL),
+            // `MerchantOffers`, made when first asked (VMC-044b1).
+            ("offers", NIL),
         ])
     }
 }
@@ -241,6 +243,13 @@ fn sleeping(data: &FamilyData) -> Option<[i32; 3]> {
     data.get("sleeping")
         .and_then(Value::as_ivec3)
         .map(|p| p.map(|v| v as i32))
+}
+
+/// `setVillagerData` with another profession: its offers go.
+fn set_profession(t: &mut Turn, profession: String) {
+    let data = &mut t.mob.body.data;
+    data.set("profession", Value::Binary(profession.into_bytes()));
+    data.set("offers", NIL);
 }
 
 fn villager<'w>(t: &Turn<'_, 'w>) -> Option<&'w Villager> {
@@ -1619,10 +1628,7 @@ impl Trigger for AssignProfession {
             .and_then(|ty| t.level.facts.village.profession_for(ty))
             .map(|p| p.name.clone());
         if let Some(p) = found {
-            t.mob
-                .body
-                .data
-                .set("profession", Value::Binary(p.into_bytes()));
+            set_profession(t, p);
             if let Some(v) = villager(t) {
                 v.refresh(t);
             }
@@ -1645,10 +1651,7 @@ impl Trigger for ResetProfession {
         let data = t.data();
         let p = profession(data);
         if p != NONE && p != NITWIT && int(data, "xp") == 0 && int(data, "level") <= 1 {
-            t.mob
-                .body
-                .data
-                .set("profession", Value::Binary(NONE.as_bytes().to_vec()));
+            set_profession(t, NONE.to_string());
             if let Some(v) = villager(t) {
                 v.refresh(t);
             }

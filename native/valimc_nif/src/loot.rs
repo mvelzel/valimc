@@ -248,6 +248,9 @@ fn loot_stack<'a>(env: Env<'a>, stack: &valimc_core::loot::Stack) -> Term<'a> {
             .collect();
         components.push(("minecraft:map_decorations", nbt_compound(env, entries)));
     }
+    if let Some(rgb) = stack.dyed_color {
+        components.push(("minecraft:dyed_color", nbt_int(env, rgb)));
+    }
     if !stack.block_state.is_empty() {
         components.push((
             "minecraft:block_state",
@@ -526,4 +529,167 @@ fn loot_block<'a>(
             )
             .map(|items| items.iter().map(|s| loot_stack(env, s)).collect()),
     )
+}
+
+// ---- Villager trades (VMC-044b1) ----
+
+/// A trade draw's world: exploration maps' structures answered up front by
+/// tag (`"*"` answers any), and the first tag it lacks.
+struct TradeAnswers {
+    structures: Vec<(String, Option<[i32; 3]>)>,
+    missing: Option<(String, i32)>,
+    next_map: i32,
+}
+
+impl valimc_core::loot::LootWorld for TradeAnswers {
+    fn biome(&mut self, _pos: [i32; 3]) -> Option<String> {
+        None
+    }
+    fn map_structure(
+        &mut self,
+        tag: Option<&str>,
+        structures: &[String],
+        _origin: [i32; 3],
+        radius: i32,
+        _skip_existing: bool,
+    ) -> Option<[i32; 3]> {
+        let key = tag.map_or_else(|| structures.join(","), str::to_string);
+        match self.structures.iter().find(|(k, _)| *k == key || k == "*") {
+            Some((_, found)) => *found,
+            None => {
+                self.missing.get_or_insert((key, radius));
+                None
+            }
+        }
+    }
+    fn new_map(&mut self, _x: i32, _z: i32, _scale: i32) -> i32 {
+        let id = self.next_map;
+        self.next_map += 1;
+        id
+    }
+}
+
+/// An offer's cost as an item tag.
+fn cost_tag<'a>(env: Env<'a>, cost: &valimc_core::loot::trades::Cost) -> Term<'a> {
+    let mut fields = vec![
+        ("id", nbt_string(env, &cost.item)),
+        ("count", nbt_int(env, cost.count)),
+    ];
+    if let Some(p) = &cost.potion {
+        fields.push((
+            "components",
+            nbt_compound(
+                env,
+                vec![(
+                    "minecraft:potion_contents",
+                    nbt_compound(env, vec![("potion", nbt_string(env, p))]),
+                )],
+            ),
+        ));
+    }
+    nbt_compound(env, fields)
+}
+
+/// `RandomSequences.createSequence` of `id` for world seed `seed` and
+/// `salt`: the Xoroshiro state `{lo, hi}` as signed longs.
+#[rustler::nif]
+fn loot_sequence(seed: i64, salt: i32, id: String) -> (i64, i64) {
+    let (lo, hi) = valimc_core::loot::trades::sequence(seed, salt, &id);
+    (lo as i64, hi as i64)
+}
+
+/// `addOffersFromTradeSet` of `set` for a merchant of `villager_type` at
+/// `origin`, drawing from the sequence state `{lo, hi}`:
+/// `{:offers, [{buy, buy_b, sell, max_uses, xp, price_multiplier}], {lo,
+/// hi}, next_map}` (costs and result as item tags), or `{:locate, tag,
+/// radius}` when an exploration map needs a structure `structures` does not
+/// answer (nothing is drawn).
+#[rustler::nif]
+#[allow(clippy::too_many_arguments)]
+fn loot_trades<'a>(
+    env: Env<'a>,
+    registry: ResourceArc<LootRegistry>,
+    set: String,
+    state: (i64, i64),
+    villager_type: String,
+    origin: (f64, f64, f64),
+    structures: Vec<(String, Option<(i32, i32, i32)>)>,
+    next_map: i32,
+) -> NifResult<(Atom, Term<'a>)> {
+    let mut world = TradeAnswers {
+        structures: structures
+            .into_iter()
+            .map(|(k, p)| (k, p.map(|(x, y, z)| [x, y, z])))
+            .collect(),
+        missing: None,
+        next_map,
+    };
+    let merchant = valimc_core::loot::trades::Merchant {
+        villager_type,
+        origin: [origin.0, origin.1, origin.2],
+    };
+    let mut random =
+        valimc_core::worldgen::random::Random::xoroshiro128(state.0 as u64, state.1 as u64);
+    let offers = match registry
+        .loot
+        .trade_offers(&set, &merchant, &mut random, &mut world)
+    {
+        Ok(offers) => offers,
+        Err(message) => return reply(Err(message)),
+    };
+    if let Some((tag, radius)) = world.missing {
+        return reply(Ok((
+            rustler::types::atom::Atom::from_str(env, "locate")?,
+            tag,
+            radius,
+        )
+            .encode(env)));
+    }
+    let nil = rustler::types::atom::nil().encode(env);
+    let terms: Vec<Term<'a>> = offers
+        .iter()
+        .map(|o| {
+            (
+                cost_tag(env, &o.buy),
+                o.buy_b.as_ref().map_or(nil, |b| cost_tag(env, b)),
+                loot_stack(env, &o.sell),
+                o.max_uses,
+                o.xp,
+                o.price_multiplier as f64,
+            )
+                .encode(env)
+        })
+        .collect();
+    let (lo, hi) = random.xoroshiro_state().expect("a sequence is Xoroshiro");
+    reply(Ok((
+        rustler::types::atom::Atom::from_str(env, "offers")?,
+        terms,
+        (lo as i64, hi as i64),
+        world.next_map,
+    )
+        .encode(env)))
+}
+
+/// The trade set a profession draws at `level`, the wandering trader's sets
+/// (`profession` nil), and each set's random sequence: `[{set, sequence}]`.
+#[rustler::nif]
+fn loot_trade_sets(
+    registry: ResourceArc<LootRegistry>,
+    profession: Option<String>,
+    level: i32,
+) -> Vec<(String, Option<String>)> {
+    let trades = registry.loot.trades();
+    let sets: Vec<String> = match profession {
+        Some(p) => trades
+            .profession_set(&p, level)
+            .map(|s| vec![s.to_string()])
+            .unwrap_or_default(),
+        None => trades.wandering_sets().to_vec(),
+    };
+    sets.into_iter()
+        .map(|s| {
+            let sequence = trades.set_sequence(&s).map(str::to_string);
+            (s, sequence)
+        })
+        .collect()
 }

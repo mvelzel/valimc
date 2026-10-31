@@ -59,7 +59,9 @@ defmodule Valimc.Application do
       {Valimc.Admin.Lists, []},
       Valimc.Admin.Profiler,
       {Task.Supervisor, name: Valimc.ItemWorkers, max_children: schedulers},
-      {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4}
+      {Task.Supervisor, name: Valimc.TransferWorkers, max_children: schedulers * 4},
+      # The server's random sequences (VMC-044b1); writes run on TransferWorkers.
+      Valimc.World.RandomSequences
     ]
 
     storage = [

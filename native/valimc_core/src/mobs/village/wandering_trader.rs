@@ -112,6 +112,8 @@ impl WanderingTrader {
             ("invisible", Value::bool(false)),
             ("unhappy", Value::Int(0)),
             ("age", Value::Int(0)),
+            // `MerchantOffers`, made when first asked (VMC-044b1).
+            ("offers", NIL),
         ])
     }
 }

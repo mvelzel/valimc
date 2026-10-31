@@ -1245,6 +1245,13 @@ STAGES = [
         ('java', 'VillageOracle', 'cases', '@village.json'),
         ('check', 'check_village.exs', '@village.json'),
     ]),
+    # VMC-044b1: the trade facts and merchants' offers drawn from shared random sequences.
+    ('trades', [
+        ('regen', 'TradeOracle', 'facts', '@trade-facts.json'),
+        ('same', '@trade-facts.json', 'priv/loot/trades.json'),
+        ('java', 'TradeOracle', 'cases', '@trades.json'),
+        ('check', 'check_trades.exs', '@trades.json'),
+    ]),
     # VMC-041b: single searches of the walk, swim, fly and amphibious evaluators.
     ('paths', [
         ('java', 'MobAiOracle', 'paths', '@paths.json'),

@@ -594,6 +594,14 @@ defmodule Valimc.Native do
   def loot_enchant(_registry, _item, _enchantments, _min, _span, _special, _tag, _random),
     do: :erlang.nif_error(:nif_not_loaded)
 
+  # Villager trades (VMC-044b1).
+  def loot_sequence(_seed, _salt, _id), do: :erlang.nif_error(:nif_not_loaded)
+
+  def loot_trades(_registry, _set, _state, _villager_type, _origin, _structures, _next_map),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  def loot_trade_sets(_registry, _profession, _level), do: :erlang.nif_error(:nif_not_loaded)
+
   # A mob's initial body and eye fluid samples, before its first travel tick.
   def physics_fluids(_view, _body), do: :erlang.nif_error(:nif_not_loaded)
 

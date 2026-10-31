@@ -125,6 +125,14 @@ impl Random {
         }
     }
 
+    /// A Xoroshiro random's state (lo, hi), `None` for the other kinds.
+    pub fn xoroshiro_state(&self) -> Option<(u64, u64)> {
+        match self.state {
+            State::Xoroshiro(lo, hi) => Some((lo, hi)),
+            _ => None,
+        }
+    }
+
     /// `new WorldgenRandom(new XoroshiroRandomSource(seed))`.
     pub fn worldgen(seed: i64) -> Self {
         let (lo, hi) = upgrade_seed(seed);
