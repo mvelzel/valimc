@@ -25,6 +25,23 @@ defmodule Valimc.Menus.Packets do
     open_screen(container, type, "container." <> Atom.to_string(kind))
   end
 
+  # A storage block's default name (`getDefaultName`).
+  @storage_titles %{barrel: "container.barrel"}
+
+  @doc "A storage block's screen (VMC-032c1): its menu's type and its title."
+  def open_storage(container, kind)
+      when container in 1..127 and is_map_key(@storage_titles, kind) do
+    {:ok, type} = Valimc.Menus.Menu.type(Valimc.Menus.Menu.storage(kind))
+    open_screen(container, type, Map.fetch!(@storage_titles, kind))
+  end
+
+  def storage_inventory(container, kind, storage, inventory) when container in 1..127 do
+    {:ok, contents} =
+      Valimc.Menus.Menu.contents(Valimc.Menus.Menu.storage(kind), storage, inventory)
+
+    inventory_content(container, inventory, contents)
+  end
+
   def machine_inventory(container, kind, storage, inventory) when container in 1..127 do
     {:ok, contents} =
       Valimc.Menus.Menu.contents(Valimc.Menus.Menu.machine(kind), storage, inventory)

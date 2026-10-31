@@ -70,6 +70,23 @@ for row <- facts["offhand_corrections"] do
   true = IO.iodata_to_binary(body) == Base.decode16!(row["hex"], case: :lower)
 end
 
+[barrel] = facts["barrels"]
+true = barrel["chest_menu"] and barrel["size"] == 27 and length(barrel["slots"]) == 63
+{:ok, type} = Menu.type(Menu.storage(:barrel))
+true = type == barrel["type"]
+
+for {[kind, index], wire} <- Enum.with_index(barrel["slots"]) do
+  expected = if kind == "container", do: {:container, index}, else: index
+  {:ok, ^expected} = Menu.address(Menu.storage(:barrel), wire)
+end
+
+{_, body} = Valimc.Menus.Packets.open_storage(17, :barrel)
+true = IO.iodata_to_binary(body) == Base.decode16!(barrel["open_hex"], case: :lower)
+
+IO.puts(
+  "PASS: the native barrel menu (a three-row chest menu, 63 slot identities) and its titled open body"
+)
+
 IO.puts(
   "PASS: six native chest layouts/405 slot identities, open/content bodies/hotbar pickup input and storage-preserving empty-cursor close. Live authorization/exchanges require separate checks."
 )

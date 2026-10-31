@@ -271,7 +271,7 @@ defmodule Valimc.World.Hoppers do
 
   defp matches?(%{cooking: _, kind: kind}, block), do: CookingBlocks.kind(block) == kind
   defp matches?(%{rows: 3}, block), do: Valimc.Blocks.block_entity(block) == :chest
-  defp matches?(%{kind: kind, slots: _}, block), do: Machine.kind(block) == kind
+  defp matches?(%{kind: kind, slots: _}, block), do: Valimc.Blocks.block_entity(block) == kind
   defp matches?(_, _), do: false
 
   # What a container received: a hopper that was empty waits (one tick less

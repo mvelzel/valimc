@@ -6287,7 +6287,7 @@ defmodule Valimc.World.RegionData do
   defp container_matches?(%{rows: 3}, block), do: Valimc.Blocks.block_entity(block) == :chest
 
   defp container_matches?(%{kind: kind, slots: _}, block),
-    do: Valimc.Blocks.Machine.kind(block) == kind
+    do: Valimc.Blocks.block_entity(block) == kind
 
   defp container_matches?(_, _), do: false
 
@@ -8349,21 +8349,27 @@ defmodule Valimc.World.RegionData do
     ensure_container(state, position)
   end
 
-  # Vanilla unpacks when a player who may open the chest opens it: not a
-  # spectator, and only where the open itself succeeds (`createMenu`). The
-  # opener's luck attribute has no source in ValiMC yet, so it is 0.
+  # Vanilla unpacks when a player who may open the chest or barrel opens it:
+  # not a spectator, and only where the open itself succeeds (`createMenu`).
+  # The opener's luck attribute has no source in ValiMC yet, so it is 0.
   defp unpack_to_open(state, {x, y, z} = position, %{kind: :open, mode: mode} = grant)
        when mode != :spectator do
     block = Blocks.get(state.blocks, position)
 
     if write_busy(state) == nil and
          LootChests.unrolled?(state.containers, state.block_entities, position, block) do
-      provisional = %{rows: 3, slots: Tuple.duplicate(nil, 27), revision: 0}
+      menu = Valimc.Menus.MenuAccess.menu(block)
+
+      provisional =
+        if menu == :storage,
+          do: %{kind: Valimc.Blocks.Storage.kind(block), slots: {}, revision: 0},
+          else: %{rows: 3, slots: Tuple.duplicate(nil, 27), revision: 0}
+
       above = Blocks.get(state.blocks, {x, y + 1, z})
       now = System.monotonic_time(:millisecond)
 
       case Valimc.Menus.MenuAccess.authorize(
-             :chest,
+             menu,
              block,
              provisional,
              above,
@@ -8371,7 +8377,7 @@ defmodule Valimc.World.RegionData do
              grant,
              now
            ) do
-        {:chest, _, _} -> unpack_loot(state, position, 0.0)
+        {^menu, _, _} -> unpack_loot(state, position, 0.0)
         _ -> state
       end
     else
@@ -8979,9 +8985,9 @@ defmodule Valimc.World.RegionData do
             preserved_use?(state, position, block) ->
               Valimc.Menus.MenuAccess.refuse_use(block, position, grant, now)
 
-            # Hoppers, droppers and dispensers (VMC-049a).
-            Valimc.Blocks.Machine.kind(block) != nil or
-                (is_map(grant) and grant[:menu] in [:hopper, :dispenser]) ->
+            # Hoppers, droppers and dispensers (VMC-049a), barrels (VMC-032c1).
+            Valimc.Menus.MenuAccess.menu(block) in [:hopper, :dispenser, :storage] or
+                (is_map(grant) and grant[:menu] in [:hopper, :dispenser, :storage]) ->
               Valimc.Menus.MenuAccess.authorize(
                 Valimc.Menus.MenuAccess.menu(block) || grant[:menu],
                 block,
@@ -9006,6 +9012,8 @@ defmodule Valimc.World.RegionData do
       {:noreply,
        apply_container_viewers(state, ContainerViewers.down(state.container_viewers, pid, ref))}
 
+  @menu_containers Valimc.Menus.MenuAccess.containers()
+
   defp container_view_decision(state, connection, position, grant, decision) do
     generation = Map.get(state.cooking_progress, position, 0)
 
@@ -9017,10 +9025,10 @@ defmodule Valimc.World.RegionData do
 
     if is_map(grant) and grant[:menu] in Valimc.Menus.MenuAccess.containers() and
          (decision == :valid or
-            match?({kind, _, _} when kind in [:chest, :cooking, :hopper, :dispenser], decision)) do
+            match?({kind, _, _} when kind in @menu_containers, decision)) do
       ref = grant[:view_ref]
       view = state.container_viewers.views[connection]
-      opener = grant.menu == :chest and grant.mode != :spectator
+      opener = grant.menu in Valimc.Menus.MenuAccess.openers() and grant.mode != :spectator
 
       cond do
         grant.kind == :subscribe and is_reference(ref) ->
@@ -9121,6 +9129,12 @@ defmodule Valimc.World.RegionData do
     state = %{state | container_viewers: viewers}
     threshold = Valimc.config(:compression_threshold)
 
+    # A barrel shows its viewers by its `open` state, not by a lid event.
+    {barrels, lids} =
+      Enum.split_with(lids, fn {position, _} ->
+        Valimc.Blocks.Barrel.barrel?(Blocks.get(state.blocks, position))
+      end)
+
     for chunk <-
           lids
           |> Enum.map(fn {{x, _, z}, _} -> Grid.chunk_key(x, z) end)
@@ -9128,6 +9142,7 @@ defmodule Valimc.World.RegionData do
       positions =
         for {{x, _, z} = position, {_, count}} <- viewers.positions,
             count > 0 and Grid.chunk_key(x, z) == chunk,
+            not Valimc.Blocks.Barrel.barrel?(Blocks.get(state.blocks, position)),
             do: position
 
       positions = Enum.sort(positions)
@@ -9167,6 +9182,33 @@ defmodule Valimc.World.RegionData do
       )
     end
 
+    # A removed barrel's viewers leave silently (`stopOpen` of a removed entity).
+    if sound?, do: Enum.reduce(barrels, state, &barrel_opened/2), else: state
+  end
+
+  # The first viewer opens a barrel and the last one leaving closes it
+  # (`BarrelBlockEntity`'s `onOpen`/`onClose`): its sound, and its `open`
+  # state written as a furnace's `lit` is, keeping its entry, viewers and
+  # grants. A refused write leaves the state for the next transition.
+  defp barrel_opened({position, open}, state) do
+    block = Blocks.get(state.blocks, position)
+    next = Valimc.Blocks.Barrel.with_open(block, open)
+
+    state =
+      with true <- next != block,
+           {:ok, batch} <- BlockBatch.prepare(%{position => next}),
+           {:ok, proposal} <- block_proposal(state, batch) do
+        {state, effects} = apply_blocks(state, batch, proposal, true)
+        release_blocks(state, effects)
+      else
+        _ -> state
+      end
+
+    at = Valimc.Blocks.Barrel.sound_at(block, position)
+    <<seed::signed-64>> = :crypto.strong_rand_bytes(8)
+    draw = (:rand.uniform(16_777_216) - 1) / 16_777_216
+    {:ok, packet} = Valimc.Protocol.ChestSounds.barrel_packet(open, at, draw, seed)
+    Valimc.World.publish(route_key(state), {:sound, at, 16.0, packet})
     state
   end
 

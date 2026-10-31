@@ -1,7 +1,7 @@
 defmodule Valimc.Player.Menus do
   @moduledoc """
   A player's block menus (VMC-069, VMC-077i3): crafting tables, chests,
-  furnaces, hoppers, droppers and dispensers. The block's owner is the player's own group, so opening, every
+  barrels, furnaces, hoppers, droppers and dispensers. The block's owner is the player's own group, so opening, every
   click and each refresh is a plain call to it (`Region.menu/4`,
   `Region.container_click/6`) answered at once; a crafting table's clicks
   stay in the session, and what a click or a close throws out drops at once
@@ -20,6 +20,9 @@ defmodule Valimc.Player.Menus do
   alias Valimc.World.Region
 
   import Valimc.Protocol.Codec, only: [send_packets: 2]
+
+  @containers Valimc.Menus.MenuAccess.containers()
+  @openers Valimc.Menus.MenuAccess.openers()
 
   # A crafting gesture repeats while its result stays the same (vanilla's
   # `quickMoveStack` loop), at most this often per click.
@@ -68,7 +71,7 @@ defmodule Valimc.Player.Menus do
 
           acknowledge_table_use(state, request)
 
-        {kind, block, view} when kind in [:chest, :cooking, :hopper, :dispenser] ->
+        {kind, block, view} when kind in @containers ->
           open_container_menu(state, kind, position, owner, block, view, request.sequence)
 
         _ ->
@@ -121,7 +124,7 @@ defmodule Valimc.Player.Menus do
           view_ref: menu[:view_ref],
           revision:
             if(
-              menu.kind in [:chest, :cooking, :hopper, :dispenser] and
+              menu.kind in @containers and
                 kind not in [:refresh, :subscribe],
               do: menu.view.revision
             )
@@ -156,7 +159,7 @@ defmodule Valimc.Player.Menus do
   defp open_container_menu(state, kind, position, owner, block, view, sequence) do
     # Opening a chest or barrel angers the piglins that see it (VMC-043d,
     # `PiglinAi.angerNearbyPiglins`).
-    if kind == :chest, do: Region.mob_event(owner, {:anger, {:player, state.player.uuid}, true})
+    if kind in @openers, do: Region.mob_event(owner, {:anger, {:player, state.player.uuid}, true})
 
     id = rem(state.table_counter, 127) + 1
     inventory = state.inventory |> Inventory.cancel_drag() |> Inventory.advance()
@@ -167,6 +170,10 @@ defmodule Valimc.Player.Menus do
         :chest ->
           {Valimc.Menus.Packets.open_chest(id, view.rows),
            Valimc.Menus.Packets.chest_inventory(id, view.rows, view.slots, inventory), []}
+
+        :storage ->
+          {Valimc.Menus.Packets.open_storage(id, view.kind),
+           Valimc.Menus.Packets.storage_inventory(id, view.kind, view.slots, inventory), []}
 
         machine when machine in [:hopper, :dispenser] ->
           {Valimc.Menus.Packets.open_machine(id, view.kind),
@@ -196,7 +203,7 @@ defmodule Valimc.Player.Menus do
           view_ref: make_ref(),
           dirty: false,
           progress_dirty: false,
-          opener: kind == :chest and state.player.game_mode.current != :spectator
+          opener: kind in @openers and state.player.game_mode.current != :spectator
         },
         table_counter: id
     }
@@ -245,8 +252,8 @@ defmodule Valimc.Player.Menus do
     do: Valimc.Player.Merchant.check(state)
 
   def check_table_menu(%{table_menu: %{kind: kind} = menu} = state)
-      when kind in [:chest, :cooking, :hopper, :dispenser] do
-    opener = kind == :chest and state.player.game_mode.current != :spectator
+      when kind in @containers do
+    opener = kind in @openers and state.player.game_mode.current != :spectator
 
     cond do
       not table_player_valid?(state) or not current_owner?(state, menu) ->
@@ -463,7 +470,7 @@ defmodule Valimc.Player.Menus do
 
   @doc "Release the open container view at its owner."
   def retire_container_view(%{table_menu: %{kind: kind} = menu} = state)
-      when kind in [:chest, :cooking, :hopper, :dispenser],
+      when kind in @containers,
       do:
         Enum.each(Map.get(menu.view, :owners, [menu.owner]), fn owner ->
           Region.unsubscribe_container(owner, state.connection, menu.view_ref)

@@ -3,8 +3,8 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
   Vanilla block entities (a chunk's `block_entities` compounds) as ValiMC holds
   them (VMC-021e1).
 
-  ValiMC owns single chests, the furnace family, hoppers, droppers and
-  dispensers (`Valimc.World.Containers`). One whose compound holds only what
+  ValiMC owns single chests, the furnace family, hoppers, droppers,
+  dispensers and barrels (`Valimc.World.Containers`). One whose compound holds only what
   ValiMC models (`Items`, for furnaces the cooking times, speed and
   `RecipesUsed`, for hoppers `TransferCooldown`) becomes an owned
   container. Every other block entity is preserved as its compound
@@ -28,6 +28,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
                     ~w(cooking_time_spent cooking_total_time lit_time_remaining lit_total_time speed_multiplier RecipesUsed)
   @hopper_fields @chest_fields ++ ~w(TransferCooldown)
   @metadata ~w(id x y z keepPacked)
+  @storage Valimc.Blocks.Storage.sizes()
 
   @doc """
   A block entity's position as vanilla's `BlockEntity.getPosFromTag` reads it
@@ -54,8 +55,8 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
 
   @doc """
   `{:ok, position, held}` for a block entity compound at a block state, where
-  `held` is `{:chest, slots}`, `{:cooking, entry}`, `{:machine, entry}` or
-  `{:preserved, type_id}`;
+  `held` is `{:chest, slots}`, `{:cooking, entry}`, `{:machine, entry}`,
+  `{:storage, entry}` or `{:preserved, type_id}`;
   `{:drop, reason}` when vanilla would not load it.
   """
   def convert({:compound, fields} = tag, state) do
@@ -83,6 +84,7 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
         :chest -> chest(fields)
         nil -> :error
         kind when kind in [:hopper, :dropper, :dispenser] -> machine(fields, kind)
+        kind when is_map_key(@storage, kind) -> storage(fields, kind)
         kind -> cooking(fields, kind, CookingBlocks.kind(state))
       end
 
@@ -114,6 +116,16 @@ defmodule Valimc.Storage.Anvil.BlockEntity do
         end
 
       {:ok, {:machine, %{kind: kind, slots: slots, cooldown: cooldown}}}
+    else
+      _ -> :error
+    end
+  end
+
+  # A barrel (VMC-032c1): its items.
+  defp storage(fields, kind) do
+    with true <- only?(fields, @chest_fields),
+         {:ok, slots} <- items(fields["Items"], Map.fetch!(@storage, kind)) do
+      {:ok, {:storage, %{kind: kind, slots: slots}}}
     else
       _ -> :error
     end

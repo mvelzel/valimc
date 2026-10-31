@@ -78,6 +78,31 @@ public class ChestMenuOracle {
       if(!after.equals(stored)||!owner.drops.isEmpty())throw new AssertionError("Closing chest moved storage");
       row.add("after_close",after);cases.add(row);
     }
+    // A barrel's own menu (`BarrelBlockEntity.createMenu`) and its default name. Removed first, so
+    // opening counts no viewer (the barrel's level and sounds are ChestSoundOracle's).
+    var barrels=new JsonArray();
+    for(var state:List.of(net.minecraft.world.level.block.Blocks.BARREL.defaultBlockState())){
+      var owner=(TableMenuOracle.Owner)u.allocateInstance(TableMenuOracle.Owner.class);
+      owner.abilities=new Abilities();owner.drops=new ArrayList<>();
+      var inventory=new TableMenuOracle.Owned(owner);owner.inventory=inventory;
+      var barrel=new net.minecraft.world.level.block.entity.BarrelBlockEntity(net.minecraft.core.BlockPos.ZERO,state);barrel.setRemoved();
+      var create=net.minecraft.world.level.block.entity.BarrelBlockEntity.class.getDeclaredMethod("createMenu",int.class,Inventory.class);create.setAccessible(true);
+      var menu=(AbstractContainerMenu)create.invoke(barrel,17,inventory);
+      var row=new JsonObject();row.addProperty("type",BuiltInRegistries.MENU.getId(menu.getType()));row.addProperty("size",barrel.getContainerSize());
+      row.addProperty("chest_menu",menu instanceof ChestMenu chest&&chest.getContainer()==barrel&&chest.getRowCount()==3);
+      var slots=new JsonArray();
+      for(int i=0;i<menu.slots.size();i++){
+        var slot=menu.getSlot(i);var address=new JsonArray();address.add(slot.container==barrel?"container":"player");
+        int index=slot.getContainerSlot();address.add(slot.container==barrel||index>=9?index:36+index);slots.add(address);
+      }
+      row.add("slots",slots);
+      var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
+      try{
+        ClientboundOpenScreenPacket.STREAM_CODEC.encode(buffer,new ClientboundOpenScreenPacket(17,menu.getType(),barrel.getDisplayName()));
+        var bytes=new byte[buffer.readableBytes()];buffer.getBytes(0,bytes);row.addProperty("open_hex",HexFormat.of().formatHex(bytes));
+      }finally{buffer.release();}
+      barrels.add(row);
+    }
     var corrections=new JsonArray();
     for(var stack:List.of(ItemStack.EMPTY,TableMenuOracle.item("oak_planks",7))){
       var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),access);
@@ -89,7 +114,7 @@ public class ChestMenuOracle {
       }finally{buffer.release();}
     }
     var out=new JsonObject();out.add("offhand_corrections",corrections);out.addProperty("version","26.3");out.addProperty("protocol",777);
-    out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);
+    out.addProperty("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");out.add("cases",cases);out.add("barrels",barrels);
     Files.writeString(Path.of(args[0]),new Gson().toJson(out));
     System.out.println("PASS: six native chest layouts/open/content bodies/hotbar pickup input codecs and empty-cursor close retaining storage; gameplay clicks/world/ownership/persistence excluded.");
   }

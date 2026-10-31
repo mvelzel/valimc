@@ -525,6 +525,17 @@ defmodule Valimc.Storage.Anvil.Import do
     end
   end
 
+  defp own(key, position, {:storage, entry}, containers) do
+    with {:ok, containers, created} <-
+           Containers.create_storage(containers, key, position, entry.kind),
+         {:ok, containers, _} <-
+           Containers.replace(containers, position, created.revision, entry.slots) do
+      {:ok, containers}
+    else
+      _ -> :preserve
+    end
+  end
+
   defp own(_key, _position, {:preserved, _}, _containers), do: :preserve
 
   defp bump(counts, key), do: Map.update(counts, key, 1, &(&1 + 1))

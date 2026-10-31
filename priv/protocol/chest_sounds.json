@@ -5,6 +5,8 @@
   "blocks_source": 4,
   "sounds": {
     "minecraft:block.chest.open": 349,
-    "minecraft:block.chest.close": 347
+    "minecraft:block.chest.close": 347,
+    "minecraft:block.barrel.open": 141,
+    "minecraft:block.barrel.close": 140
   }
 }

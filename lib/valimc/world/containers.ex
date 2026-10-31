@@ -15,6 +15,10 @@ defmodule Valimc.World.Containers do
   @machines %{hopper: 5, dropper: 9, dispenser: 9}
   @machine_ids %{hopper: 0, dropper: 1, dispenser: 2}
   @machine_kinds %{0 => :hopper, 1 => :dropper, 2 => :dispenser}
+  # Plain storage blocks (VMC-032c1): their kind and its slots, no timers.
+  @storage Valimc.Blocks.Storage.sizes()
+  @storage_ids %{barrel: 0}
+  @storage_kinds Map.new(@storage_ids, fn {kind, id} -> {id, kind} end)
   def max_bytes, do: @max_bytes
 
   def observe(%__MODULE__{entries: entries}, position),
@@ -100,6 +104,43 @@ defmodule Valimc.World.Containers do
     end
   end
 
+  @doc """
+  An empty storage entry (VMC-032c1): `%{kind, slots}` for a barrel, the
+  kind every plain item store without timers or a joined form shares.
+  """
+  def create_storage(%__MODULE__{} = state, key, position, kind)
+      when is_map_key(@storage, kind),
+      do:
+        create_entry(state, key, position, %{
+          kind: kind,
+          slots: Tuple.duplicate(nil, @storage[kind])
+        })
+
+  def create_storage(_, _, _, _), do: {:error, :invalid_container_kind}
+
+  @doc "The storage kinds and their sizes."
+  def storage, do: @storage
+
+  @doc "Whether an entry is a storage entry (a barrel's)."
+  def storage?(%{kind: kind, slots: _}), do: is_map_key(@storage, kind)
+  def storage?(_), do: false
+
+  @doc """
+  The empty entry of an owned block-entity kind (`Valimc.Blocks.block_entity/1`):
+  a single chest, a furnace-family block, a machine or a storage block.
+  """
+  def create_owned(%__MODULE__{} = state, key, position, :chest),
+    do: create(state, key, position, 3)
+
+  def create_owned(%__MODULE__{} = state, key, position, kind) when is_map_key(@machines, kind),
+    do: create_machine(state, key, position, kind)
+
+  def create_owned(%__MODULE__{} = state, key, position, kind) when is_map_key(@storage, kind),
+    do: create_storage(state, key, position, kind)
+
+  def create_owned(%__MODULE__{} = state, key, position, kind),
+    do: create_cooking(state, key, position, kind)
+
   def create_cooking(%__MODULE__{} = state, key, position, kind) do
     with {:ok, entry} <- CookingEntry.new(kind),
          do: create_entry(state, key, position, entry)
@@ -169,7 +210,7 @@ defmodule Valimc.World.Containers do
              map_size(entries) <= @max_entries do
     true = region?(key)
 
-    # Version 3 holds furnaces and machines (tagged entries); its (always
+    # Version 3 holds furnaces, machines and storage (tagged entries); its (always
     # empty) count of the player transfer receipts versions 2 and 3 held
     # before VMC-077i3 stays.
     version =
@@ -262,6 +303,14 @@ defmodule Valimc.World.Containers do
       bytes::binary>>
   end
 
+  # A storage entry (VMC-032c1): kind and slots.
+  defp entry_bytes(%{kind: kind, slots: slots} = entry, 3)
+       when is_map_key(@storage, kind) and map_size(entry) == 3 do
+    true = tuple_size(slots) == @storage[kind]
+    bytes = slot_bytes(slots)
+    <<3, Map.fetch!(@storage_ids, kind), byte_size(bytes)::32, bytes::binary>>
+  end
+
   defp entry_bytes(%{cooking: _} = entry, 3) do
     {:ok, bytes} = CookingEntry.encode(entry)
     <<1, byte_size(bytes)::32, bytes::binary>>
@@ -303,6 +352,13 @@ defmodule Valimc.World.Containers do
           }
 
           {entry, rest}
+
+        {3, <<id, length::32, rest::binary>>} ->
+          kind = Map.fetch!(@storage_kinds, id)
+          true = length in 1..@contents_bytes
+          <<bytes::binary-size(^length), rest::binary>> = rest
+          {slots, <<>>} = take_slots(bytes, @storage[kind], [])
+          {%{revision: revision, kind: kind, slots: List.to_tuple(Enum.reverse(slots))}, rest}
       end
 
     take_entries(rest, count - 1, Map.put(entries, position, entry), 3)

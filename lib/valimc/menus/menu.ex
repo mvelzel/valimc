@@ -47,6 +47,9 @@ defmodule Valimc.Menus.Menu do
   def machine(:hopper), do: hopper()
   def machine(kind), do: dispenser(kind)
 
+  @doc "The menu of a storage kind (VMC-032c1): a barrel's is a three-row chest's (`ChestMenu.threeRows`)."
+  def storage(:barrel), do: chest(3)
+
   @doc "The container slots of a plain menu."
   def size(%__MODULE__{kind: :chest, rows: rows}), do: rows * 9
   def size(%__MODULE__{kind: :hopper}), do: 5

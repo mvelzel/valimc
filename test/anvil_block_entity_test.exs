@@ -71,7 +71,25 @@ defmodule Valimc.AnvilBlockEntityTest do
       assert {:ok, {1, 64, 2}, {:chest, slots}} = BlockEntity.convert(tag, @chest)
       assert elem(slots, 0) == sword and elem(slots, 26) == stack("dirt", 5)
       assert slots |> Tuple.to_list() |> Enum.count(&(&1 != nil)) == 2
+
+      # A barrel's items become its storage entry and export as they came.
+      barrel = BlockRegistry.state("barrel", %{"facing" => "up", "open" => "true"})
+      tag = be("minecraft:barrel", {1, 64, 2}, %{"Items" => items})
+
+      assert {:ok, {1, 64, 2}, {:storage, %{kind: :barrel, slots: ^slots}}} =
+               BlockEntity.convert(tag, barrel)
+
+      assert BlockEntity.container_tag({1, 64, 2}, "minecraft:barrel", %{
+               kind: :barrel,
+               slots: slots
+             }) == be("minecraft:barrel", {1, 64, 2}, %{"Items" => items}) |> without_components()
+
+      loot = be("minecraft:barrel", {1, 64, 2}, %{"LootTable" => {:string, "minecraft:x"}})
+      assert {:ok, _, {:preserved, _}} = BlockEntity.convert(loot, barrel)
     end
+
+    defp without_components({:compound, fields}),
+      do: {:compound, Map.delete(fields, "components")}
 
     test "names, locks and loot tables leave the chest preserved" do
       chest = Types.type_id(@chest)

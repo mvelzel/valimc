@@ -1,6 +1,6 @@
 defmodule Valimc.World.ContainerClicks do
   @moduledoc """
-  A click in a chest's, a furnace's, a hopper's or a dispenser's menu (VMC-077i3): the container's owner
+  A click in a chest's, a barrel's, a furnace's, a hopper's or a dispenser's menu (VMC-077i3): the container's owner
   applies it to the container and the player's inventory together, as a
   plain call from the player's group, with every gesture of the menu click
   engine (`Valimc.Menus.Click`): pick up, shift-click, swaps, creative clone,
@@ -18,11 +18,17 @@ defmodule Valimc.World.ContainerClicks do
   alias Valimc.World.Containers
   alias Valimc.Entity.ExperienceOrbs
 
+  @storage Containers.storage()
+
   @doc """
   The menu's view of a container entry: a chest's rows and slots, a
-  machine's kind and slots, or a furnace's kind and slots.
+  storage block's or a machine's kind and slots, or a furnace's kind and slots.
   """
   def view(%{rows: rows, slots: slots}), do: %{rows: rows, slots: slots}
+
+  def view(%{kind: kind, slots: slots}) when is_map_key(@storage, kind),
+    do: %{storage: kind, slots: slots}
+
   def view(%{kind: kind, slots: slots}), do: %{machine: kind, slots: slots}
   def view(%{kind: kind, cooking: cooking}), do: %{kind: kind, slots: cooking.slots}
 
@@ -45,6 +51,7 @@ defmodule Valimc.World.ContainerClicks do
 
   defp menu(%{rows: rows}), do: {:ok, Menu.chest(rows)}
   defp menu(%{machine: kind}), do: {:ok, Menu.machine(kind)}
+  defp menu(%{storage: kind}), do: {:ok, Menu.storage(kind)}
 
   defp menu(%{kind: kind}) do
     with {:ok, block} <- CookingBlocks.placement(kind, 0.0), do: {:ok, Menu.cooking(block)}

@@ -177,7 +177,7 @@ defmodule Valimc.Worldgen.FullChunk do
   defp preserved_type({:chest, slots}, state),
     do: if(empty?(slots), do: :fresh, else: kept(state))
 
-  defp preserved_type({:machine, %{slots: slots}}, state),
+  defp preserved_type({kind, %{slots: slots}}, state) when kind in [:machine, :storage],
     do: if(empty?(slots), do: :fresh, else: kept(state))
 
   defp preserved_type({:cooking, %{cooking: cooking, recipes: recipes}}, state) do
@@ -307,7 +307,7 @@ defmodule Valimc.Worldgen.FullChunk do
   # New block entities of the types decoration leaves pending.
   defp default("minecraft:beehive" = id), do: {:ok, id, %{"bees" => Valimc.Data.NBT.list([])}}
 
-  defp default(id) when id in ["minecraft:chest", "minecraft:trapped_chest"],
+  defp default(id) when id in ["minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel"],
     do: {:ok, id, %{"Items" => Valimc.Data.NBT.list([])}}
 
   defp default("minecraft:brushable_block" = id), do: {:ok, id, %{}}

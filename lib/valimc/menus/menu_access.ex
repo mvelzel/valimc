@@ -1,7 +1,8 @@
 defmodule Valimc.Menus.MenuAccess do
   @moduledoc """
   The one access check for block menus (VMC-077i2): a chest, a furnace-family
-  block, a hopper, a dropper or dispenser (VMC-049a) or a crafting table, opened and used under an expiring grant the
+  block, a hopper, a dropper or dispenser (VMC-049a), a storage block (a
+  barrel, VMC-032c1) or a crafting table, opened and used under an expiring grant the
   player's connection makes and the block's owner checks against the block,
   its owned entry and the player's reach, as vanilla checks a menu's use and
   its `stillValid`.
@@ -17,7 +18,7 @@ defmodule Valimc.Menus.MenuAccess do
   import Bitwise
   alias Valimc.Blocks.{Cooking, CookingBlocks}
   alias Valimc.Living.Interaction
-  alias Valimc.Blocks.{Chest, Machine}
+  alias Valimc.Blocks.{Chest, Machine, Storage}
   alias Valimc.Protocol.Data
   use Valimc.Data.Facts, "protocol/chest_opening.json"
 
@@ -33,13 +34,20 @@ defmodule Valimc.Menus.MenuAccess do
     cooking: [:open, :subscribe, :check, :click, :refresh],
     hopper: [:open, :subscribe, :check, :click, :refresh],
     dispenser: [:open, :subscribe, :check, :click, :refresh],
+    storage: [:open, :subscribe, :check, :click, :refresh],
     table: [:open, :click, :check]
   }
 
   @doc "The menus over an owned container entry."
-  def containers, do: [:chest, :cooking, :hopper, :dispenser]
+  def containers, do: [:chest, :cooking, :hopper, :dispenser, :storage]
 
-  @doc "The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser` (droppers too), `:table` or nil."
+  @doc "The menus whose viewers open the block (`ContainerOpenersCounter`): chests and storage."
+  def openers, do: [:chest, :storage]
+
+  @doc """
+  The menu a block opens: `:chest`, `:cooking`, `:hopper`, `:dispenser`
+  (droppers too), `:storage` (a barrel), `:table` or nil.
+  """
   def menu(nil), do: nil
 
   def menu(block) do
@@ -48,6 +56,7 @@ defmodule Valimc.Menus.MenuAccess do
       CookingBlocks.kind(block) != nil -> :cooking
       Machine.kind(block) == :hopper -> :hopper
       Machine.kind(block) != nil -> :dispenser
+      Storage.kind(block) != nil -> :storage
       block == @table -> :table
       true -> nil
     end
@@ -213,6 +222,11 @@ defmodule Valimc.Menus.MenuAccess do
     do: Machine.kind(block) == kind
 
   defp entry?(menu, _block, _entry) when menu in [:hopper, :dispenser], do: false
+
+  defp entry?(:storage, block, %{kind: kind, slots: _}),
+    do: kind != nil and Storage.kind(block) == kind
+
+  defp entry?(:storage, _block, _entry), do: false
 
   defp entry?(:cooking, block, entry) do
     kind = CookingBlocks.kind(block)
