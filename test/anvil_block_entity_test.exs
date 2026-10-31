@@ -40,7 +40,7 @@ defmodule Valimc.AnvilBlockEntityTest do
   end
 
   describe "item tags" do
-    test "unsupported components, bad counts and unknown items are reported, air is empty" do
+    test "components, bad counts and unknown items are read or reported, air is empty" do
       book =
         compound(%{
           "id" => {:string, "minecraft:writable_book"},
@@ -49,7 +49,9 @@ defmodule Valimc.AnvilBlockEntityTest do
             compound(%{"minecraft:writable_book_content" => compound(%{"pages" => NBT.list([])})})
         })
 
-      assert ItemData.stack(book) == {:unsupported, ["minecraft:writable_book_content"]}
+      assert {:ok, %{components: %{"minecraft:writable_book_content" => %{"pages" => []}}}} =
+               ItemData.stack(book)
+
       bad = compound(%{"id" => {:string, "minecraft:stone"}, "count" => {:int, 100}})
       assert ItemData.stack(bad) == {:error, :invalid_item_count}
       unknown = compound(%{"id" => {:string, "minecraft:nope"}, "count" => {:int, 1}})
@@ -71,27 +73,13 @@ defmodule Valimc.AnvilBlockEntityTest do
       assert slots |> Tuple.to_list() |> Enum.count(&(&1 != nil)) == 2
     end
 
-    test "names, locks, loot tables and items ValiMC cannot hold leave the chest preserved" do
+    test "names, locks and loot tables leave the chest preserved" do
       chest = Types.type_id(@chest)
 
       for extra <- [
             %{"CustomName" => {:string, "Named"}},
             %{"LootTable" => {:string, "minecraft:chests/village/village_plains_house"}},
-            %{"components" => compound(%{"minecraft:custom_name" => {:string, "x"}})},
-            %{
-              "Items" =>
-                NBT.list([
-                  compound(%{
-                    "Slot" => {:byte, 0},
-                    "id" => {:string, "minecraft:writable_book"},
-                    "count" => {:int, 1},
-                    "components" =>
-                      compound(%{
-                        "minecraft:writable_book_content" => compound(%{"pages" => NBT.list([])})
-                      })
-                  })
-                ])
-            }
+            %{"components" => compound(%{"minecraft:custom_name" => {:string, "x"}})}
           ] do
         tag = be("minecraft:chest", {0, 64, 0}, extra)
         assert BlockEntity.convert(tag, @chest) == {:ok, {0, 64, 0}, {:preserved, chest}}

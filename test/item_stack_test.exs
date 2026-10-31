@@ -48,19 +48,12 @@ defmodule Valimc.Protocol.ItemStackTest do
     assert {:ok, ^stack, <<99>>} = ItemStack.take(bytes(stack) <> <<99>>)
   end
 
-  test "known unsupported values are bounded and reported rather than silently discarded" do
+  test "a delimited value must be read whole and the patch stays within its byte bound" do
+    # Ten bees claimed, the delimited value holds two bytes.
     encoded =
-      IO.iodata_to_binary([
-        prefix(1),
-        Wire.varint(ItemTypes.component_id("bees")),
-        <<2, 10, 0>>
-      ])
+      IO.iodata_to_binary([prefix(1), Wire.varint(ItemTypes.component_id("bees")), <<2, 10, 0>>])
 
-    assert ItemStack.decode(encoded, :untrusted) ==
-             {:unsupported, ["minecraft:bees"]}
-
-    assert ItemStack.decode(encoded <> <<0>>, :untrusted) == {:error, :trailing_item_bytes}
-    assert {:error, :unsupported_component} = ItemStack.decode(encoded, :trusted)
+    assert {:error, _} = ItemStack.decode(encoded, :untrusted)
     huge = IO.iodata_to_binary([prefix(1), <<0>>, Wire.varint(65_537)])
     assert ItemStack.decode(huge, :untrusted) == {:error, :item_byte_limit}
   end

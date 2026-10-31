@@ -105,7 +105,9 @@ counts =
     end
   end)
 
-unless counts[:owned] >= 6 and counts[:locked] >= 4 and counts[:preserved] >= 40,
+# A chest holding an item ValiMC could not hold was a locked case until every
+# component had a codec (VMC-004b7); it is owned now.
+unless counts[:owned] >= 6 and counts[:locked] >= 3 and counts[:preserved] >= 40,
   do: raise("fixture coverage: #{inspect(counts)}")
 
 # Entities: dropped items ValiMC can hold become item records with vanilla's

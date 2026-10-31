@@ -131,6 +131,38 @@ public class ItemComponentOracle {
     {"use_remainder", "{id:'minecraft:bowl',count:2}"},
     {"sulfur_cube_content", "'minecraft:sand'"},
     {"pot_decorations", "{back:'minecraft:brick',front:{id:'minecraft:skull_pottery_sherd'},left:'minecraft:angler_pottery_sherd'}"},
+    // VMC-004b7: entity, block-entity, profile, book and sign data.
+    {"entity_data", "{id:'minecraft:zombie',CustomName:'Bob',Health:5.0f,Tags:['a','b']}"},
+    {"block_entity_data", "{id:'minecraft:chest',Lock:{items:'minecraft:diamond'},CustomName:'Loot'}"},
+    {"bees", "[{entity_data:{id:'minecraft:bee',HasNectar:1b},ticks_in_hive:120,min_ticks_in_hive:600},{entity_data:{id:'minecraft:bee'},ticks_in_hive:0,min_ticks_in_hive:0}]"},
+    {"profile", "'Notch'"},
+    {"profile", "{id:[I;1,2,3,4],name:'Steve',properties:[{name:'textures',value:'e30=',signature:'c2ln'}]}"},
+    {"profile", "{id:[I;-1,0,7,8],texture:'minecraft:entity/player/wide/alex',model:'slim'}"},
+    {"profile", "{name:'Alex',properties:{textures:['e30=']},cape:'minecraft:cape/x',elytra:'minecraft:elytra/x'}"},
+    {"writable_book_content", "{pages:['one',{raw:'two',filtered:'t*o'}]}"},
+    {"written_book_content", "{title:{raw:'Title',filtered:'T'},author:'Author',generation:2,pages:['{\"text\":\"raw\"}',{raw:{text:'Hello',bold:1b}}],resolved:1b}"},
+    {"written_book_content", "{title:'Short',author:''}"},
+    {"sign_text_front", "{messages:['a',{text:'b',color:'red'},'','d'],color:'blue',has_glowing_text:1b}"},
+    {"sign_text_back", "{messages:['','','',''],filtered_messages:['x','','',''],color:'black'}"},
+    {"lock", "{items:'minecraft:tripwire_hook',count:{min:1,max:3},components:{'minecraft:custom_name':'Key'}}"},
+    {"lock", "{count:2}"},
+    {"container_loot", "{loot_table:'minecraft:chests/simple_dungeon',seed:-123456789012L}"},
+    {"debug_stick_state", "{'minecraft:oak_stairs':'facing','minecraft:redstone_wire':'power'}"},
+    {"recipes", "['minecraft:crafting_table','minecraft:stick']"},
+    {"recipes", "[]"},
+    // Types no prototype holds, with older hand-written codecs.
+    {"axolotl/variant", "'gold'"},
+    {"salmon/size", "'large'"},
+    {"tropical_fish/pattern", "'stripey'"},
+    {"tropical_fish/base_color", "'orange'"},
+    {"tropical_fish/pattern_color", "'cyan'"},
+    {"custom_data", "{a:1b,b:[I;1,2],c:{d:'e'}}"},
+    {"custom_name", "{text:'Named',italic:0b}"},
+    {"intangible_projectile", "{}"},
+    {"map_id", "42"},
+    {"tooltip_style", "'valimc:fancy'"},
+    {"unbreakable", "{}"},
+    {"creative_slot_lock", "{}"},
     {"can_place_on", "{blocks:'minecraft:stone'}"},
     {"can_break", "[{blocks:['minecraft:oak_log','minecraft:birch_log'],state:{axis:'y'}},{blocks:'#minecraft:wool'},"
       + "{state:{age:{min:'2',max:'5'},half:{min:'lower'}}},{components:{'minecraft:dyed_color':255,'minecraft:enchantable':{value:3}}}]"},
@@ -196,6 +228,7 @@ public class ItemComponentOracle {
   private static Object constructedTransient(String name, Tag tag) {
     return switch (name) {
       case "additional_trade_cost" -> ((IntTag) tag).intValue();
+      case "creative_slot_lock" -> net.minecraft.util.Unit.INSTANCE;
       case "map_post_processing" -> net.minecraft.world.item.component.MapPostProcessing.valueOf(
         tag.asString().orElseThrow().toUpperCase(Locale.ROOT));
       default -> throw new AssertionError("No data codec for " + name);

@@ -65,8 +65,9 @@ File.write!(output, :json.encode(rows))
 
 types = checked |> Enum.map(& &1["component"]) |> Enum.uniq() |> length()
 others = skipped |> Enum.map(& &1["component"]) |> Enum.uniq() |> Enum.sort()
+# Every 26.3 component type has a codec (VMC-004b7).
+if others != [], do: raise("Component types without a codec: #{Enum.join(others, ", ")}")
 
 IO.puts(
-  "PASS: ValiMC read and re-encoded #{length(rows)} Mojang values of #{types} component types" <>
-    if(others == [], do: "", else: "; without a codec yet: #{Enum.join(others, ", ")}")
+  "PASS: ValiMC read and re-encoded #{length(rows)} Mojang values of #{types} component types"
 )

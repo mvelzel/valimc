@@ -141,26 +141,4 @@ defmodule Valimc.CreativeItemsTest do
     _client = use.(client, {floor(x), 63, floor(z)}, 1, 24)
     assert Valimc.TestBlocks.get(feet) == 0
   end
-
-  test "unsupported delimited components restore the prior authoritative slot and keep session alive" do
-    username = name()
-    {_, client} = Client.login(username)
-    on_exit(fn -> Client.close(client) end)
-    stone = ItemStack.new("stone", 23)
-    {^stone, _, client} = set_slot(client, 36, stone)
-
-    Client.send_packet(client, :play, "set_creative_mode_slot", [
-      <<36::signed-16, 1>>,
-      Wire.varint(ItemTypes.id("stone")),
-      <<1, 0>>,
-      Wire.varint(ItemTypes.component_id("bees")),
-      <<2, 10, 0>>
-    ])
-
-    {^stone, 2, client} = slot_reply(client, 36)
-    player = Enum.find(Valimc.Player.PlayerList.all(), &(&1.name == username))
-    assert Valimc.Menus.Inventory.get(Valimc.TestConn.state(player.pid).inventory, 36) == stone
-    Client.send_packet(client, :play, "chat_command", Wire.string("stats"))
-    {_, _} = Client.await_stats(client)
-  end
 end

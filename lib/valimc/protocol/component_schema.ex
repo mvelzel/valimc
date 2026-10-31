@@ -52,6 +52,21 @@ defmodule Valimc.Protocol.ComponentSchema do
       lists the filled ones by slot
     * `{:contents, schema}`: held stacks that must fit their own items
       (`ItemStack.validateContainedItemSizes`)
+    * `:uuid` (16 bytes; four ints in the data form), `:player_name`
+    * `{:typed_data, type_schema}`: a type and its NBT compound
+      (`TypedEntityData`); the data form puts the type under `id`
+    * `{:fixed_list, schema, n}`: exactly `n` entries, without a count on the
+      network
+    * `{:filterable, schema}`: `%{"raw" => v, "filtered" => v | nil}`; the
+      data form also reads a bare value
+    * `:profile`: `ResolvableProfile`, `"profile"` holding a complete game
+      profile `{:left, ...}` or a partial one `{:right, ...}`, beside the
+      skin patch; the data form also reads a bare player name
+    * `:int_bounds`: `MinMaxBounds.Ints` as `%{"min" => n, "max" => n}`
+    * `:block_properties`: a debug stick's block => property name pairs
+
+  A record field `{name, schema, {:present, default}}` reads its default when
+  absent and is always written (`optionalAlwaysPresentFieldOf`).
   """
   import Bitwise
   alias Valimc.Data.{BuiltinRegistries, ComponentTypes, NBT}
@@ -73,6 +88,27 @@ defmodule Valimc.Protocol.ComponentSchema do
   @mob_effect [{"id", {:registry, "minecraft:mob_effect"}} | @details]
   @max_nesting 16
   @nesting {__MODULE__, :nesting}
+  @property {:record,
+             [
+               {"name", {:string, 64}},
+               {"value", {:string, 32767}},
+               {"signature", {:optional, {:string, 1024}}}
+             ]}
+  @game_profile {:record,
+                 [{"id", :uuid}, {"name", :player_name}, {"properties", :properties, []}]}
+  @partial_profile {:record,
+                    [
+                      {"name", {:optional, :player_name}},
+                      {"id", {:optional, :uuid}},
+                      {"properties", :properties, []}
+                    ]}
+  @skin {:record,
+         [
+           {"texture", {:optional, :identifier}},
+           {"cape", {:optional, :identifier}},
+           {"elytra", {:optional, :identifier}},
+           {"model", {:optional, :player_model}}
+         ]}
   @slots {:list, {:optional, :template}, 256}
   @slot_entries {:list, {:record, [{"slot", {:range, :int, 0, 255}}, {"item", :template}]}, 256}
 
@@ -219,6 +255,38 @@ defmodule Valimc.Protocol.ComponentSchema do
 
   def take(:unsupported, _bytes), do: fail(:unsupported_predicate)
   def take(:template, bytes), do: nested(fn -> ItemStack.take_template(bytes) end)
+  def take(:uuid, <<uuid::binary-16, rest::binary>>), do: {uuid, rest}
+
+  def take(:player_name, bytes),
+    do: bytes |> take_string(16) |> tap(&check(player_name?(elem(&1, 0)), :invalid_player_name))
+
+  def take(:player_model, bytes) do
+    {slim, rest} = take(:bool, bytes)
+    {if(slim, do: "slim", else: "wide"), rest}
+  end
+
+  def take(:properties, bytes), do: take({:list, @property, 16}, bytes)
+
+  def take({:typed_data, type_schema}, bytes) do
+    {type, rest} = take(type_schema, bytes)
+    {data, rest} = take_compound(rest)
+    {%{"id" => type, "data" => strip_id(data)}, rest}
+  end
+
+  # `ByteBufCodecs.fixedSizeList`: the entries alone, no count.
+  def take({:fixed_list, schema, n}, bytes), do: take_list(schema, n, bytes)
+
+  def take({:filterable, schema}, bytes), do: take(filterable(schema), bytes)
+
+  def take(:profile, bytes) do
+    {profile, rest} = take({:either, @game_profile, @partial_profile}, bytes)
+    {skin, rest} = take(@skin, rest)
+    {Map.put(skin, "profile", profile), rest}
+  end
+
+  def take(:int_bounds, bytes),
+    do: take({:record, [{"min", {:optional, :int}}, {"max", {:optional, :int}}]}, bytes)
+
   def take(:container, bytes), do: take(@slots, bytes)
 
   def take({:contents, schema}, bytes),
@@ -349,6 +417,26 @@ defmodule Valimc.Protocol.ComponentSchema do
     do: nested(fn -> ItemStack.encode_template(stack) end)
 
   def encode(:container, slots), do: encode(@slots, slots)
+  def encode(:uuid, <<_::binary-16>> = uuid), do: uuid
+
+  def encode(:player_name, value) do
+    check(player_name?(value), :invalid_player_name)
+    Wire.string(value)
+  end
+
+  def encode(:player_model, value) when value in ["slim", "wide"], do: Wire.bool(value == "slim")
+  def encode(:properties, values), do: encode({:list, @property, 16}, values)
+
+  def encode({:typed_data, type_schema}, %{"id" => type, "data" => {:compound, _} = data}),
+    do: [encode(type_schema, type), NBT.encode(strip_id(data))]
+
+  def encode({:fixed_list, schema, n}, values) when length(values) == n,
+    do: Enum.map(values, &encode(schema, &1))
+
+  def encode({:filterable, schema}, value), do: encode(filterable(schema), value)
+
+  def encode(:profile, %{"profile" => profile} = value),
+    do: [encode({:either, @game_profile, @partial_profile}, profile), encode(@skin, value)]
 
   def encode({:contents, schema}, stacks) do
     fits!(stacks)
@@ -489,6 +577,7 @@ defmodule Valimc.Protocol.ComponentSchema do
       value =
         case {values, field} do
           {%{^name => tag}, _} -> from_tag(field_schema(field), tag)
+          {_, {_, _, {:present, default}}} -> default
           {_, {_, _, default}} -> default
           {_, {_, {:optional, _}}} -> nil
           _ -> fail({:missing_field, name})
@@ -550,6 +639,81 @@ defmodule Valimc.Protocol.ComponentSchema do
   end
 
   def from_tag({:contents, schema}, tag), do: schema |> from_tag(tag) |> tap(&fits!/1)
+
+  def from_tag(:uuid, {:int_array, <<_::binary-16>> = uuid}), do: uuid
+
+  def from_tag(:player_name, {:string, value}) do
+    check(player_name?(value), :invalid_player_name)
+    value
+  end
+
+  def from_tag(:player_model, {:string, value}) when value in ["slim", "wide"], do: value
+
+  # `ExtraCodecs.PROPERTY_MAP`: name => values, or a list of properties.
+  def from_tag(:properties, {:compound, values}) do
+    check(map_size(values) <= 16, :list_too_long)
+
+    for {name, list} <- Enum.sort(values), {:string, value} <- items(list) do
+      check(valid_string?(name, 64) and valid_string?(value, 32767), :invalid_string)
+      %{"name" => name, "value" => value, "signature" => nil}
+    end
+  end
+
+  def from_tag(:properties, tag), do: from_tag({:list, @property, 16}, tag)
+
+  def from_tag({:typed_data, type_schema}, {:compound, %{"id" => type} = values}),
+    do: %{"id" => from_tag(type_schema, type), "data" => {:compound, Map.delete(values, "id")}}
+
+  def from_tag({:fixed_list, schema, n}, tag) do
+    values = from_tag({:list, schema, n}, tag)
+    check(length(values) == n, :wrong_list_size)
+    values
+  end
+
+  # `Filterable.codec`: `{raw, filtered}`, or the bare value.
+  def from_tag({:filterable, schema}, tag) do
+    from_tag(filterable(schema), tag)
+  catch
+    {:component_error, _} -> %{"raw" => from_tag(schema, tag), "filtered" => nil}
+  end
+
+  def from_tag(:profile, {:string, name}),
+    do: from_tag(:profile, {:compound, %{"name" => {:string, name}}})
+
+  def from_tag(:profile, {:compound, _} = tag) do
+    profile =
+      case from_tag({:either, @game_profile, @partial_profile}, tag) do
+        {:right, partial} = right ->
+          # A partial profile holds at least a name or an id.
+          check(
+            partial["name"] != nil or partial["id"] != nil or partial["properties"] != [],
+            :empty_profile
+          )
+
+          right
+
+        left ->
+          left
+      end
+
+    Map.put(from_tag(@skin, tag), "profile", profile)
+  end
+
+  def from_tag(:int_bounds, {:compound, _} = tag),
+    do: from_tag({:record, [{"min", {:optional, :int}}, {"max", {:optional, :int}}]}, tag)
+
+  def from_tag(:int_bounds, tag), do: tag |> int() |> then(&%{"min" => &1, "max" => &1})
+
+  def from_tag(:block_properties, {:compound, values}) do
+    for {block, {:string, property}} <- Enum.sort(values) do
+      block = from_tag({:registry, "minecraft:block"}, {:string, block})
+      "minecraft:" <> name = block
+      properties = name |> Valimc.Data.Blocks.default_state() |> Valimc.Data.Blocks.properties()
+      check(List.keymember?(properties, property, 0), :unknown_property)
+      {block, property}
+    end
+  end
+
   def from_tag(_schema, _tag), do: fail(:invalid_tag)
 
   defp show_icon({:compound, %{"show_icon" => _}} = tag), do: tag
@@ -664,6 +828,34 @@ defmodule Valimc.Protocol.ComponentSchema do
     to_tag(@slot_entries, entries)
   end
 
+  def to_tag(:uuid, <<_::binary-16>> = uuid), do: {:int_array, uuid}
+  def to_tag(:player_name, value), do: {:string, value}
+  def to_tag(:player_model, value) when value in ["slim", "wide"], do: {:string, value}
+  def to_tag(:properties, values), do: to_tag({:list, @property, 16}, values)
+
+  def to_tag({:typed_data, type_schema}, %{"id" => type, "data" => {:compound, values}}),
+    do: {:compound, Map.put(values, "id", to_tag(type_schema, type))}
+
+  def to_tag({:fixed_list, schema, n}, values) when length(values) == n,
+    do: to_tag({:list, schema, n}, values)
+
+  def to_tag({:filterable, schema}, value), do: to_tag(filterable(schema), value)
+
+  def to_tag(:profile, %{"profile" => profile} = value) do
+    {:compound, fields} = to_tag({:either, @game_profile, @partial_profile}, profile)
+    {:compound, skin} = to_tag(@skin, value)
+    {:compound, Map.merge(fields, skin)}
+  end
+
+  # A point is written as one number.
+  def to_tag(:int_bounds, %{"min" => n, "max" => n}) when is_integer(n), do: {:int, n}
+
+  def to_tag(:int_bounds, value),
+    do: to_tag({:record, [{"min", {:optional, :int}}, {"max", {:optional, :int}}]}, value)
+
+  def to_tag(:block_properties, pairs) when is_list(pairs),
+    do: {:compound, Map.new(pairs, fn {block, property} -> {block, {:string, property}} end)}
+
   def to_tag({:contents, schema}, stacks) do
     fits!(stacks)
     to_tag(schema, stacks)
@@ -673,8 +865,25 @@ defmodule Valimc.Protocol.ComponentSchema do
 
   # `optionalFieldOf` omits an absent value and one equal to its default.
   defp omitted?({_, {:optional, _}}, nil), do: true
+  defp omitted?({_, _, {:present, _}}, _), do: false
   defp omitted?({_, _, default}, value), do: value === default
   defp omitted?(_, _), do: false
+
+  defp filterable(schema), do: {:record, [{"raw", schema}, {"filtered", {:optional, schema}}]}
+
+  # `StringUtil.isValidPlayerName`.
+  defp player_name?(value),
+    do: valid_string?(value, 16) and Enum.all?(String.to_charlist(value), &(&1 > 32 and &1 < 127))
+
+  defp take_compound(bytes) do
+    case NBT.take(bytes) do
+      {:ok, {:compound, _} = tag, rest} -> {tag, rest}
+      {:ok, _, _} -> fail(:not_a_compound)
+      {:error, reason} -> fail({:nbt, reason})
+    end
+  end
+
+  defp strip_id({:compound, values}), do: {:compound, Map.delete(values, "id")}
 
   ## Templates
 

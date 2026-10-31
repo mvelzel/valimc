@@ -60,6 +60,14 @@ defmodule Valimc.Protocol.ComponentSchemas do
                       {"predicates", :no_predicates, []}
                     ]}
 
+  @sign_text {:record,
+              [
+                {"messages", {:fixed_list, :text, 4}},
+                {"filtered_messages", {:optional, {:fixed_list, :text, 4}}},
+                {"color", @dye, {:present, "black"}},
+                {"has_glowing_text", :bool, {:present, false}}
+              ]}
+
   @swing_animation {:record,
                     [
                       {"type", {:enum, "swing_animation"}, "whack"},
@@ -313,6 +321,53 @@ defmodule Valimc.Protocol.ComponentSchemas do
                   {"right", {:optional, :template}},
                   {"front", {:optional, :template}}
                 ]},
+             # Entity, block-entity, profile, book and sign data (VMC-004b7).
+             "minecraft:entity_data" => {:typed_data, {:registry, "minecraft:entity_type"}},
+             "minecraft:block_entity_data" =>
+               {:typed_data, {:registry, "minecraft:block_entity_type"}},
+             "minecraft:bees" =>
+               {:list,
+                {:record,
+                 [
+                   {"entity_data", {:typed_data, {:registry, "minecraft:entity_type"}}},
+                   {"ticks_in_hive", :varint},
+                   {"min_ticks_in_hive", :varint}
+                 ]}, :infinity},
+             "minecraft:profile" => :profile,
+             "minecraft:writable_book_content" =>
+               {:record, [{"pages", {:list, {:filterable, {:string, 1024}}, 100}, []}]},
+             "minecraft:written_book_content" =>
+               {:record,
+                [
+                  {"title", {:filterable, {:string, 32}}},
+                  {"author", {:string, 32767}},
+                  {"generation", {:range, :varint, 0, 3}, 0},
+                  {"pages", {:list, {:filterable, :text}, :infinity}, []},
+                  {"resolved", :bool, false}
+                ]},
+             "minecraft:sign_text_front" => @sign_text,
+             "minecraft:sign_text_back" => @sign_text,
+             # Persistent only: no client receives them, so their stream form
+             # is their data form as NBT.
+             "minecraft:lock" =>
+               {:nbt,
+                {:record,
+                 [
+                   {"items", {:optional, {:holder_set, "minecraft:item"}}},
+                   {"count", :int_bounds, %{"min" => nil, "max" => nil}},
+                   {"components", :components, []},
+                   {"predicates", :no_predicates, []}
+                 ]}},
+             "minecraft:container_loot" =>
+               {:nbt,
+                {:record,
+                 [
+                   {"loot_table", {:resource_key, "minecraft:loot_table"}},
+                   {"seed", :long, 0}
+                 ]}},
+             "minecraft:debug_stick_state" => {:nbt, :block_properties},
+             "minecraft:recipes" =>
+               {:nbt, {:list, {:resource_key, "minecraft:recipe"}, :infinity}},
              "minecraft:can_place_on" => {:compact_list, @block_predicate},
              "minecraft:can_break" => {:compact_list, @block_predicate},
              "minecraft:trim" =>
