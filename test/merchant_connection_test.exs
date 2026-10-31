@@ -31,6 +31,21 @@ defmodule Valimc.MerchantConnectionTest do
     {id, store(owner).entries[id].body}
   end
 
+  # A native mob's family data, read in its owner.
+  defp merchant_data(owner, id) do
+    me = self()
+
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      %{native: ref} = section.entities.store.entries[id]
+      {:ok, {data, _, _}} = Valimc.Native.mob_section_merchant(ref, id, :data)
+      send(me, {:merchant_data, data})
+      section
+    end)
+
+    assert_receive {:merchant_data, data}
+    data
+  end
+
   defp click(client, container, slot, action \\ "pickup", button \\ 0) do
     Client.send_packet(client, :play, "container_click", [
       Wire.varint(container),
@@ -239,5 +254,179 @@ defmodule Valimc.MerchantConnectionTest do
     # Buying 2, uncommon 2 and common 5, unless a draw ran out of trades.
     assert length(menu.offers) in 5..9
     _ = client
+  end
+
+  test "a player's punch is gossip: minor negative, and higher prices", ctx do
+    %{client: client, pid: pid, owner: owner, uuid: uuid} = trade(ctx)
+    {id, _} = villager(owner, uuid)
+    before = TestPlayer.state(pid).table_menu.offers
+    player = TestPlayer.state(pid).player.uuid
+    Client.send_packet(client, :play, "attack", Wire.varint(id))
+
+    Valimc.TestWait.until(fn ->
+      {targets, _} = elem(villager(owner, uuid), 1).data.gossips || {[], 0}
+      Enum.any?(targets, fn {p, entries} -> p == player and entries[:minor_negative] == 25 end)
+    end)
+
+    # Its prices for its trading player rose (-25 reputation), unless the
+    # punch closed the menu first.
+    {_, row} = villager(owner, uuid)
+
+    assert Enum.zip(before, row.data.offers)
+           |> Enum.all?(fn {b, a} -> a.special_price >= b.special_price end)
+  end
+
+  test "a golden apple cures a weakened zombie villager into the villager it was", ctx do
+    player = %{
+      living: %Valimc.Living{health: %Valimc.Living.Health{value: 20.0}},
+      x: ctx.pose.x,
+      y: 64.0,
+      z: ctx.pose.z,
+      yaw: -90.0,
+      pitch: 0.0,
+      game_mode: Valimc.Player.GameMode.new(:survival),
+      abilities: Valimc.Player.Abilities.for_mode(:survival),
+      motion: %Valimc.Player.Motion{},
+      last_death: nil,
+      food: %Valimc.Player.Food{}
+    }
+
+    TestPlayer.save(ctx, player, %Inventory{
+      slots: %{36 => ItemStack.new("minecraft:golden_apple", 2)}
+    })
+
+    {client, pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, body} = Body.new("minecraft:zombie_villager")
+    weakness = Valimc.Data.EffectTypes.id("weakness")
+
+    body = %{
+      body
+      | data: %{
+          body.data
+          | villager: {"minecraft:plains", "minecraft:librarian", 2},
+            finalized: true,
+            xp: 20
+        }
+    }
+
+    body = put_in(body.mob.living.effects, %{weakness => [{600, 0, false, true, true}]})
+    body = put_in(body.mob.no_ai, true)
+    uuid = <<10::128>>
+
+    :ok =
+      Region.drop_items(owner, [
+        Store.body_record(body, uuid, {ctx.pose.x + 2.0, 64.0, ctx.pose.z})
+      ])
+
+    {_, client} = Client.await(client, :play, "add_entity")
+    {id, _} = villager(owner, uuid)
+    Client.send_packet(client, :play, "interact", [Wire.varint(id), Wire.varint(0), <<0, 0>>])
+
+    Valimc.TestWait.until(fn -> elem(villager(owner, uuid), 1).data.cure >= 3600 end)
+    {_, zombie} = villager(owner, uuid)
+    assert zombie.data.cure <= 6000
+    assert TestPlayer.state(pid).inventory.slots[36].count == 1
+
+    # Its cure's last tick: a villager of its data, with the curer's gossip.
+    Valimc.TestRegion.replace_section(owner, fn section ->
+      %{native: ref} = section.entities.store.entries[id]
+      {:ok, {_, events, {position, row}}} = Valimc.Native.mob_section_data(ref, id, :cure, 1)
+
+      put_in(
+        section.entities.store,
+        Store.native_change(section.entities.store, id, position, row, events)
+      )
+    end)
+
+    me = TestPlayer.state(pid).player.uuid
+    Region.step(owner, 1)
+
+    Valimc.TestWait.until(fn ->
+      Enum.any?(store(owner).entries, fn {_, e} ->
+        e.kind == :mob and e.body.type == "minecraft:villager"
+      end)
+    end)
+
+    {_, cured} =
+      Enum.find(store(owner).entries, fn {_, e} ->
+        e.kind == :mob and e.body.type == "minecraft:villager"
+      end)
+
+    data = merchant_data(owner, cured.entity.entity_id)
+
+    assert {data.profession, data.level, data.xp} == {"minecraft:librarian", 2, 20}
+    {targets, _} = data.gossips
+    assert {me, [minor_positive: 25, major_positive: 20]} in targets
+    assert Store.find(store(owner), uuid) == {:error, :missing_item}
+    _ = client
+  end
+
+  test "on hard a zombie's kill turns a villager into a zombie villager with its data", ctx do
+    {difficulty, _} = Valimc.World.Clock.difficulty()
+    on_exit(fn -> Valimc.World.Clock.configure({:difficulty, difficulty.level, true}) end)
+    :ok = Valimc.World.Clock.configure({:difficulty, 3, true})
+
+    player = %{
+      living: %Valimc.Living{health: %Valimc.Living.Health{value: 20.0}},
+      x: ctx.pose.x,
+      y: 64.0,
+      z: ctx.pose.z,
+      yaw: -90.0,
+      pitch: 0.0,
+      game_mode: Valimc.Player.GameMode.new(:creative),
+      abilities: Valimc.Player.Abilities.for_mode(:creative),
+      motion: %Valimc.Player.Motion{},
+      last_death: nil,
+      food: %Valimc.Player.Food{}
+    }
+
+    TestPlayer.save(ctx, player, %Inventory{})
+    {_client, _pid} = TestPlayer.login(ctx)
+    {:ok, owner} = Valimc.TestWorld.owner(ctx.key)
+    {:ok, villager} = Body.new("minecraft:villager")
+
+    villager = %{
+      villager
+      | data: %{
+          villager.data
+          | profession: "minecraft:librarian",
+            level: 2,
+            xp: 20,
+            finalized: true
+        }
+    }
+
+    # It stands still (a panicking villager outruns a zombie).
+    villager = put_in(villager.mob.living.health.value, 1.0)
+    villager = put_in(villager.mob.no_ai, true)
+    {:ok, zombie} = Body.new("minecraft:zombie")
+    uuid = <<11::128>>
+
+    :ok =
+      Region.drop_items(owner, [
+        Store.body_record(villager, uuid, {ctx.pose.x + 4.0, 64.0, ctx.pose.z}),
+        Store.body_record(zombie, <<12::128>>, {ctx.pose.x + 5.5, 64.0, ctx.pose.z})
+      ])
+
+    zombie_villager = fn ->
+      Enum.find_value(store(owner).entries, fn {_, e} ->
+        e.kind == :mob and e.body.type == "minecraft:zombie_villager" and e
+      end)
+    end
+
+    # Up to twenty seconds of play, until the zombie's kill.
+    Enum.reduce_while(1..20, nil, fn _, _ ->
+      Region.step(owner, 20)
+      if zombie_villager.(), do: {:halt, nil}, else: {:cont, nil}
+    end)
+
+    entry = zombie_villager.()
+    assert Store.find(store(owner), uuid) == {:error, :missing_item}
+
+    data = merchant_data(owner, entry.entity.entity_id)
+
+    assert {data.villager, data.finalized, data.xp} ==
+             {{"minecraft:plains", "minecraft:librarian", 2}, true, 20}
   end
 end

@@ -1920,13 +1920,36 @@ fn mob_section_deaths<'a>(
     res: ResourceArc<MobSectionRes>,
     ids: Vec<i32>,
 ) -> NifResult<Term<'a>> {
+    use valimc_core::mobs::village::{gossip::GossipType, merchant};
     let mut inner = owned(env, &res)?;
     let mut out = Vec::new();
+    let mut murders = Vec::new();
     for id in ids {
         if let Some(slot) = inner.section.get_mut(id) {
             if let Some(death) = slot.mob.body.mob.death.take() {
                 let p = slot.mob.position;
                 out.push((id, mob_term::encode(env, &death)?, (p[0], p[1], p[2])).encode(env));
+                if slot.mob.body.entity_type == merchant::VILLAGER {
+                    murders.extend(merchant::murder(&slot.mob));
+                }
+            }
+        }
+    }
+    // `tellWitnessesThatIWasMurdered` (VMC-044c1): the villagers of this
+    // section it last saw gossip about its murderer.
+    for (murderer, seen) in murders {
+        let witnesses: Vec<i32> = inner
+            .section
+            .ids()
+            .filter(|&w| {
+                inner.section.get(w).is_some_and(|s| {
+                    s.mob.body.entity_type == merchant::VILLAGER && seen.contains(&s.mob.uuid)
+                })
+            })
+            .collect();
+        for w in witnesses {
+            if let Some(slot) = inner.section.get_mut(w) {
+                merchant::reputation_event(&mut slot.mob, &murderer, GossipType::MajorNegative, 25);
             }
         }
     }
@@ -2230,6 +2253,15 @@ mod oracle {
             brain
                 .memories
                 .set(Mem::LastSlept, MemValue::Int(slept), None);
+        }
+        // A bed claimed at the start: its home (as `Villager::started`).
+        if let Some(pos) = data.get("home_bed").and_then(Value::as_ivec3) {
+            let home = valimc_core::mobs::ai::brain::Global {
+                dimension: valimc_core::mobs::term::Atom::new("minecraft:overworld"),
+                pos: pos.map(|v| v as i32),
+            };
+            brain.memories.set(Mem::Home, MemValue::Global(home), None);
+            slot.mob.body.data.set("home_bed", NIL);
         }
         let mind = slot
             .mob
@@ -2672,7 +2704,7 @@ mod oracle {
 }
 
 mod merchant_atoms {
-    rustler::atoms! { view, start, stop, unhappy, updated, trade, offers }
+    rustler::atoms! { view, start, stop, unhappy, updated, trade, offers, event, eat_and_digest, age, data, cured }
 }
 
 /// A merchant's trading, for its owner (VMC-044b2, `village::merchant`):
@@ -2694,8 +2726,14 @@ fn mob_section_merchant<'a>(
     if let Ok(tag) = action.decode::<Atom>() {
         return if tag == merchant_atoms::view() {
             act(env, &res, id, |_, mob, _| encode(&merchant::view(mob)))
+        } else if tag == merchant_atoms::data() {
+            act(env, &res, id, |_, mob, _| encode(&merchant::data(mob)))
         } else if tag == merchant_atoms::stop() {
             act(env, &res, id, |_, mob, _| merchant::set_trading(mob, None))
+        } else if tag == merchant_atoms::eat_and_digest() {
+            act(env, &res, id, |rules, mob, _| {
+                valimc_core::mobs::village::food::eat_and_digest(rules.facts, &mut mob.body.data)
+            })
         } else if tag == merchant_atoms::unhappy() {
             act(env, &res, id, |rules, mob, events| {
                 merchant::unhappy(rules, mob, events)
@@ -2734,6 +2772,26 @@ fn mob_section_merchant<'a>(
                 )
                     .encode(env),
             }
+        })
+    } else if tag == merchant_atoms::cured() {
+        let player = arg(1)?;
+        let player: Option<[u8; 16]> = if player.is_atom() {
+            None
+        } else {
+            Some(uuid(player)?)
+        };
+        act(env, &res, id, |rules, mob, _| {
+            merchant::cured(rules, mob, player)
+        })
+    } else if tag == merchant_atoms::event() {
+        let n: i32 = arg(1)?.decode()?;
+        act(env, &res, id, |_, _, events| {
+            events.push(valimc_core::mobs::combat::Event::Entity(n))
+        })
+    } else if tag == merchant_atoms::age() {
+        let n: i64 = arg(1)?.decode()?;
+        act(env, &res, id, |_, mob, _| {
+            mob.body.data.set("age", Value::Int(n))
         })
     } else if tag == merchant_atoms::offers() {
         let offers = mob_term::decode(arg(1)?)?;

@@ -292,6 +292,9 @@ public class MobAiOracle {
     void record(net.minecraft.world.entity.Mob m, JsonObject row) throws Exception {}
     void scene(JsonObject out) {}
     public RegistryAccess registryAccess() { return access; }
+    // The biome a villager born here may take its type from (VMC-044c2).
+    Holder<net.minecraft.world.level.biome.Biome> biome;
+    public Holder<net.minecraft.world.level.biome.Biome> getBiome(BlockPos pos) { return biome; }
     public BlockState getBlockState(BlockPos p) { return blocks.getOrDefault(p, Blocks.AIR.defaultBlockState()); }
     public FluidState getFluidState(BlockPos p) { return getBlockState(p).getFluidState(); }
     public BlockGetter getChunkForCollisions(int x, int z) { return this; }

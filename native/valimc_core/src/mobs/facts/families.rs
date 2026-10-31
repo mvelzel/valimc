@@ -514,6 +514,8 @@ pub struct Profession {
     pub acquirable: Vec<String>,
     pub secondary: Vec<String>,
     pub work_sound: Option<String>,
+    /// `requestedItems` (VMC-044c2).
+    pub requested: Vec<String>,
 }
 
 /// A POI type (`Villagers.poi_facts/0`).
@@ -540,6 +542,10 @@ pub struct VillageFacts {
     pub baby: Schedule,
     /// Each POI block state's type (`Pois.of_state/1`).
     pub by_state: HashMap<u16, String>,
+    /// `VILLAGER_FOOD`'s nutrition by item (VMC-044c2).
+    pub food: HashMap<String, i32>,
+    /// `#villager_picks_up`.
+    pub picks_up: Vec<String>,
 }
 
 impl VillageFacts {
@@ -569,6 +575,7 @@ impl VillageFacts {
                     acquirable: strings(p.field("acquirable")?)?,
                     secondary: strings(p.field("secondary_poi")?)?,
                     work_sound: optional_string(p.get("work_sound"))?,
+                    requested: strings(p.field("requested_items")?)?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -609,6 +616,14 @@ impl VillageFacts {
             by_biome: map(json.field("villager_type_by_biome")?, |_, t| string(t))?,
             adult: runs("adult")?,
             baby: runs("baby")?,
+            food: match json.get("villager_food") {
+                Some(f) => map(f, |_, n| int(n))?,
+                None => HashMap::new(),
+            },
+            picks_up: match json.get("villager_picks_up") {
+                Some(p) => strings(p)?,
+                None => Vec::new(),
+            },
         })
     }
 

@@ -21,9 +21,9 @@ use crate::mobs::ai::effect::Effect;
 use crate::mobs::ai::fmath::f;
 use crate::mobs::ai::goal::{Goal, LOOK, MOVE, TARGET};
 use crate::mobs::ai::goals::random_stroll::StrollOptions;
-use crate::mobs::ai::goals::target::TargetOptions;
+use crate::mobs::ai::goals::target::{TargetFields, TargetOptions};
 use crate::mobs::ai::goals::{
-    neutral, HurtByTarget, Idle, LookAtPlayer, MeleeAttack, MobTypes, MoveTowardsTarget,
+    neutral, HurtByTarget, LookAtPlayer, MeleeAttack, MobTypes, MoveTowardsTarget,
     NearestAttackableTarget, RandomLookAround, RandomStroll, ResetUniversalAnger, TargetKind,
     TargetTest,
 };
@@ -421,13 +421,15 @@ impl Kind for IronGolem {
                 ),
             ],
             targets: vec![
-                // Reputation is VMC-044's: no villager knows a player it
-                // would turn on.
                 Registration::new(
                     1,
                     "DefendVillageTargetGoal",
                     TARGET,
-                    Idle::new("DefendVillageTargetGoal"),
+                    DefendVillage {
+                        fields: TargetFields::new(false),
+                        villager: self.villager,
+                        potential: None,
+                    },
                 ),
                 Registration::new(
                     2,
@@ -559,5 +561,95 @@ impl Goal for OfferFlower {
 
     fn name(&self) -> &'static str {
         "Valimc.AI.Mobs.IronGolem.OfferFlower"
+    }
+}
+
+/// `DefendVillageTargetGoal` (VMC-044c1): a player any villager within its
+/// box (10 blocks out, 8 up and down) holds at reputation -100 or worse,
+/// both attackable and in sight within 64 blocks, becomes its target. The
+/// last such player stays its potential target (vanilla never clears it);
+/// a creative or spectator one is never taken.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DefendVillage {
+    fields: TargetFields,
+    villager: u16,
+    potential: Option<Ref>,
+}
+
+impl Goal for DefendVillage {
+    fn can_use(&mut self, t: &mut Turn) -> bool {
+        let grow = inflate(&t.bbox(), 10.0, 8.0, 10.0);
+        let targeting = Targeting::new(true).range(64.0);
+        let villagers: Vec<Seen> = t
+            .mobs_in(Kinds::Types(&[self.villager]), &grow)
+            .into_iter()
+            .filter(|v| v.alive)
+            .collect();
+        let players: Vec<(Ref, [f64; 3])> = t
+            .sensing
+            .players
+            .iter()
+            .map(|p| {
+                (
+                    Ref {
+                        kind: RefKind::Player,
+                        uuid: p.uuid,
+                    },
+                    p.position,
+                )
+            })
+            .collect();
+        let inside = |[x, y, z]: [f64; 3]| {
+            x >= grow.min[0]
+                && x < grow.max[0]
+                && y >= grow.min[1]
+                && y < grow.max[1]
+                && z >= grow.min[2]
+                && z < grow.max[2]
+        };
+        for v in &villagers {
+            if !t.test(&v.reference, &targeting) {
+                continue;
+            }
+            let gossips = match t.sensing.entity(&v.reference) {
+                Some(Entity::Mob(m)) => crate::mobs::village::gossip::Gossips::of(
+                    m.extra.data.as_ref().and_then(|d| d.get("gossips")),
+                ),
+                _ => continue,
+            };
+            for (r, at) in &players {
+                if inside(*at) && t.test(r, &targeting) && gossips.reputation(&r.uuid) <= -100 {
+                    self.potential = Some(*r);
+                }
+            }
+        }
+        match self.potential {
+            Some(r) => match t.sensing.entity(&r) {
+                Some(Entity::Player(p)) => !matches!(
+                    p.mode,
+                    crate::mobs::sensing::GameMode::Creative
+                        | crate::mobs::sensing::GameMode::Spectator
+                ),
+                _ => true,
+            },
+            None => false,
+        }
+    }
+
+    fn can_continue(&mut self, t: &mut Turn) -> bool {
+        self.fields.can_continue(t)
+    }
+
+    fn start(&mut self, t: &mut Turn) {
+        t.set_target(self.potential);
+        self.fields.start();
+    }
+
+    fn stop(&mut self, t: &mut Turn) {
+        self.fields.stop(t);
+    }
+
+    fn name(&self) -> &'static str {
+        "Valimc.AI.Goals.DefendVillageTarget"
     }
 }

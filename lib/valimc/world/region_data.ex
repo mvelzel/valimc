@@ -1754,8 +1754,21 @@ defmodule Valimc.World.RegionData do
       # Merchants whose restock checks want their offers (VMC-044b3).
       offers_wanted =
         for step <- steps,
-            {:merchant, {:offers_wanted, uuid, owed}} <- step.effects,
+            {:merchant, :offers_wanted, uuid, owed} <- step.effects,
             do: {uuid, owed}
+
+      # Villagers zombies turned and zombie villagers cured (VMC-044c3).
+      zombified =
+        for step <- steps, {:merchant, :zombify, uuid} <- step.effects, do: uuid
+
+      cured =
+        for step <- steps, {:merchant, :cure, player} <- step.effects, do: {step.id, player}
+
+      # What a breeding villager changes of its partner (VMC-044c2).
+      partners =
+        for step <- steps,
+            {:merchant, :partner, uuid, change} <- step.effects,
+            do: {uuid, change}
 
       # Arrows skeletons loosed (VMC-043b).
       arrows =
@@ -1880,6 +1893,9 @@ defmodule Valimc.World.RegionData do
       state = if gone == [], do: state, else: mob_discards(state, gone)
       state = if jockeys == [], do: state, else: mob_jockeys(state, jockeys)
       state = Enum.reduce(offers_wanted, state, &offers_wanted/2)
+      state = Enum.reduce(partners, state, &partner_change/2)
+      state = if zombified == [], do: state, else: zombify(state, zombified)
+      state = if cured == [], do: state, else: cure(state, cured)
       state = if conversions == [], do: state, else: mob_conversions(state, conversions)
 
       state =
@@ -2412,6 +2428,179 @@ defmodule Valimc.World.RegionData do
     else
       {:pending, state} -> state
       {_view, %{} = state} -> state
+      _ -> state
+    end
+  end
+
+  # `convertVillagerToZombieVillager` (VMC-044c3): the killed villager
+  # becomes a zombie villager with its villager data, finalized flag,
+  # gossip, offers (drawn now if it had none, as `getOffers` would) and
+  # experience; it leaves no death drops.
+  defp zombify(state, uuids) do
+    special = special_difficulty()
+
+    Enum.reduce(uuids, state, fn uuid, state ->
+      store = state.entities.store
+
+      with {:ok, {_, id, _}} <- Store.find(store, uuid),
+           %{kind: :mob, native: ref, entity: e} when ref != nil <- store.entries[id],
+           {view, state} <- merchant_act(state, ref, id, :view),
+           {offers, state} when is_list(offers) <- zombified_offers(state, ref, id, e, view),
+           %{revision: revision} = entry <- state.entities.store.entries[id],
+           {:ok, record} <-
+             converted(
+               entry,
+               id,
+               :crypto.strong_rand_bytes(16),
+               "minecraft:zombie_villager",
+               special,
+               {e.x, e.y, e.z}
+             ) do
+        {:ok, villager} = merchant_data(ref, id)
+
+        record = %{
+          record
+          | data: %{
+              record.data
+              | villager: {villager.villager_type, villager.profession, villager.level},
+                finalized: villager.finalized,
+                gossips: villager.gossips,
+                offers: offers,
+                xp: villager.xp
+            },
+            mob: Map.put(record.mob, :finalize, :zombified)
+        }
+
+        store = state.entities.store
+
+        case Store.remove(store, store.epoch, id, revision) do
+          {:ok, next} ->
+            state = publish_item_views(%{state | entities: %{state.entities | store: next}})
+            adopt_drops(state, [record])
+
+          _ ->
+            state
+        end
+      else
+        _ -> state
+      end
+    end)
+  end
+
+  # A mob's whole family data, read from its section.
+  defp merchant_data(ref, id) do
+    case Native.mob_section_merchant(ref, id, :data) do
+      {:ok, {%{} = data, _, _}} -> {:ok, data}
+      _ -> :error
+    end
+  end
+
+  defp zombified_offers(state, ref, id, e, view) do
+    case ensure_offers(state, ref, id, e, view) do
+      {:pending, state} -> {[], state}
+      other -> other
+    end
+  end
+
+  # `ZombieVillager.finishConversion` (VMC-044c3): the zombie villager
+  # becomes a villager with its villager data, gossip, offers and
+  # experience, its picked-up gear dropped and the rest gone; the curer's
+  # cure gossip, Nausea and the cure's level event.
+  defp cure(state, cured) do
+    special = special_difficulty()
+
+    Enum.reduce(cured, state, fn {id, player}, state ->
+      store = state.entities.store
+
+      with %{kind: :mob, native: ref, entity: e, revision: revision} = entry when ref != nil <-
+             store.entries[id],
+           {:ok, zombie} <- merchant_data(ref, id),
+           {:ok, record} <-
+             converted(
+               entry,
+               id,
+               :crypto.strong_rand_bytes(16),
+               "minecraft:villager",
+               special,
+               {e.x, e.y, e.z}
+             ),
+           {:ok, next} <- Store.remove(store, store.epoch, id, revision) do
+        {type, profession, level} = zombie.villager
+
+        kept =
+          for {slot, stack} <- record.mob.equipment,
+              stack != nil,
+              Map.get(Map.get(record.mob, :drop_chances, %{}), slot, 0.085) > 1.0,
+              do: stack
+
+        record = %{
+          record
+          | data: %{
+              record.data
+              | villager_type: type,
+                profession: profession,
+                level: level,
+                finalized: zombie.finalized,
+                gossips: zombie.gossips,
+                offers: zombie.offers,
+                xp: zombie.xp
+            },
+            mob:
+              record.mob
+              |> Map.put(:equipment, Map.new(record.mob.equipment, fn {k, _} -> {k, nil} end))
+              |> Map.delete(:drop_chances)
+              |> Map.put(:can_pick_up_loot, true)
+              |> Map.put(:finalize, :conversion)
+        }
+
+        state = publish_item_views(%{state | entities: %{state.entities | store: next}})
+        state = adopt_drops(state, [record])
+
+        state =
+          case Store.find(state.entities.store, record.uuid) do
+            {:ok, {_, new_id, _}} ->
+              %{native: new_ref} = state.entities.store.entries[new_id]
+              elem(merchant_act(state, new_ref, new_id, {:cured, player}), 1)
+
+            _ ->
+              state
+          end
+
+        state =
+          if kept == [],
+            do: state,
+            else: mob_drops(state, for(stack <- kept, do: {{e.x, e.y, e.z}, stack}))
+
+        Valimc.World.publish(
+          route_key(state),
+          {:level_events, [{{floor(e.x), floor(e.y), floor(e.z)}, 1027, 0}]}
+        )
+
+        state
+      else
+        _ -> state
+      end
+    end)
+  end
+
+  defp special_difficulty do
+    {difficulty, _} = Clock.difficulty()
+    level = elem({:peaceful, :easy, :normal, :hard}, difficulty.level)
+
+    Valimc.Living.LocalDifficulty.special(
+      Valimc.Living.LocalDifficulty.at(level, Clock.day_ticks())
+    )
+  end
+
+  # A breeding partner's part (VMC-044c2): its hearts or angry particles,
+  # its meal before the birth and the time before it may breed again.
+  defp partner_change({uuid, change}, state) do
+    store = state.entities.store
+
+    with {:ok, {_, id, _}} <- Store.find(store, uuid),
+         %{native: ref} when ref != nil <- store.entries[id] do
+      elem(merchant_act(state, ref, id, change), 1)
+    else
       _ -> state
     end
   end

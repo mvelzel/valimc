@@ -886,6 +886,8 @@ impl<'t, 'w> Turn<'t, 'w> {
             };
             if killed {
                 self.sensing.resense(&target.uuid, |m| m.alive = false);
+                let hooks = self.hooks;
+                hooks.killed(self, target);
             }
         }
     }

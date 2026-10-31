@@ -1245,5 +1245,22 @@
     "minecraft:entity.villager.work_toolsmith": 1717,
     "minecraft:entity.villager.work_weaponsmith": 1718,
     "minecraft:entity.villager.yes": 1705
-  }
+  },
+  "villager_food": {
+    "minecraft:bread": 4,
+    "minecraft:carrot": 1,
+    "minecraft:potato": 1,
+    "minecraft:beetroot": 1
+  },
+  "villager_picks_up": [
+    "minecraft:wheat_seeds",
+    "minecraft:potato",
+    "minecraft:carrot",
+    "minecraft:beetroot_seeds",
+    "minecraft:torchflower_seeds",
+    "minecraft:pitcher_pod",
+    "minecraft:bread",
+    "minecraft:wheat",
+    "minecraft:beetroot"
+  ]
 }

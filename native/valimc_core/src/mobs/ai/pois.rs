@@ -334,6 +334,16 @@ pub fn store_claims<'a>(
         if ty.is_none() || ty != villager || !crate::mobs::living::mob::alive(&mob.body.mob) {
             continue;
         }
+        // A baby's bed from its parents' breeding, its home once it first
+        // thinks (VMC-044c2): taken from its birth.
+        if let Some(bed) = mob
+            .body
+            .data
+            .get("home_bed")
+            .and_then(crate::mobs::term::Value::as_ivec3)
+        {
+            *out.entry(bed.map(|v| v as i32)).or_insert(0) += 1;
+        }
         let Some(mind) = &mob.body.mob.ai else {
             continue;
         };

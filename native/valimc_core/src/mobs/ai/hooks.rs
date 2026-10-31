@@ -89,6 +89,10 @@ pub trait Hooks: Send + Sync {
     /// `world.melee`: a melee hit on a mob ticking with the thinking one
     /// lands mid-tick, with the effects it made so far; true when it
     /// killed it.
+    /// `killedEntity`: its part after its melee hit killed `target` (a
+    /// zombie's villager turning, VMC-044c3).
+    fn killed(&self, _t: &mut Turn, _target: &Ref) {}
+
     fn melee(&self, _t: &mut Turn, _target: &Ref) -> bool {
         false
     }

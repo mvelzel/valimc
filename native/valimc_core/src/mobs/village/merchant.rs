@@ -13,7 +13,6 @@
 //! `notifyTradeUpdated`'s sound.
 
 use crate::mobs::combat::{self, Event, Rules, SoundRef};
-use crate::mobs::living::effects;
 use crate::mobs::model::{NativeMob, Rung};
 use crate::mobs::sensing::Uuid;
 use crate::mobs::term::{Map, Value, NIL};
@@ -202,7 +201,7 @@ pub fn trade(
                     particles: true,
                     icon: true,
                 };
-                effects::add(&mut mob.body.mob.living.effects, id as i32, rung);
+                add_effect(rules, mob, id as i32, rung);
             }
             leveled = true;
             xp += 5;
@@ -262,9 +261,18 @@ fn reset_uses(offers: &mut [Value]) {
 /// under Hero of the Village (`trading_hero`, its amplifier), at least one
 /// of `0.3 + 0.0625 × amplifier` of the base cost.
 fn special_prices(mob: &mut NativeMob, offers: &mut [Value]) {
-    // Gossip and its reputation are VMC-044c's.
-    let reputation: i64 = 0;
-    let hero = mob.body.data.get("trading_hero").and_then(Value::as_int);
+    special_prices_for(mob, trading(mob), offers)
+}
+
+fn special_prices_for(mob: &mut NativeMob, player: Option<Uuid>, offers: &mut [Value]) {
+    prices(&mob.body.data, player, offers)
+}
+
+fn prices(data: &crate::mobs::model::FamilyData, player: Option<Uuid>, offers: &mut [Value]) {
+    let reputation: i64 = player.map_or(0, |player| {
+        super::gossip::Gossips::of(data.get("gossips")).reputation(&player) as i64
+    });
+    let hero = data.get("trading_hero").and_then(Value::as_int);
     each_offer(offers, |m| {
         let mut special = 0i64;
         if reputation != 0 {
@@ -296,7 +304,7 @@ pub fn start(mob: &mut NativeMob, player: Uuid, hero: Option<i64>) -> bool {
         .data
         .set("trading_hero", Value::or_nil(hero, Value::Int));
     if let Some(mut offers) = offers_of(mob) {
-        special_prices(mob, &mut offers);
+        special_prices_for(mob, Some(player), &mut offers);
         mob.body.data.set("offers", Value::List(offers));
     }
     set_trading(mob, Some(player))
@@ -395,4 +403,107 @@ pub fn restock(mob: &mut NativeMob, now: i64) {
         .and_then(Value::as_int)
         .unwrap_or(0);
     mob.body.data.set("restocks_today", Value::Int(today + 1));
+}
+
+// ## Gossip (VMC-044c1)
+
+/// `onReputationEventFrom`: gossip about `target` of type `ty` grows by
+/// `amount`; a trading player's prices follow.
+pub fn reputation_event(
+    mob: &mut NativeMob,
+    target: &Uuid,
+    ty: super::gossip::GossipType,
+    amount: i32,
+) {
+    gossip_event(&mut mob.body.data, target, ty, amount);
+}
+
+/// `reputation_event` over a body's data (the hurt path's).
+pub fn gossip_event(
+    data: &mut crate::mobs::model::FamilyData,
+    target: &Uuid,
+    ty: super::gossip::GossipType,
+    amount: i32,
+) {
+    let mut gossips = super::gossip::Gossips::of(data.get("gossips"));
+    gossips.add(target, ty, amount);
+    data.set("gossips", gossips.value());
+    if uuid_of(data, "trading") == Some(*target) {
+        if let Some(mut offers) = data
+            .get("offers")
+            .and_then(Value::as_list)
+            .map(<[Value]>::to_vec)
+        {
+            prices(data, Some(*target), &mut offers);
+            data.set("offers", Value::List(offers));
+        }
+    }
+}
+
+/// `updateSpecialPrices` for its trading player, if any.
+pub fn reprice(mob: &mut NativeMob) {
+    if trading(mob).is_some() {
+        if let Some(mut offers) = offers_of(mob) {
+            special_prices(mob, &mut offers);
+            mob.body.data.set("offers", Value::List(offers));
+        }
+    }
+}
+
+/// `tellWitnessesThatIWasMurdered`'s two halves: who dealt the killing
+/// blow and whom it saw last (`NEAREST_VISIBLE_LIVING_ENTITIES`).
+pub fn murder(mob: &NativeMob) -> Option<(Uuid, Vec<Uuid>)> {
+    use crate::mobs::ai::brain::{Mem, MemValue};
+    let state = mob.body.mob.ai.as_ref()?.state.as_ref()?;
+    let murderer = state.damage.as_ref()?.attacker?.uuid;
+    let seen = match state
+        .brain
+        .as_ref()?
+        .memories
+        .get(Mem::NearestVisibleLivingEntities)
+    {
+        Some(MemValue::Visible(v)) => v.entities.iter().map(|r| r.uuid).collect(),
+        _ => Vec::new(),
+    };
+    Some((murderer, seen))
+}
+
+/// Its whole family data as a map (a conversion's carry, VMC-044c3).
+pub fn data(mob: &NativeMob) -> Value {
+    let pairs = mob
+        .body
+        .data
+        .fields()
+        .iter()
+        .map(|(k, v)| (Value::Atom(k.clone()), v.clone()))
+        .collect();
+    Value::Map(Map::from_pairs(pairs).unwrap_or_default())
+}
+
+/// What a cure leaves on the villager it made (VMC-044c3): the curer's
+/// `ZOMBIE_VILLAGER_CURED` gossip (+20 major positive, +25 minor positive)
+/// and Nausea for 200 ticks.
+pub fn cured(rules: &Rules, mob: &mut NativeMob, player: Option<Uuid>) {
+    use super::gossip::GossipType;
+    if let Some(player) = player {
+        reputation_event(mob, &player, GossipType::MajorPositive, 20);
+        reputation_event(mob, &player, GossipType::MinorPositive, 25);
+    }
+    if let Some(id) = rules.facts.effects.id("minecraft:nausea") {
+        let rung = Rung {
+            ticks: 200,
+            amplifier: 0,
+            ambient: false,
+            particles: true,
+            icon: true,
+        };
+        add_effect(rules, mob, id as i32, rung);
+    }
+}
+
+/// `addEffect` on a villager (`living::mob::add_effect`).
+fn add_effect(rules: &Rules, mob: &mut NativeMob, id: i32, rung: Rung) {
+    if let Some(ty) = rules.facts.entities.id(&mob.body.entity_type) {
+        crate::mobs::living::mob::add_effect(rules.facts, ty, &mut mob.body.mob, id, rung);
+    }
 }

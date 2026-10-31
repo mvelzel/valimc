@@ -3,6 +3,8 @@
 //! families are (`monsters`), its own data the Elixir family's atom-keyed
 //! map. Villagers think with a brain and move with the brain families.
 
+pub mod food;
+pub mod gossip;
 pub mod iron_golem;
 pub mod merchant;
 pub mod wandering_trader;

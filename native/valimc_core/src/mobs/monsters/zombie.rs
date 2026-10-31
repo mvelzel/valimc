@@ -39,6 +39,7 @@ use crate::mobs::level::Difficulty;
 use crate::mobs::model::{Body, FamilyData, Mob, NativeMob, Number, Slot};
 use crate::mobs::random::LegacyRandom;
 use crate::mobs::sensing::inflate;
+use crate::mobs::sensing::{Entity, Ref};
 use crate::mobs::term::{Atom, Map, Value, NIL};
 use crate::physics::mob::Ticked;
 use crate::physics::Aabb;
@@ -65,6 +66,11 @@ pub struct Parts {
     pub parched: u16,
     pub turtle_eggs: Vec<u16>,
     pub glow_ink: i32,
+    /// `#speeds_up_zombie_villager_curing`'s blocks.
+    pub speeds_cure: Vec<i32>,
+    pub golden_apple: i32,
+    pub weakness: i32,
+    pub strength: i32,
     pub hunger: i32,
     pub iron_sword: i32,
     pub iron_spear: i32,
@@ -102,6 +108,17 @@ impl Parts {
             parched: entity(facts, "minecraft:parched")?,
             turtle_eggs: states(facts, "minecraft:turtle_egg")?,
             glow_ink: item(facts, "minecraft:glow_ink_sac")?,
+            speeds_cure: facts
+                .tags
+                .get(
+                    "minecraft:block",
+                    "minecraft:speeds_up_zombie_villager_curing",
+                )
+                .map(<[i32]>::to_vec)
+                .unwrap_or_default(),
+            golden_apple: item(facts, "minecraft:golden_apple")?,
+            weakness: super::effect(facts, "minecraft:weakness")?,
+            strength: super::effect(facts, "minecraft:strength")?,
             hunger: super::effect(facts, "minecraft:hunger")?,
             iron_sword: item(facts, "minecraft:iron_sword")?,
             iron_spear: item(facts, "minecraft:iron_spear")?,
@@ -192,6 +209,9 @@ impl Parts {
                 ("cure", Value::Int(-1)),
                 ("cure_by", NIL),
                 ("xp", Value::Int(0)),
+                // What a villager it was kept (VMC-044c3).
+                ("gossips", NIL),
+                ("offers", NIL),
             ]));
         }
         data
@@ -254,6 +274,80 @@ impl Parts {
             (true, true) => 2.0,
             (true, false) => 1.5,
             _ => 1.0,
+        }
+    }
+
+    // ## Villagers (VMC-044c3)
+
+    /// `Zombie.killedEntity`: a villager it killed on normal (half the time,
+    /// by its random) or hard difficulty turns into a zombie villager, which
+    /// its owner makes of it, with the infection's level event.
+    pub fn killed(&self, t: &mut Turn, target: &Ref) {
+        use crate::mobs::level::Difficulty;
+        let villager = t.level.facts.entities.id("minecraft:villager");
+        let is_villager = matches!(
+            t.sensing.entity(target),
+            Some(Entity::Mob(m)) if Some(m.type_id) == villager
+        );
+        let difficulty = t.level.difficulty;
+        if !is_villager || !matches!(difficulty, Difficulty::Normal | Difficulty::Hard) {
+            return;
+        }
+        if difficulty != Difficulty::Hard && t.boolean() {
+            return;
+        }
+        t.effect(Effect::Merchant(Value::tuple([
+            Value::atom("zombify"),
+            Value::Binary(target.uuid.to_vec()),
+        ])));
+        t.effect(Effect::LevelEvent {
+            cell: t.block(),
+            kind: 1026,
+            data: 0,
+        });
+    }
+
+    /// `ZombieVillager.tick` before its own: converting, it counts down by
+    /// `getConversionProgress` (one, and one in a hundred ticks more for
+    /// each block nearby that speeds curing, by a 30% chance each, up to
+    /// 14 blocks); at 0 its owner makes the villager of it.
+    pub fn cure_tick(&self, t: &mut Turn) {
+        let cure = int(t.data(), "cure");
+        if cure < 0 || !crate::mobs::living::mob::alive(&t.mob.body.mob) {
+            return;
+        }
+        let mut amount = 1;
+        if t.float() < f(0.01) {
+            let [x, y, z] = t.pos().map(|v| v as i32);
+            let mut found = 0;
+            'scan: for xx in x - 4..x + 4 {
+                for yy in y - 4..y + 4 {
+                    for zz in z - 4..z + 4 {
+                        if found >= 14 {
+                            break 'scan;
+                        }
+                        let block = t
+                            .level
+                            .block([xx, yy, zz])
+                            .and_then(|s| t.level.facts.blocks.block_id(s));
+                        if block.is_some_and(|b| self.speeds_cure.contains(&(b as i32))) {
+                            if t.float() < f(0.3) {
+                                amount += 1;
+                            }
+                            found += 1;
+                        }
+                    }
+                }
+            }
+        }
+        let left = cure - amount;
+        t.mob.body.data.set("cure", Value::Int(left));
+        if left <= 0 {
+            let starter = t.data().get("cure_by").cloned().unwrap_or(NIL);
+            t.effect(Effect::Merchant(Value::tuple([
+                Value::atom("cure"),
+                starter,
+            ])));
         }
     }
 
@@ -355,13 +449,16 @@ impl Parts {
     ) {
         spawn::mob(t, reason);
         let special = spawn::special(t);
-        let conversion = reason.as_str() == "conversion";
+        // `zombified`: `convertVillagerToZombieVillager`'s conversion, its
+        // group data given (an adult).
+        let zombified = reason.as_str() == "zombified";
+        let conversion = zombified || reason.as_str() == "conversion";
         if !conversion {
             let roll = spawn::level_float(t);
             super::loot(t, roll, special);
         }
         // `getSpawnAsBabyOdds`, and a baby's chicken jockey.
-        if spawn::level_float(t) < f(0.05) {
+        if !zombified && spawn::level_float(t) < f(0.05) {
             set_baby(&mut t.mob.body.mob, &mut t.mob.body.data, true);
             self.jockey(t);
         }
@@ -385,7 +482,11 @@ impl Parts {
             &mut mob.data,
             &mut t.random,
             special,
-            reason.as_str(),
+            if zombified {
+                "conversion"
+            } else {
+                reason.as_str()
+            },
             reinforcements,
         );
     }
@@ -588,6 +689,10 @@ impl Hooks for Zombie {
     fn hit(&self, t: &mut Turn, target: &Seen) {
         self.parts.hit(t, target);
     }
+
+    fn killed(&self, t: &mut Turn, target: &Ref) {
+        self.parts.killed(t, target);
+    }
 }
 
 impl Family for Zombie {
@@ -707,8 +812,11 @@ impl Kind for Zombie {
         let p = &self.parts;
         if t.type_id == p.villager {
             // The profession its random drew as it was made, then the
-            // biome's type.
-            if !flag(t.data(), "finalized") {
+            // biome's type. A villager a zombie killed (`zombified`) keeps
+            // its own data, finalized.
+            if reason.as_str() == "zombified" {
+                t.mob.body.data.set("finalized", Value::bool(true));
+            } else if !flag(t.data(), "finalized") {
                 let level = t
                     .data()
                     .get("villager")
@@ -745,6 +853,67 @@ impl Kind for Zombie {
         }
     }
 
+    /// A zombie villager's cure (VMC-044c3) before its own tick.
+    fn tick_start(&self, t: &mut Turn) {
+        if t.type_id == self.parts.villager {
+            self.parts.cure_tick(t);
+        }
+    }
+
+    /// `ZombieVillager.mobInteract` (VMC-044c3): a golden apple on a zombie
+    /// villager under Weakness, used up, starts its cure (3600 to 6000
+    /// ticks, by its random), takes its Weakness, gives it Strength for that
+    /// long and plays the cure's sound (event 16); without Weakness the use
+    /// is only taken.
+    fn interact(
+        &self,
+        i: &mut crate::mobs::kinds::interact::Interaction,
+    ) -> crate::mobs::kinds::interact::Outcome {
+        use crate::mobs::kinds::interact::{Done, Hand, InteractEvent, Outcome};
+        let p = &self.parts;
+        if i.mob.body.entity_type != VILLAGER || i.request.item_id() != Some(p.golden_apple) {
+            return Outcome::Pass;
+        }
+        let effects = &mut i.mob.body.mob.living.effects;
+        if effects.get(p.weakness).is_none() {
+            return Outcome::Consume;
+        }
+        let time = i.random().int(2401) + 3600;
+        let data = &mut i.mob.body.data;
+        data.set("cure", Value::Int(time as i64));
+        data.set(
+            "cure_by",
+            Value::or_nil(i.request.player, |u| Value::Binary(u.to_vec())),
+        );
+        let facts = i.rules.facts;
+        let ty = facts.entities.id(&i.mob.body.entity_type).unwrap_or(0);
+        let mob = &mut i.mob.body.mob;
+        crate::mobs::living::mob::remove_effect(facts, mob, p.weakness);
+        crate::mobs::living::mob::add_effect(
+            facts,
+            ty,
+            mob,
+            p.strength,
+            crate::mobs::model::Rung {
+                ticks: time,
+                amplifier: 0,
+                ambient: false,
+                particles: true,
+                icon: true,
+            },
+        );
+        Outcome::Done(Done {
+            hand: Some(if i.request.infinite {
+                Hand::Keep
+            } else {
+                Hand::Use(1)
+            }),
+            swing: true,
+            events: vec![InteractEvent::Entity(16)],
+            ..Done::default()
+        })
+    }
+
     fn after_move(&self, mob: &mut NativeMob, ticked: &Ticked) -> Vec<Effect> {
         let p = &self.parts;
         match mob.body.entity_type.as_str() {
@@ -768,6 +937,11 @@ impl Kind for Zombie {
 
     fn after_conversion(&self, facts: &MobFacts, body: &mut Body, special: f64) {
         let type_id = self.type_of(body);
+        // A zombie villager is made from a villager only, finalized after
+        // (`zombified`), never by `convertToZombieType`.
+        if type_id == self.parts.villager {
+            return;
+        }
         let Some(mut mind) = body.mob.ai.take() else {
             return;
         };

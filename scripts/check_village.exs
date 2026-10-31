@@ -212,6 +212,34 @@ checked =
           Valimc.World.Spawning.darken("minecraft:overworld", time, 0.0, 0.0) < 4
       end
 
+      # The players standing in the scene (VMC-044c1), as MobAiOracle's.
+      players =
+        for p <- c["players"] || [] do
+          {x, y, z} = vector.(p["position"])
+
+          %{
+            kind: :player,
+            uuid: <<1::64, p["uuid"]::64>>,
+            id: p["id"],
+            x: x,
+            y: y,
+            z: z,
+            yaw: 0.0,
+            pitch: 0.0,
+            eye: Valimc.Data.Float32.round(1.62),
+            width: Valimc.Data.Float32.round(0.6),
+            height: Valimc.Data.Float32.round(1.8),
+            mode: :survival,
+            invulnerable: false,
+            alive: true,
+            crouching: false,
+            swimming: false,
+            invisible: false,
+            armor_cover: 0.0,
+            equipment: %{mainhand: nil, offhand: nil, head: nil}
+          }
+        end
+
       entries =
         for {m, i} <- Enum.with_index(c["mobs"]) do
           yaw = float.(m["yaw"])
@@ -256,6 +284,52 @@ checked =
                           restocks_today: shop["restocks"],
                           xp: 5
                       }
+                  end
+
+                # Bread in its inventory (VMC-044c2).
+                data =
+                  case m["bread"] do
+                    nil ->
+                      data
+
+                    n ->
+                      %{
+                        data
+                        | inventory: [
+                            Valimc.Protocol.ItemStack.new("minecraft:bread", n)
+                            | List.duplicate(nil, 7)
+                          ]
+                      }
+                  end
+
+                # The bed it already claimed (VMC-044c2), its home as its
+                # brain starts.
+                data =
+                  case m["home"] do
+                    nil -> data
+                    home -> %{data | home_bed: List.to_tuple(home)}
+                  end
+
+                # Its gossip at the start (VMC-044c1), added in order.
+                data =
+                  case m["gossip"] do
+                    nil ->
+                      data
+
+                    rows ->
+                      targets =
+                        rows
+                        |> Enum.map(&hd/1)
+                        |> Enum.uniq()
+                        |> Enum.map(fn n ->
+                          {<<1::64, n::64>>,
+                           for(
+                             [^n, type, value] <- rows,
+                             do: {String.to_atom(String.downcase(type)), value}
+                           )}
+                        end)
+
+                      %{data | gossips: {targets, length(targets)}}
                   end
 
                 %{body | data: data}
@@ -427,7 +501,7 @@ checked =
               no_chunks: true
             }
 
-            env = %{region: nil, level: level, players: [], items: [], random: level_random}
+            env = %{region: nil, level: level, players: players, items: [], random: level_random}
 
             {steps, %{random: level_random}} =
               MobTicks.native_steps(kernel_view, entries, section, env)
@@ -446,6 +520,34 @@ checked =
 
                 {id, %{entry | body: step.body, entity: %{entry.entity | x: x, y: y, z: z}}}
               end)
+
+            # A breeding villager's changes to its partner, which its owner
+            # applies after the tick (VMC-044c2): the partner shows them from
+            # the next tick, vanilla's at once.
+            changed =
+              for step <- steps,
+                  {:merchant, :partner, <<n::64, _::64>>, change} <- step.effects,
+                  uniq: true do
+                {:ok, _} = Native.mob_section_merchant(section.ref, n, change)
+                n
+              end
+
+            # A baby born (VMC-044c2): its type, age, bed and place as
+            # vanilla's.
+            for step <- steps,
+                {:offspring, "minecraft:villager", data, {x, y, z}} <- step.effects do
+              baby = Enum.find(row["spawned"], &Map.has_key?(&1, "villager_type"))
+
+              want =
+                {baby["villager_type"], baby["age"], baby["home"], vector.(baby["position"])}
+
+              got =
+                {data.villager_type, data.age, data.home_bed && Tuple.to_list(data.home_bed),
+                 {x, y, z}}
+
+              unless got == want,
+                do: raise("#{c["name"]} tick #{tick}: baby #{inspect(got)} != #{inspect(want)}")
+            end
 
             # Mobs the mobs summoned (a golem), ticking from the next tick
             # with the oracle's ids and randoms.
@@ -498,6 +600,22 @@ checked =
                     %{memories: m} <- [native_body.(ref, id).mob.ai.brain],
                     do: m
               )
+
+            # A bed in a villager's data, its home once its brain starts
+            # (VMC-044c2), which the owner's sections count too.
+            claims =
+              for {id, %{native: ref}} <- entries,
+                  %{data: %{home_bed: {_, _, _} = bed}} <- [native_body.(ref, id)],
+                  reduce: claims,
+                  do: (acc -> Map.update(acc, bed, 1, &(&1 + 1)))
+
+            # A baby's bed from its birth this tick (VMC-044c2), which the
+            # owner's sections count from its data.
+            claims =
+              for step <- steps,
+                  {:offspring, _, %{home_bed: {_, _, _} = bed}, _} <- step.effects,
+                  reduce: claims,
+                  do: (acc -> Map.update(acc, bed, 1, &(&1 + 1)))
 
             taken = for p <- pois, do: Map.get(claims, p, 0)
             states = for p <- pois, do: Map.get(scene, p, air)
@@ -623,6 +741,25 @@ checked =
                        look_target: tracker.(memory.(mind, :look_target)),
                        sleeping: body.data.sleeping && Tuple.to_list(body.data.sleeping),
                        offers: Enum.map(body.data.offers || [], &[&1.uses, &1.demand]),
+                       food_level: body.data.food_level,
+                       inventory:
+                         Enum.map(body.data.inventory, fn
+                           nil -> nil
+                           s -> [s.item_id, s.count, nil, nil]
+                         end),
+                       age: body.data.age,
+                       gossip:
+                         case body.data.gossips do
+                           nil ->
+                             []
+
+                           {targets, _} ->
+                             Enum.sort(
+                               for {<<_::64, n::64>>, entries} <- targets,
+                                   {type, value} <- entries,
+                                   do: [n, Atom.to_string(type), value]
+                             )
+                         end,
                        restocks: body.data.restocks_today,
                        last_restock: body.data.last_restock,
                        hostile:
@@ -643,6 +780,10 @@ checked =
                        look_target: expected["look_target"],
                        sleeping: expected["sleeping"],
                        offers: expected["offers"],
+                       food_level: expected["food_level"],
+                       inventory: expected["inventory"],
+                       age: expected["age"],
+                       gossip: Enum.sort(expected["gossip"]),
                        restocks: expected["restocks"],
                        last_restock: expected["last_restock"],
                        hostile: expected["hostile"]
@@ -719,7 +860,10 @@ checked =
                       []
 
                     true ->
-                      for {k, v} <- want, got[k] != v, do: {k, v, got[k]}
+                      for {k, v} <- want,
+                          got[k] != v,
+                          not (id in changed and k in [:food_level, :inventory, :age]),
+                          do: {k, v, got[k]}
                   end
 
                 unless differ == [] do
@@ -738,13 +882,13 @@ checked =
       count
   end
 
-# `updateSpecialPrices` under Hero of the Village (VMC-044b3): a native
-# villager with the restock scenes' offers starts trading with a player at
-# each amplifier; its offers' special prices and first costs must equal
-# vanilla's.
+# `updateSpecialPrices` under Hero of the Village (VMC-044b3) and with
+# gossip about the player (VMC-044c1): a native villager with the restock
+# scenes' offers starts trading with the player; its offers' special prices
+# and first costs must equal vanilla's.
 stock = hd(for(c <- cases, m <- c["mobs"], m["shop"], do: m["shop"]["offers"]))
 
-for [amplifier, expected] <- fixtures["prices"] do
+for [amplifier, gossip_type, gossip_value, expected] <- fixtures["prices"] do
   {:ok, body} = Body.new("minecraft:villager")
 
   offers =
@@ -763,11 +907,20 @@ for [amplifier, expected] <- fixtures["prices"] do
       }
     end
 
-  body = %{body | data: %{body.data | offers: offers, profession: "minecraft:librarian"}}
+  # Gossip about the player (VMC-044c1), the oracle's fighter 77.
+  gossips =
+    if gossip_type,
+      do: {[{<<1::64, 77::64>>, [{String.to_atom(gossip_type), gossip_value}]}], 1}
+
+  body = %{
+    body
+    | data: %{body.data | offers: offers, profession: "minecraft:librarian", gossips: gossips}
+  }
+
   section = Valimc.Entity.NativeMobs.new({0, 0})
   record = Store.body_record(body, <<5::128>>, {0.5, 64.0, 0.5})
   {:ok, _} = Native.mob_section_insert(section.ref, [{1, record}], false)
-  {:ok, _} = Native.mob_section_merchant(section.ref, 1, {:start, <<7::128>>, amplifier})
+  {:ok, _} = Native.mob_section_merchant(section.ref, 1, {:start, <<1::64, 77::64>>, amplifier})
   {:ok, {view, _, _}} = Native.mob_section_merchant(section.ref, 1, :view)
 
   actual =
@@ -782,5 +935,5 @@ for [amplifier, expected] <- fixtures["prices"] do
 end
 
 IO.puts(
-  "PASS: #{checked} villager ticks of #{length(cases)} scenes equal vanilla's (brains, schedules, POIs, beds, professions, motion, randoms, restocks); Hero of the Village's prices at #{length(fixtures["prices"])} amplifiers"
+  "PASS: #{checked} villager ticks of #{length(cases)} scenes equal vanilla's (brains, schedules, POIs, beds, professions, motion, randoms, restocks); prices for #{length(fixtures["prices"])} Hero amplifiers and reputations"
 )

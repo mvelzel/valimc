@@ -96,6 +96,17 @@ public class VillageOracle {
     for (var p : BuiltInRegistries.VILLAGER_PROFESSION) if (p.workSound() != null) names.add(p.workSound().location().toString());
     for (var n : names) sounds.addProperty(n, BuiltInRegistries.SOUND_EVENT.getId(BuiltInRegistries.SOUND_EVENT.getValue(Identifier.parse(n))));
     out.add("sounds", sounds);
+    // VMC-044c2: the food villagers eat (`VILLAGER_FOOD`'s nutrition) and
+    // what they pick up.
+    var food = new JsonObject();
+    for (var item : BuiltInRegistries.ITEM) {
+      var vf = item.components().get(net.minecraft.core.component.DataComponents.VILLAGER_FOOD);
+      if (vf != null) food.addProperty(BuiltInRegistries.ITEM.getKey(item).toString(), vf.nutrition());
+    }
+    out.add("villager_food", food);
+    var picks = new JsonArray();
+    BuiltInRegistries.ITEM.getTagOrEmpty(net.minecraft.tags.ItemTags.VILLAGER_PICKS_UP).forEach(h -> picks.add(name(h)));
+    out.add("villager_picks_up", picks);
     return out;
   }
 
@@ -311,6 +322,23 @@ public class VillageOracle {
    */
   record Shop(long lastRestock, int restocks, List<Object[]> offers) {}
   static final Map<Long, Shop> SHOPS = new HashMap<>();
+  /** A villager's gossip at the start (VMC-044c1): `[target n, type, value]`, the target `UUID(1, n)`. */
+  static final Map<Long, List<Object[]>> GOSSIP = new HashMap<>();
+  /** Bread in a villager's inventory at the start (VMC-044c2), by seed. */
+  static final Map<Long, Integer> BREAD = new HashMap<>();
+  /** A villager's bed claimed at the start (its home). */
+  static final Map<Long, BlockPos> HOMES = new HashMap<>();
+  /** The players standing in a scene (VMC-044c1), by scene name. */
+  static final Map<String, List<Vec3>> STANDS = new HashMap<>();
+
+  static JsonArray gossipRows(net.minecraft.world.entity.npc.villager.Villager v) {
+    var rows = new JsonArray();
+    for (var e : v.getGossips().getGossipEntries().entrySet())
+      for (var t : e.getValue().object2IntEntrySet()) {
+        var a = new JsonArray(); a.add(e.getKey().getLeastSignificantBits()); a.add(t.getKey().getSerializedName()); a.add(t.getIntValue()); rows.add(a);
+      }
+    return rows;
+  }
 
   static Field villagerField(String name) throws Exception {
     var f = net.minecraft.world.entity.npc.villager.Villager.class.getDeclaredField(name); f.setAccessible(true); return f;
@@ -339,6 +367,17 @@ public class VillageOracle {
     var levelRandom = net.minecraft.util.RandomSource.create(7L);
     unsafe().putObject(level, unsafe().objectFieldOffset(net.minecraft.world.level.Level.class.getDeclaredField("random")), levelRandom);
     level.poi = poiManager(level);
+    var standing = STANDS.getOrDefault(name, List.of());
+    var players = new JsonArray();
+    for (int n = 1; n <= standing.size(); n++) {
+      var f = new MobAiOracle.Fighter(level, n, net.minecraft.world.level.GameType.SURVIVAL);
+      var at = standing.get(n - 1);
+      f.snapTo(at.x, at.y, at.z, 0, 0);
+      var server = MobAiOracle.serverFighter(f);
+      level.fighters.add(server); level.entities.add(server);
+      var o = new JsonObject(); o.addProperty("uuid", n); o.addProperty("id", f.getId()); o.add("position", MobAiOracle.bits(at)); o.addProperty("mode", "survival");
+      players.add(o);
+    }
     for (var b : blocks) {
       var p = new BlockPos(b.x, b.y, b.z);
       level.blocks.put(p, b.state);
@@ -372,6 +411,11 @@ public class VillageOracle {
         // Experience keeps its profession until it claims the lectern.
         v.setVillagerXp(5);
       }
+      if (m instanceof Villager v && BREAD.containsKey(s.seed))
+        v.getInventory().addItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.BREAD, BREAD.get(s.seed)));
+      if (m instanceof Villager v && GOSSIP.containsKey(s.seed))
+        for (var g : GOSSIP.get(s.seed))
+          v.getGossips().add(new UUID(1, (int)g[0]), net.minecraft.world.entity.ai.gossip.GossipType.valueOf((String)g[1]), (int)g[2]);
       m.getRandom().setSeed(s.seed);
       m.setNoAi(s.noAi);
       if (s.slept >= 0) m.getBrain().setMemory(MemoryModuleType.LAST_SLEPT, s.slept);
@@ -398,6 +442,13 @@ public class VillageOracle {
       m.snapTo(s.position.x, s.position.y, s.position.z, s.yaw, 0);
       m.setYHeadRot(s.yaw); m.setYBodyRot(s.yaw);
       mobs.add(m); level.entities.add(m);
+    }
+    for (int i = 0; i < spawns.size(); i++) {
+      var home = HOMES.get(spawns.get(i).seed);
+      if (home != null && mobs.get(i) instanceof Villager v) {
+        level.poi.take(h -> h.is(net.minecraft.world.entity.ai.village.poi.PoiTypes.HOME), (h, p) -> p.equals(home), home, 1);
+        v.getBrain().setMemory(MemoryModuleType.HOME, net.minecraft.core.GlobalPos.of(level.dimension(), home));
+      }
     }
     var moveControl = net.minecraft.world.entity.ai.control.MoveControl.class;
     var wanted = new Field[]{MobAiOracle.field(moveControl, "wantedX"), MobAiOracle.field(moveControl, "wantedY"), MobAiOracle.field(moveControl, "wantedZ"), MobAiOracle.field(moveControl, "speedModifier"), MobAiOracle.field(moveControl, "operation")};
@@ -430,6 +481,13 @@ public class VillageOracle {
           mob.getRandom().setSeed(seed);
           var o = new JsonObject(); o.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString());
           o.addProperty("id", mob.getId()); o.addProperty("seed", seed);
+          // A baby villager (VMC-044c2): its type, age and bed.
+          if (mob instanceof net.minecraft.world.entity.npc.villager.Villager baby) {
+            o.addProperty("villager_type", baby.getVillagerData().type().unwrapKey().orElseThrow().identifier().toString());
+            o.addProperty("age", baby.getAge());
+            o.add("home", global(baby.getBrain().getMemory(MemoryModuleType.HOME)));
+            o.add("position", MobAiOracle.bits(baby.position()));
+          }
           spawned.add(o);
           mobs.add(mob); level.entities.add(mob);
         }
@@ -467,6 +525,12 @@ public class VillageOracle {
           for (var o : v.getOffers()) { var a = new JsonArray(); a.add(o.getUses()); a.add(o.getDemand()); offerRows.add(a); }
           r.add("offers", offerRows);
           r.addProperty("restocks", villagerField("numberOfRestocksToday").getInt(v));
+          r.add("gossip", gossipRows(v));
+          r.addProperty("food_level", villagerField("foodLevel").getInt(v));
+          var inv = new JsonArray();
+          for (int i = 0; i < v.getInventory().getContainerSize(); i++) inv.add(TableMenuOracle.stack(v.getInventory().getItem(i)));
+          r.add("inventory", inv);
+          r.addProperty("age", v.getAge());
           r.addProperty("last_restock", villagerField("lastRestockGameTime").getLong(v));
           r.add("sleeping", v.getSleepingPos().map(VillageOracle::pos).map(a -> (JsonElement)a).orElse(JsonNull.INSTANCE));
           var hostile = brain.getMemory(MemoryModuleType.NEAREST_HOSTILE);
@@ -533,12 +597,15 @@ public class VillageOracle {
       var o = new JsonObject(); o.addProperty("type", s.type); o.add("position", MobAiOracle.bits(s.position)); o.addProperty("yaw", Float.floatToRawIntBits(s.yaw));
       o.addProperty("seed", s.seed); o.addProperty("id", mobs.get(i).getId()); o.addProperty("no_ai", s.noAi); o.addProperty("age", s.age);
       o.addProperty("profession", s.profession); o.addProperty("slept", s.slept);
+      o.add("home", HOMES.containsKey(s.seed) ? pos(HOMES.get(s.seed)) : JsonNull.INSTANCE);
       if (SHOPS.containsKey(s.seed)) {
         var shop = SHOPS.get(s.seed); var so = new JsonObject();
         so.addProperty("last_restock", shop.lastRestock); so.addProperty("restocks", shop.restocks);
         so.add("offers", new Gson().toJsonTree(shop.offers));
         o.add("shop", so);
       }
+      if (GOSSIP.containsKey(s.seed)) o.add("gossip", new Gson().toJsonTree(GOSSIP.get(s.seed)));
+      if (BREAD.containsKey(s.seed)) o.addProperty("bread", BREAD.get(s.seed));
       if (s.type.equals("minecraft:wandering_trader") && TRADERS.containsKey(s.seed)) {
         var tr = TRADERS.get(s.seed); var to = new JsonObject();
         to.add("wander", tr.wander == null ? JsonNull.INSTANCE : pos(tr.wander));
@@ -548,6 +615,7 @@ public class VillageOracle {
       ms.add(o);
     }
     out.add("mobs", ms);
+    out.add("players", players);
     out.addProperty("real_sky", level.realSky);
     out.add("gates", gates); out.add("sensors", sensorTimes); out.add("orders", orders);
     out.add("ticks", trace);
@@ -622,6 +690,30 @@ public class VillageOracle {
     cases.add(run(level, "librarian_restocked_twice", lectern,
         List.of(new Spawn("minecraft:villager", start, 0, 157L, false, 0, "minecraft:librarian")), 1900L, 1500));
 
+    // VMC-044c1: two villagers meeting at the bell share gossip; a golem
+    // turns on a player a villager near it hates.
+    GOSSIP.put(163L, List.<Object[]>of(new Object[]{3, "MAJOR_NEGATIVE", 25}, new Object[]{4, "TRADING", 20}, new Object[]{5, "MINOR_POSITIVE", 25}));
+    GOSSIP.put(167L, List.<Object[]>of(new Object[]{6, "MAJOR_POSITIVE", 20}, new Object[]{3, "MAJOR_NEGATIVE", 5}));
+    cases.add(run(level, "villagers_gossip", scene(floor(63, 12, stone), List.of(new Block(0, 64, -6, Blocks.BELL.defaultBlockState()))),
+        List.of(new Spawn("minecraft:villager", new Vec3(-1.5, 64, -4.5), 0, 163L), new Spawn("minecraft:villager", new Vec3(1.5, 64, -4.5), 0, 167L)), 8900L, 2000));
+    GOSSIP.put(173L, List.<Object[]>of(new Object[]{1, "MINOR_NEGATIVE", 120}));
+    STANDS.put("golem_hated_player", List.of(new Vec3(4.5, 64, 4.5)));
+    cases.add(run(level, "golem_hated_player", floor(63, 12, stone),
+        List.of(new Spawn("minecraft:iron_golem", start, 0, 179L), new Spawn("minecraft:villager", new Vec3(-5.5, 64, -5.5), 0, 173L, true, 0, null)), 1000L, 40));
+
+    // VMC-044c2: two fed villagers with their own beds breed with a free
+    // bed near; without beds they are angry instead. (Their homes are
+    // claimed at the start: a failed claim gives each bed its retry delay
+    // in a HashSet's order that follows a Holder's identity hash, which
+    // differs between runs.)
+    BREAD.put(181L, 3); BREAD.put(191L, 4);
+    HOMES.put(181L, new BlockPos(3, 64, 0)); HOMES.put(191L, new BlockPos(-3, 64, 3));
+    cases.add(run(level, "villagers_breed", scene(floor(63, 12, stone), bed(3, 64, 0, Direction.EAST), bed(-3, 64, 3, Direction.WEST), bed(7, 64, -7, Direction.EAST)),
+        List.of(new Spawn("minecraft:villager", start, 0, 181L), new Spawn("minecraft:villager", new Vec3(-1.5, 64, 1.5), 0, 191L)), 1000L, 335));
+    BREAD.put(193L, 3); BREAD.put(197L, 3);
+    cases.add(run(level, "villagers_breed_without_bed", floor(63, 12, stone),
+        List.of(new Spawn("minecraft:villager", start, 0, 193L), new Spawn("minecraft:villager", new Vec3(-1.5, 64, 1.5), 0, 197L)), 1000L, 1500));
+
     cases.add(run(level, "villager_meet", scene(floor(63, 12, stone), List.of(new Block(0, 64, -6, Blocks.BELL.defaultBlockState()))),
         List.of(new Spawn("minecraft:villager", start, 0, 47L)), 8900L, 700));
     // An iron golem strolls where there is no village; one guards a villager
@@ -673,7 +765,11 @@ public class VillageOracle {
     var update = net.minecraft.world.entity.npc.villager.Villager.class.getDeclaredMethod("updateSpecialPrices", net.minecraft.world.entity.player.Player.class);
     update.setAccessible(true);
     var out = new JsonArray();
-    for (Integer amplifier : new Integer[]{null, 0, 1, 2, 4, 9}) {
+    // Hero of the Village alone, then gossip about the player (VMC-044c1).
+    Object[][] cases = {{null, null, 0}, {0, null, 0}, {1, null, 0}, {2, null, 0}, {4, null, 0}, {9, null, 0},
+        {null, "MAJOR_POSITIVE", 20}, {null, "MINOR_NEGATIVE", 60}, {null, "TRADING", 25}, {null, "MAJOR_NEGATIVE", 30}, {1, "MINOR_POSITIVE", 25}};
+    for (var c : cases) {
+      Integer amplifier = (Integer)c[0];
       var v = new Villager(level);
       var offers = new net.minecraft.world.item.trading.MerchantOffers();
       for (var o : stock) {
@@ -684,12 +780,16 @@ public class VillageOracle {
       }
       v.setOffers(offers);
       var player = new MobAiOracle.Fighter(level, 77, net.minecraft.world.level.GameType.SURVIVAL);
+      if (c[1] != null)
+        v.getGossips().add(player.getUUID(), net.minecraft.world.entity.ai.gossip.GossipType.valueOf((String)c[1]), (int)c[2]);
       if (amplifier != null)
         player.getActiveEffectsMap().put(net.minecraft.world.effect.MobEffects.HERO_OF_THE_VILLAGE,
             new net.minecraft.world.effect.MobEffectInstance(net.minecraft.world.effect.MobEffects.HERO_OF_THE_VILLAGE, 1000, amplifier));
       update.invoke(v, player);
       var row = new JsonArray();
       row.add(amplifier == null ? JsonNull.INSTANCE : new JsonPrimitive(amplifier));
+      row.add(c[1] == null ? JsonNull.INSTANCE : new JsonPrimitive(((String)c[1]).toLowerCase()));
+      row.add((int)c[2]);
       var rs = new JsonArray();
       for (var o : v.getOffers()) { var a = new JsonArray(); a.add(o.getSpecialPriceDiff()); a.add(o.getCostA().getCount()); rs.add(a); }
       row.add(rs);
@@ -712,7 +812,9 @@ public class VillageOracle {
       return;
     }
     if (args[0].equals("cases")) {
-      var out = cases(MobAiOracle.setup(), lookup);
+      var probe = MobAiOracle.setup();
+      probe.biome = lookup.lookupOrThrow(Registries.BIOME).getOrThrow(net.minecraft.world.level.biome.Biomes.PLAINS);
+      var out = cases(probe, lookup);
       Files.writeString(java.nio.file.Path.of(args[1]), new GsonBuilder().disableHtmlEscaping().serializeNulls().create().toJson(out));
       System.out.println("PASS: " + out.getAsJsonArray("cases").size() + " vanilla village traces (villagers idle, at night and in the morning, at a job site, meeting, panicking; golems).");
       return;

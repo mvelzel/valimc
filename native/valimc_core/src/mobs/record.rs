@@ -898,6 +898,12 @@ fn restore_data(entity_type: &str, data: &Value, facts: &TypeFacts) -> Result<Fa
             match key.as_str() {
                 "trading" | "last_traded" | "trading_hero" => *value = Value::atom("nil"),
                 "restock_day" => *value = Value::Int(0),
+                // Gossip read back as vanilla reads its saved list.
+                "gossips" if !value.is_nil() => {
+                    *value = crate::mobs::village::gossip::Gossips::of(Some(value))
+                        .reloaded()
+                        .value()
+                }
                 _ => {}
             }
         }

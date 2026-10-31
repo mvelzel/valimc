@@ -50,7 +50,8 @@ use crate::mobs::monsters::{entity, fields, int, value};
 use crate::mobs::random::LegacyRandom;
 use crate::mobs::sensing::{self, Entity, Ref, Uuid};
 use crate::mobs::term::{Atom, Map, Value, NIL};
-use crate::mobs::village::merchant;
+use crate::mobs::village::gossip::{GossipType, Gossips};
+use crate::mobs::village::{food, merchant};
 use crate::physics::Aabb;
 use std::any::Any;
 
@@ -61,7 +62,8 @@ const NITWIT: &str = "minecraft:nitwit";
 const BED_HEIGHT: f64 = 0.5625;
 
 // Its tests, picks and sensors (tags).
-const NEVER: u32 = 1;
+/// `AgeableMob::canBreed` of itself or a villager it sees (VMC-044c2).
+const CAN_BREED: u32 = 20;
 const CREATURE: u32 = 10;
 const WATER_CREATURE: u32 = 11;
 const AXOLOTLS: u32 = 12;
@@ -230,6 +232,15 @@ impl Villager {
             ("restocks_today", Value::Int(0)),
             ("restock_day", Value::Int(0)),
             ("trading_hero", NIL),
+            // Its gossip and when it last decayed (VMC-044c1).
+            ("gossips", NIL),
+            ("last_gossip_decay", Value::Int(0)),
+            // Its inventory and food level (VMC-044c2).
+            ("inventory", food::empty()),
+            ("food_level", Value::Int(0)),
+            // The bed its parents' breeding gave a baby, its home once it
+            // first thinks.
+            ("home_bed", NIL),
         ])
     }
 }
@@ -631,8 +642,8 @@ impl Villager {
     fn idle(&self, g: &dyn Fn(&str) -> LegacyRandom) -> Vec<(i32, Box<dyn Behavior>)> {
         let mut breed = bs::interact_with(Pick::Type(self.villager), 8, SPEED, 2);
         breed.memory = Mem::BreedTarget;
-        breed.own = Test::Family(NEVER);
-        breed.target = Pick::Family(NEVER);
+        breed.own = Test::Family(CAN_BREED);
+        breed.target = Pick::Family(CAN_BREED);
         vec![
             (
                 2,
@@ -675,7 +686,18 @@ impl Villager {
             (
                 3,
                 b::gate(
-                    vec![(b::inert("VillagerMakeLove"), 1)],
+                    vec![(
+                        b::timed(
+                            Conds::new(&[
+                                (Mem::BreedTarget, Cond::Present),
+                                (Mem::NearestVisibleLivingEntities, Cond::Present),
+                            ]),
+                            350,
+                            350,
+                            MakeLove { birth: 0 },
+                        ),
+                        1,
+                    )],
                     g("3:idle:4:0"),
                     Conds::NONE,
                     &[Mem::BreedTarget],
@@ -1134,6 +1156,18 @@ impl BrainFamily for Villager {
     /// activity.
     fn started(&self, t: &mut Turn) {
         schedule(t);
+        // `giveBedToChild` (VMC-044c2).
+        if let Some(pos) = t.data().get("home_bed").and_then(Value::as_ivec3) {
+            let dimension = t.level.dimension.clone();
+            t.remember(
+                Mem::Home,
+                MemValue::Global(Global {
+                    dimension,
+                    pos: pos.map(|v| v as i32),
+                }),
+            );
+            t.mob.body.data.set("home_bed", NIL);
+        }
     }
 
     /// `Villager.customServerAiStep` after the brain: a trade last tick
@@ -1142,8 +1176,10 @@ impl BrainFamily for Villager {
     /// player is gone from its level (a ValiMC guard: vanilla's player
     /// closes the menu as it leaves), it stops trading.
     fn update_activity(&self, t: &mut Turn) {
-        if !t.data().get("last_traded").is_none_or(Value::is_nil) {
+        if let Some(player) = merchant::uuid_of(t.data(), "last_traded") {
             t.mob.body.data.set("last_traded", NIL);
+            // `onReputationEvent(TRADE)`, then the happy particles.
+            merchant::reputation_event(t.mob, &player, GossipType::Trading, 2);
             t.effect(Effect::Event(14));
         }
         t.int(100);
@@ -1180,6 +1216,23 @@ impl BrainFamily for Villager {
     /// After the move: `AgeableMob.aiStep`'s ageing (a baby growing up makes
     /// its brain again) and `Villager.tick`'s unhappy counter.
     fn pick_up(&self, t: &mut Turn) {
+        // `Mob.aiStep`'s looting (VMC-044c2): each wanted item within a
+        // block of its box goes to its inventory (`InventoryCarrier`).
+        if t.level.rules.mob_griefing && alive(t) {
+            let around = sensing::inflate(&t.bbox(), 1.0, 0.0, 1.0);
+            for index in 0..t.sensing.items.len() {
+                let item = &t.sensing.items[index];
+                let meets = item.count > 0
+                    && item.pickup_delay == 0
+                    && sensing::intersects(
+                        &crate::mobs::ai::brain::sensors::item_box(item),
+                        &around,
+                    );
+                if meets && BrainFamily::wants(self, t, &t.sensing.items[index]) {
+                    take_item(t, index);
+                }
+            }
+        }
         let data = &mut t.mob.body.data;
         let age = int(data, "age");
         let (age, grown) = if age < 0 {
@@ -1192,6 +1245,18 @@ impl BrainFamily for Villager {
         let unhappy = (int(data, "unhappy") - 1).max(0);
         data.set("age", Value::Int(age));
         data.set("unhappy", Value::Int(unhappy));
+        // `maybeDecayGossip` (VMC-044c1): its first tick starts the clock;
+        // then a day's decay every 24000 ticks.
+        let now = t.level.time;
+        let last = int(data, "last_gossip_decay");
+        if last == 0 {
+            data.set("last_gossip_decay", Value::Int(now));
+        } else if now >= last + 24000 {
+            let mut gossips = Gossips::of(data.get("gossips"));
+            gossips.decay();
+            data.set("gossips", gossips.value());
+            data.set("last_gossip_decay", Value::Int(now));
+        }
         if grown {
             self.refresh(t);
         }
@@ -1208,12 +1273,30 @@ impl BrainFamily for Villager {
         }
     }
 
-    fn test(&self, _t: &mut Turn, _tag: u32) -> bool {
-        // `AgeableMob::canBreed` of a villager: food it has none of yet.
-        false
+    fn test(&self, t: &mut Turn, tag: u32) -> bool {
+        tag == CAN_BREED && food::can_breed(t.level.facts, t.data())
+    }
+
+    /// `Villager.wantsToPickUp` (VMC-044c2).
+    fn wants(&self, t: &Turn, item: &sensing::SensedItem) -> bool {
+        let stack =
+            crate::mobs::living::items::new_stack(item.item, item.count, item.components.clone());
+        food::wants(t.level.facts, t.data(), &profession(t.data()), &stack)
     }
 
     fn select(&self, t: &Turn, tag: u32, e: Entity<'_, Extra>) -> bool {
+        if tag == CAN_BREED {
+            return match e {
+                Entity::Mob(m) => {
+                    m.type_id == self.villager
+                        && m.extra
+                            .data
+                            .as_ref()
+                            .is_some_and(|d| food::can_breed(t.level.facts, d))
+                }
+                _ => false,
+            };
+        }
         let category = match tag {
             CREATURE => "creature",
             WATER_CREATURE => "water_creature",
@@ -2004,6 +2087,7 @@ impl Timer for TradeWithVillager {
         }
         lock_gaze(t, o.reference);
         gossip(t, &o);
+        share_food(t, &o);
     }
 
     fn stop(&mut self, t: &mut Turn) {
@@ -2024,6 +2108,19 @@ fn gossip(t: &mut Turn, o: &Seen) {
         _ => 0,
     };
     if (now < mine || now >= mine + 1200) && (now < theirs || now >= theirs + 1200) {
+        // `transferFrom(target.gossips, random, 10)` (VMC-044c1).
+        let source = match t.sensing.entity(&o.reference) {
+            Some(Entity::Mob(m)) => {
+                Gossips::of(m.extra.data.as_ref().and_then(|d| d.get("gossips")))
+            }
+            _ => Gossips::default(),
+        };
+        let mut gossips = Gossips::of(t.data().get("gossips"));
+        let drawn = gossips.transfer_from(&source, &mut t.random, 10);
+        t.mob.body.data.set("gossips", gossips.value());
+        if drawn > 0 {
+            merchant::reprice(t.mob);
+        }
         t.remember(Mem::LastGossip, MemValue::Int(now));
         remote(
             t,
@@ -2033,6 +2130,278 @@ fn gossip(t: &mut Turn, o: &Seen) {
         if let Some(v) = villager(t) {
             v.spawn_golem_if_needed(t, 5);
         }
+    }
+}
+
+/// `TradeWithVillager`'s throws (VMC-044c2): with food to spare (24
+/// points) it throws half a stack of food to a farmer's or a hungry
+/// villager's feet (a farmer always), a farmer half its wheat past 32, and
+/// the items the other's profession asks for and its own does not.
+fn share_food(t: &mut Turn, o: &Seen) {
+    let facts = t.level.facts;
+    let Some(other) = t.sensing.entity(&o.reference).and_then(|e| match e {
+        Entity::Mob(m) => m.extra.data.clone(),
+        _ => None,
+    }) else {
+        return;
+    };
+    let mine = profession(t.data());
+    let farmer = mine == "minecraft:farmer";
+    let to = o.position;
+    if food::points(facts, t.data()) >= 24 && (farmer || food::points(facts, &other) < 12) {
+        let food_item = |s: &Value| food::nutrition(facts, s).is_some();
+        if let Some(stack) = food::half_stack(facts, &mut t.mob.body.data, food_item) {
+            throw_item(t, stack, to);
+        }
+    }
+    let wheat = facts.items.id("minecraft:wheat");
+    let wheat_count: i32 = food::inventory(t.data())
+        .iter()
+        .flatten()
+        .filter(|s| crate::mobs::living::items::item_id(s) == wheat)
+        .map(crate::mobs::living::items::count)
+        .sum();
+    if farmer && wheat_count > 32 {
+        if let Some(stack) = food::half_stack(facts, &mut t.mob.body.data, |s| {
+            crate::mobs::living::items::item_id(s) == wheat
+        }) {
+            throw_item(t, stack, to);
+        }
+    }
+    let requested = |p: &str| {
+        facts
+            .village
+            .profession(p)
+            .map(|p| p.requested.clone())
+            .unwrap_or_default()
+    };
+    let own = requested(&mine);
+    let theirs: Vec<String> = requested(&profession(&other))
+        .into_iter()
+        .filter(|i| !own.contains(i))
+        .collect();
+    let wanted = |s: &Value| {
+        crate::mobs::living::items::item_id(s)
+            .and_then(|id| facts.items.name(id))
+            .is_some_and(|n| theirs.iter().any(|t| t == n))
+    };
+    if !theirs.is_empty() && food::inventory(t.data()).iter().flatten().any(&wanted) {
+        if let Some(stack) = food::half_stack(facts, &mut t.mob.body.data, wanted) {
+            throw_item(t, stack, to);
+        }
+    }
+}
+
+/// `InventoryCarrier.pickUpItem`: what fits of the item.
+fn take_item(t: &mut Turn, index: usize) {
+    let item = &t.sensing.items[index];
+    let (uuid, id, count, components) = (item.uuid, item.item, item.count, item.components.clone());
+    let stack = crate::mobs::living::items::new_stack(id, count, components);
+    let facts = t.level.facts;
+    let mut slots = food::inventory(t.data());
+    if !food::can_add(facts, &slots, &stack) {
+        return;
+    }
+    let left = food::add(facts, &mut slots, &stack);
+    food::set_inventory(&mut t.mob.body.data, slots);
+    let taken = count - left;
+    t.effect(Effect::Pickup {
+        item: uuid,
+        count: taken,
+    });
+    // The item has that much less for the mobs after this one.
+    t.sensing.items[index].count -= taken;
+}
+
+/// A change of its breeding partner its owner applies after the tick:
+/// `{:event, n}`, `:eat_and_digest`, `{:age, n}`.
+fn partner(t: &mut Turn, uuid: Uuid, change: Value) {
+    t.effect(Effect::Merchant(Value::tuple([
+        Value::atom("partner"),
+        Value::Binary(uuid.to_vec()),
+        change,
+    ])));
+}
+
+/// `BehaviorUtils.throwItem(villager, stack, target)`: from 0.3 below its
+/// eyes toward the target at 0.3 a tick, picked up after the default delay.
+fn throw_item(t: &mut Turn, stack: Value, to: [f64; 3]) {
+    let [x, y, z] = t.pos();
+    let d = [to[0] - x, to[1] - y, to[2] - z];
+    let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let unit = if length < 1.0e-5 {
+        [0.0; 3]
+    } else {
+        d.map(|v| v / length)
+    };
+    let speed = f(0.3);
+    let at = [x, t.eye_y() - speed, z];
+    t.effect(Effect::Throw(Value::Tuple(vec![
+        stack,
+        Value::vec3(at),
+        Value::vec3(unit.map(|v| v * speed)),
+    ])));
+}
+
+/// `VillagerMakeLove`: with a breed target that can breed, both lock gazes
+/// and walk together (events 18) for 275 to 324 ticks, hearts (event 12)
+/// one tick in 35 within √5 blocks; then both eat and digest 12 food, and
+/// with a free home bed it reaches within 48 blocks the baby (its type by
+/// biome or a parent's, no profession, 6000 ticks before its parents may
+/// breed again) is born where it stands with that bed; without one, angry
+/// particles (event 13).
+#[derive(Clone, Debug, PartialEq)]
+struct MakeLove {
+    birth: i64,
+}
+
+fn breed_target(t: &Turn) -> Option<Seen> {
+    t.remembered(Mem::BreedTarget)
+}
+
+fn breeding_possible(t: &mut Turn) -> bool {
+    let Some(v) = villager(t) else { return false };
+    let villager_type = v.villager;
+    let Some(target) = breed_target(t).filter(|e| e.type_id == Some(villager_type)) else {
+        return false;
+    };
+    let facts = t.level.facts;
+    let theirs = match t.sensing.entity(&target.reference) {
+        Some(Entity::Mob(m)) => m
+            .extra
+            .data
+            .as_ref()
+            .is_some_and(|d| food::can_breed(facts, d)),
+        _ => false,
+    };
+    target.alive
+        && crate::mobs::ai::brain::sensors::visible_contains(t, &target.reference)
+        && food::can_breed(facts, t.data())
+        && theirs
+}
+
+impl Timer for MakeLove {
+    fn extra(&mut self, t: &mut Turn) -> bool {
+        breeding_possible(t)
+    }
+
+    fn still(&mut self, t: &mut Turn) -> bool {
+        t.level.time <= self.birth && breeding_possible(t)
+    }
+
+    fn start(&mut self, t: &mut Turn) {
+        let Some(target) = breed_target(t) else {
+            return;
+        };
+        lock_gaze(t, target.reference);
+        partner(
+            t,
+            target.uuid(),
+            Value::tuple([Value::atom("event"), Value::Int(18)]),
+        );
+        t.effect(Effect::Event(18));
+        let duration = 275 + t.int(50) as i64;
+        self.birth = t.level.time + duration;
+    }
+
+    fn tick(&mut self, t: &mut Turn) {
+        let Some(target) = breed_target(t) else {
+            return;
+        };
+        if bs::distance_sq(t, &target) > 5.0 {
+            return;
+        }
+        lock_gaze(t, target.reference);
+        if t.level.time >= self.birth {
+            food::eat_and_digest(t.level.facts, &mut t.mob.body.data);
+            partner(t, target.uuid(), Value::atom("eat_and_digest"));
+            self.give_birth(t, &target);
+        } else if t.int(35) == 0 {
+            partner(
+                t,
+                target.uuid(),
+                Value::tuple([Value::atom("event"), Value::Int(12)]),
+            );
+            t.effect(Effect::Event(12));
+        }
+    }
+
+    fn stop(&mut self, t: &mut Turn) {
+        t.forget(Mem::BreedTarget);
+    }
+}
+
+impl MakeLove {
+    fn give_birth(&mut self, t: &mut Turn, target: &Seen) {
+        let Some(bed) = self.vacant_bed(t) else {
+            partner(
+                t,
+                target.uuid(),
+                Value::tuple([Value::atom("event"), Value::Int(13)]),
+            );
+            t.effect(Effect::Event(13));
+            return;
+        };
+        // `getBreedOffspring`: its type by the biome where it stands (half
+        // the time), else its own or its partner's.
+        let roll = t.double();
+        let mine = string(t.data(), "villager_type");
+        let theirs = match t.sensing.entity(&target.reference) {
+            Some(Entity::Mob(m)) => m.extra.data.as_ref().map(|d| string(d, "villager_type")),
+            _ => None,
+        }
+        .unwrap_or_else(|| mine.clone());
+        let villager_type = if roll < 0.5 {
+            let biome = t.level.biome_name(t.block()).to_string();
+            t.level.facts.village.type_of_biome(&biome).to_string()
+        } else if roll < 0.75 {
+            mine
+        } else {
+            theirs
+        };
+        t.mob.body.data.set("age", Value::Int(6000));
+        partner(
+            t,
+            target.uuid(),
+            Value::tuple([Value::atom("age"), Value::Int(6000)]),
+        );
+        let Some(v) = villager(t) else { return };
+        let mut data = FamilyData::new(Villager::data_of()).unwrap_or_else(FamilyData::empty);
+        data.set("villager_type", Value::Binary(villager_type.into_bytes()));
+        data.set("finalized", Value::bool(true));
+        data.set("age", Value::Int(-24000));
+        data.set("home_bed", Value::ivec3(bed.map(i64::from)));
+        let fields = data
+            .fields()
+            .iter()
+            .map(|(k, v)| (Value::Atom(k.clone()), v.clone()))
+            .collect();
+        t.effect(Effect::Offspring {
+            type_id: v.villager,
+            data: Value::Map(Map::from_pairs(fields).unwrap_or_default()),
+            at: t.pos(),
+        });
+    }
+
+    /// `takeVacantBed`: the first home bed with room within 48 blocks whose
+    /// path it reaches.
+    fn vacant_bed(&mut self, t: &mut Turn) -> Option<[i32; 3]> {
+        let home = "minecraft:home";
+        let range = t
+            .level
+            .facts
+            .village
+            .poi_types
+            .get(home)
+            .map_or(1, |p| p.valid_range);
+        let candidates = pois::in_range(t.level, &[home], t.block(), 48, Occupancy::HasSpace);
+        for (_, pos) in candidates {
+            if navigation::path_to_any(t, vec![pos], range).is_some_and(|p| p.reached) {
+                pois::take(t.level, pos);
+                return Some(pos);
+            }
+        }
+        None
     }
 }
 
@@ -2356,6 +2725,23 @@ impl Hooks for Villager {
 }
 
 impl Family for Villager {
+    /// `Villager.setLastHurtByMob` (VMC-044c1): gossip about the living
+    /// entity that hurt it (`VILLAGER_HURT`), and angry particles for a
+    /// player.
+    fn hurt(
+        &self,
+        body: &mut Body,
+        hit: &crate::mobs::combat::Hit,
+        events: &mut Vec<crate::mobs::combat::Event>,
+    ) {
+        if let Some(a) = &hit.attacker {
+            merchant::gossip_event(&mut body.data, &a.uuid, GossipType::MinorNegative, 25);
+            if a.player && crate::mobs::living::mob::alive(&body.mob) {
+                events.push(crate::mobs::combat::Event::Entity(13));
+            }
+        }
+    }
+
     fn data(&self, _type_id: u16) -> FamilyData {
         FamilyData::new(Villager::data_of()).unwrap_or_else(FamilyData::empty)
     }
