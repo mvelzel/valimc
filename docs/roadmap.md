@@ -47,7 +47,7 @@ session per lane runs at once; a lane's slices run in order.
 |---|---|---|
 | Rules and commands | Game rules, command gaps | 085 → 006a |
 | Effects and brewing | Status effects, potions, the brewing stand | [037p](tickets/VMC-037p.md) (client) → 034o |
-| Enchanting | Enchantment effects, the table, anvils, smithing | 037q → 038a → 038b → 038c |
+| Enchanting | Enchantment effects, the table, anvils, smithing | 037q (rest: Frost Walker, spears, the mace's knockback) · 038a–c (client) |
 | Containers | Item components, remaining containers | 004b (client) → 032c1–6 |
 | Villages | Trades, villager life, illagers, raids | 044b (awaiting client) → 044c → 044d → 044e |
 | Finale | The gate | 084 |
@@ -72,6 +72,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 [085](tickets/VMC-085.md): dolphin treasure guidance and the cat's cod, in M4's first client run.
 [044b](tickets/VMC-044b.md): trading with a librarian and a wandering trader, and a restock.
+[037q](tickets/VMC-037q.md), [038a–c](tickets/VMC-038a.md): enchantments in play, the table, anvils, grindstones, smithing.
 [004b](tickets/VMC-004b.md): components on creative items, a burning shulker box and bundle spilling.
 [037p](tickets/VMC-037p.md): Health Boost, Glowing, Invisibility, swirls, omen sounds, death effects, Infested and Haste.
 
