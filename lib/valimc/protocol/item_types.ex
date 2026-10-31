@@ -11,15 +11,17 @@ defmodule Valimc.Protocol.ItemTypes do
                end)
   use Valimc.Data.Facts, file: "protocol/item_defaults.json", as: :default_facts
 
-  @defaults @default_facts["items"]
-            |> Map.new(fn {id, facts} ->
-              values =
-                Map.new(facts["values"], fn {name, bytes} ->
-                  {name, Base.decode16!(bytes, case: :lower)}
-                end)
+  # Distinct default values (most items share their common components), decoded
+  # once; identity keys are computed once per value and component.
+  @default_values @default_facts["values"]
+                  |> Enum.map(&Base.decode16!(&1, case: :lower))
+                  |> List.to_tuple()
+  @default_keys @default_facts["items"]
+                |> Enum.flat_map(fn {_, facts} -> facts["values"] end)
+                |> Enum.uniq()
+                |> Map.new(fn {name, index} ->
+                  bytes = elem(@default_values, index)
 
-              identities =
-                Map.new(values, fn {name, bytes} ->
                   key =
                     case name do
                       name when name in ["minecraft:custom_name", "minecraft:item_name"] ->
@@ -42,18 +44,27 @@ defmodule Valimc.Protocol.ItemTypes do
                         {value, <<>>} = Valimc.Protocol.PotionContents.take(bytes)
                         Valimc.Protocol.PotionContents.identity_key(value)
 
+                      # Mojang's encoding is canonical for every other codec.
                       _ ->
                         bytes
                     end
 
-                  {name, key}
+                  {{name, index}, key}
                 end)
 
+  @defaults @default_facts["items"]
+            |> Map.new(fn {id, facts} ->
               {String.to_integer(id),
                %{
                  present: MapSet.new(facts["present"]),
-                 values: values,
-                 identities: identities
+                 values:
+                   Map.new(facts["values"], fn {name, index} ->
+                     {name, elem(@default_values, index)}
+                   end),
+                 identities:
+                   Map.new(facts["values"], fn {name, index} ->
+                     {name, Map.fetch!(@default_keys, {name, index})}
+                   end)
                }}
             end)
 

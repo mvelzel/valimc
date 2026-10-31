@@ -3,6 +3,8 @@ defmodule Valimc.Protocol.ItemStack do
   alias Valimc.Text.Codec
 
   alias Valimc.Protocol.{
+    ComponentSchema,
+    ComponentSchemas,
     Enchantments,
     FoodProperties,
     ItemTypes,
@@ -60,6 +62,11 @@ defmodule Valimc.Protocol.ItemStack do
     # Block loot's `copy_state` (VMC-029e).
     "minecraft:block_state" => :block_state
   }
+  # Every other type is read and written from its schema (VMC-004b4).
+  @codecs Map.merge(
+            @codecs,
+            Map.new(ComponentSchemas.names(), &{&1, {:schema, ComponentSchemas.schema(&1)}})
+          )
   # Persistent components vanilla never sends to clients.
   @unsynced ["minecraft:map_decorations"]
 
@@ -148,6 +155,7 @@ defmodule Valimc.Protocol.ItemStack do
     {:text_error, reason} -> {:error, {:text, reason}}
     {:enchantment_error, reason} -> {:error, {:enchantments, reason}}
     {:tooltip_error, reason} -> {:error, {:tooltip, reason}}
+    {:component_error, reason} -> {:error, {:component, reason}}
   end
 
   def encode(stack, mode \\ :trusted)
@@ -317,6 +325,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp read_component(:stew_effects, bytes), do: LootComponents.take_stew(bytes)
   defp read_component(:instrument, bytes), do: LootComponents.take_instrument(bytes)
 
+  defp read_component({:schema, schema}, bytes), do: ComponentSchema.take(schema, bytes)
+
   defp read_component(:block_state, bytes) do
     {count, rest} = Wire.take_varint(bytes)
     check(count in 0..64, :invalid_component_value)
@@ -395,6 +405,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp valid_component?(:instrument, value), do: LootComponents.valid_instrument?(value)
   defp valid_component?(:map_decorations, value), do: LootComponents.valid_decorations?(value)
 
+  defp valid_component?({:schema, schema}, value), do: ComponentSchema.valid?(schema, value)
+
   defp valid_component?(:block_state, value),
     do:
       is_map(value) and map_size(value) <= 64 and
@@ -426,6 +438,8 @@ defmodule Valimc.Protocol.ItemStack do
   defp encode_component(:stew_effects, value), do: LootComponents.encode_stew(value)
   defp encode_component(:instrument, value), do: LootComponents.encode_instrument(value)
 
+  defp encode_component({:schema, schema}, value), do: ComponentSchema.encode(schema, value)
+
   defp encode_component(:block_state, value),
     do: [
       Wire.varint(map_size(value))
@@ -446,6 +460,7 @@ defmodule Valimc.Protocol.ItemStack do
     ]
   end
 
+  defp component_key({:schema, schema}, value), do: ComponentSchema.identity_key(schema, value)
   defp component_key(:nbt_compound, value), do: NBT.identity_key(value)
   defp component_key(:text, value), do: Codec.identity_key(value)
   defp component_key(:lore, value), do: Codec.lore_key(value)

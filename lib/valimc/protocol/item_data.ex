@@ -2,7 +2,16 @@ defmodule Valimc.Protocol.ItemData do
   @moduledoc "Data-format component patches for server-authored item hovers."
   alias Valimc.Text.Codec
   alias Valimc.Data.EffectTypes
-  alias Valimc.Protocol.{Enchantments, ItemStack, LootComponents, ItemTypes, Wire}
+
+  alias Valimc.Protocol.{
+    ComponentSchema,
+    ComponentSchemas,
+    Enchantments,
+    ItemStack,
+    LootComponents,
+    ItemTypes,
+    Wire
+  }
 
   alias Valimc.Data.NBT
 
@@ -224,52 +233,71 @@ defmodule Valimc.Protocol.ItemData do
   defp qualified("minecraft:" <> _ = name), do: name
   defp qualified(name), do: if(String.contains?(name, ":"), do: name, else: "minecraft:" <> name)
 
-  defp from_tag(name, value)
+  # Schema components (VMC-004b4) through `ComponentSchema`, the rest by hand.
+  defp from_tag(name, value) do
+    case ComponentSchemas.schema(name) do
+      nil -> legacy_from_tag(name, value)
+      schema -> ComponentSchema.from_tag(schema, value)
+    end
+  end
+
+  defp component(name, value) do
+    case ComponentSchemas.schema(name) do
+      nil -> legacy_component(name, value)
+      schema -> ComponentSchema.to_tag(schema, value)
+    end
+  end
+
+  defp legacy_from_tag(name, value)
        when name in ~w(minecraft:custom_data minecraft:bucket_entity_data minecraft:custom_name minecraft:item_name),
        do: value
 
-  defp from_tag(name, {:string, _} = tag) when is_map_key(@bucket_enums, name) do
+  defp legacy_from_tag(name, {:string, _} = tag) when is_map_key(@bucket_enums, name) do
     {:ok, value} = enum_value(@bucket_enums[name], tag)
     value
   end
 
-  defp from_tag("minecraft:lore", lines), do: elements(lines)
+  defp legacy_from_tag("minecraft:lore", lines), do: elements(lines)
 
-  defp from_tag(name, {:compound, levels})
+  defp legacy_from_tag(name, {:compound, levels})
        when name in ~w(minecraft:enchantments minecraft:stored_enchantments),
        do: Map.new(levels, fn {name, {_, level}} -> {qualified(name), level} end)
 
-  defp from_tag(name, {:compound, _})
+  defp legacy_from_tag(name, {:compound, _})
        when name in ~w(minecraft:unbreakable minecraft:intangible_projectile),
        do: :unit
 
-  defp from_tag(name, {type, value})
+  defp legacy_from_tag(name, {type, value})
        when name in ~w(minecraft:max_stack_size minecraft:max_damage minecraft:damage minecraft:repair_cost minecraft:ominous_bottle_amplifier minecraft:map_id) and
               type in [:byte, :short, :int],
        do: value
 
-  defp from_tag("minecraft:suspicious_stew_effects", list), do: LootComponents.stew_from_tag(list)
-  defp from_tag("minecraft:instrument", {:string, name}), do: qualified(name)
+  defp legacy_from_tag("minecraft:suspicious_stew_effects", list),
+    do: LootComponents.stew_from_tag(list)
 
-  defp from_tag("minecraft:block_state", {:compound, fields}),
+  defp legacy_from_tag("minecraft:instrument", {:string, name}), do: qualified(name)
+
+  defp legacy_from_tag("minecraft:block_state", {:compound, fields}),
     do: Map.new(fields, fn {name, {:string, value}} -> {name, value} end)
 
-  defp from_tag("minecraft:map_decorations", decorations),
+  defp legacy_from_tag("minecraft:map_decorations", decorations),
     do: LootComponents.decorations_from_tag(decorations)
 
-  defp from_tag("minecraft:rarity", {:string, value}),
+  defp legacy_from_tag("minecraft:rarity", {:string, value}),
     do: Enum.find_index(~w(common uncommon rare epic), &(&1 == value)) || raise(ArgumentError)
 
-  defp from_tag("minecraft:enchantment_glint_override", {:byte, value}) when value in [0, 1],
-    do: value == 1
+  defp legacy_from_tag("minecraft:enchantment_glint_override", {:byte, value})
+       when value in [0, 1],
+       do: value == 1
 
-  defp from_tag(name, {:string, value})
+  defp legacy_from_tag(name, {:string, value})
        when name in ~w(minecraft:item_model minecraft:tooltip_style),
        do: qualified(value)
 
-  defp from_tag("minecraft:minimum_attack_charge", {:float, <<value::float-32>>}), do: value
+  defp legacy_from_tag("minecraft:minimum_attack_charge", {:float, <<value::float-32>>}),
+    do: value
 
-  defp from_tag("minecraft:food", {:compound, fields}) do
+  defp legacy_from_tag("minecraft:food", {:compound, fields}) do
     {_, nutrition} = fields["nutrition"]
     {:float, <<saturation::float-32>>} = fields["saturation"]
 
@@ -280,7 +308,7 @@ defmodule Valimc.Protocol.ItemData do
     }
   end
 
-  defp from_tag("minecraft:tooltip_display", {:compound, fields}) do
+  defp legacy_from_tag("minecraft:tooltip_display", {:compound, fields}) do
     hidden =
       case fields["hidden_components"] do
         nil -> MapSet.new()
@@ -290,10 +318,10 @@ defmodule Valimc.Protocol.ItemData do
     %Valimc.Protocol.TooltipDisplay{hide: flag(fields["hide_tooltip"], false), hidden: hidden}
   end
 
-  defp from_tag("minecraft:potion_contents", {:string, potion}),
+  defp legacy_from_tag("minecraft:potion_contents", {:string, potion}),
     do: %{Valimc.Protocol.PotionContents.empty() | potion: Valimc.Data.PotionTypes.id(potion)}
 
-  defp from_tag("minecraft:potion_contents", {:compound, fields}) do
+  defp legacy_from_tag("minecraft:potion_contents", {:compound, fields}) do
     effects =
       case fields["custom_effects"] do
         nil -> []
@@ -411,49 +439,50 @@ defmodule Valimc.Protocol.ItemData do
     end
   end
 
-  defp component(name, value)
+  defp legacy_component(name, value)
        when name in ~w(minecraft:custom_data minecraft:bucket_entity_data minecraft:custom_name minecraft:item_name),
        do: value
 
-  defp component(name, value) when is_map_key(@bucket_enums, name),
+  defp legacy_component(name, value) when is_map_key(@bucket_enums, name),
     do: {:string, @bucket_enums[name][value]}
 
-  defp component("minecraft:lore", lines), do: NBT.list(lines)
+  defp legacy_component("minecraft:lore", lines), do: NBT.list(lines)
 
-  defp component(name, levels)
+  defp legacy_component(name, levels)
        when name in ~w(minecraft:enchantments minecraft:stored_enchantments),
        do: {:compound, Map.new(levels, fn {name, level} -> {name, {:int, level}} end)}
 
-  defp component(name, :unit)
+  defp legacy_component(name, :unit)
        when name in ~w(minecraft:unbreakable minecraft:intangible_projectile),
        do: {:compound, %{}}
 
-  defp component(name, value)
+  defp legacy_component(name, value)
        when name in ~w(minecraft:max_stack_size minecraft:max_damage minecraft:damage minecraft:repair_cost minecraft:ominous_bottle_amplifier minecraft:map_id),
        do: {:int, value}
 
-  defp component("minecraft:suspicious_stew_effects", effects),
+  defp legacy_component("minecraft:suspicious_stew_effects", effects),
     do: LootComponents.stew_tag(effects)
 
-  defp component("minecraft:instrument", name), do: {:string, name}
+  defp legacy_component("minecraft:instrument", name), do: {:string, name}
 
-  defp component("minecraft:block_state", properties),
+  defp legacy_component("minecraft:block_state", properties),
     do: {:compound, Map.new(properties, fn {name, value} -> {name, {:string, value}} end)}
 
-  defp component("minecraft:map_decorations", decorations),
+  defp legacy_component("minecraft:map_decorations", decorations),
     do: LootComponents.decorations_tag(decorations)
 
-  defp component("minecraft:rarity", value),
+  defp legacy_component("minecraft:rarity", value),
     do: {:string, Enum.at(~w(common uncommon rare epic), value)}
 
-  defp component("minecraft:enchantment_glint_override", value), do: boolean(value)
+  defp legacy_component("minecraft:enchantment_glint_override", value), do: boolean(value)
 
-  defp component(name, value) when name in ~w(minecraft:item_model minecraft:tooltip_style),
-    do: {:string, value}
+  defp legacy_component(name, value)
+       when name in ~w(minecraft:item_model minecraft:tooltip_style),
+       do: {:string, value}
 
-  defp component("minecraft:minimum_attack_charge", value), do: NBT.float(value)
+  defp legacy_component("minecraft:minimum_attack_charge", value), do: NBT.float(value)
 
-  defp component("minecraft:food", value) do
+  defp legacy_component("minecraft:food", value) do
     fields = %{
       "nutrition" => {:int, value.nutrition},
       "saturation" => NBT.float(value.saturation)
@@ -463,7 +492,7 @@ defmodule Valimc.Protocol.ItemData do
      if(value.can_always_eat, do: Map.put(fields, "can_always_eat", boolean(true)), else: fields)}
   end
 
-  defp component("minecraft:tooltip_display", value) do
+  defp legacy_component("minecraft:tooltip_display", value) do
     fields = if value.hide, do: %{"hide_tooltip" => boolean(true)}, else: %{}
 
     fields =
@@ -479,7 +508,7 @@ defmodule Valimc.Protocol.ItemData do
     {:compound, fields}
   end
 
-  defp component("minecraft:potion_contents", value) do
+  defp legacy_component("minecraft:potion_contents", value) do
     fields = %{}
 
     fields =

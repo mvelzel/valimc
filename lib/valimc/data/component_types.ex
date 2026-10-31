@@ -9,5 +9,12 @@ defmodule Valimc.Data.ComponentTypes do
   def id(name) when is_binary(name), do: @by_name["minecraft:" <> name]
   def id(_), do: nil
   def count, do: map_size(@by_name)
+
+  @enums Map.new(@facts["enums"], fn {name, values} ->
+           {name, Map.new(values, fn [id, value] -> {id, value} end)}
+         end)
+
+  @doc "Stream id => serialized name of a generated component enum (`dye_color`, ...)."
+  def enum(name), do: Map.fetch!(@enums, name)
   def names, do: @by_name |> Enum.sort_by(&elem(&1, 1)) |> Enum.map(&elem(&1, 0))
 end

@@ -24,14 +24,25 @@ import net.minecraft.core.registries.Registries;
 
 /**
  * Extract versioned registry/default facts, never Minecraft implementation source.
- * Usage: ItemMetadata ITEMS.json ITEM_DEFAULTS.json COMPONENT_TYPES.json
+ * Usage: ItemMetadata ITEMS.json ITEM_DEFAULTS.json COMPONENT_TYPES.json BUILTIN_REGISTRIES.json
  */
 public class ItemMetadata {
-  private static final Set<String> SUPPORTED = Set.of("custom_data", "max_stack_size",
-    "max_damage", "damage", "repair_cost", "rarity", "unbreakable", "creative_slot_lock",
-    "intangible_projectile", "enchantment_glint_override", "item_model", "tooltip_style",
-    "minimum_attack_charge", "custom_name", "item_name", "lore", "enchantments", "stored_enchantments", "tooltip_display", "food", "potion_contents",
-    "suspicious_stew_effects", "instrument", "ominous_bottle_amplifier", "map_id", "block_state");
+  // Enums that component values name: data codecs write the serialized name, stream
+  // codecs the id each enum's own `STREAM_CODEC` writes (VMC-004b4).
+  private static final Map<String, Class<?>> ENUMS = new TreeMap<>(Map.of(
+    "dye_color", net.minecraft.world.item.DyeColor.class,
+    "firework_shape", net.minecraft.world.item.component.FireworkExplosion.Shape.class,
+    "swing_animation", net.minecraft.world.item.SwingAnimationType.class,
+    "fox_variant", net.minecraft.world.entity.animal.fox.Fox.Variant.class,
+    "parrot_variant", net.minecraft.world.entity.animal.parrot.Parrot.Variant.class,
+    "mooshroom_variant", net.minecraft.world.entity.animal.cow.MushroomCow.Variant.class,
+    "rabbit_variant", net.minecraft.world.entity.animal.rabbit.Rabbit.Variant.class,
+    "horse_variant", net.minecraft.world.entity.animal.equine.Variant.class,
+    "llama_variant", net.minecraft.world.entity.animal.equine.Llama.Variant.class,
+    "map_post_processing", net.minecraft.world.item.component.MapPostProcessing.class));
+  // Built-in registries whose network ids component values carry.
+  private static final List<String> BUILTIN = List.of("attribute", "block_entity_type",
+    "consume_effect_type", "sound_event", "villager_type");
   @SuppressWarnings("unchecked")
   private static <T> String encodeDefault(DataComponentType<T> type, Object value,
       RegistryAccess.Frozen registries) {
@@ -42,6 +53,22 @@ public class ItemMetadata {
       return HexFormat.of().formatHex(bytes);
     } finally { buf.release(); }
   }
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static List<Object> enumValues(Class<?> type) throws Exception {
+    var codec = (net.minecraft.network.codec.StreamCodec) type.getField("STREAM_CODEC").get(null);
+    var values = new ArrayList<Object>();
+    for (var constant : type.getEnumConstants()) {
+      var buf = new net.minecraft.network.FriendlyByteBuf(Unpooled.buffer());
+      try {
+        codec.encode(buf, constant);
+        var name = constant instanceof net.minecraft.util.StringRepresentable named
+          ? named.getSerializedName() : ((Enum<?>) constant).name().toLowerCase(Locale.ROOT);
+        values.add(List.of(buf.readVarInt(), name));
+        if (buf.isReadable()) throw new AssertionError("Enum stream id is not one VarInt: " + type);
+      } finally { buf.release(); }
+    }
+    return values;
+  }
   public static void main(String[] args) throws Exception {
     SharedConstants.tryDetectVersion();
     Bootstrap.bootStrap();
@@ -50,7 +77,10 @@ public class ItemMetadata {
     var playerType = BuiltInRegistries.ENTITY_TYPE.getOrThrow(ResourceKey.create(Registries.ENTITY_TYPE, Identifier.parse("minecraft:player")));
     Map<String, Object> items = new TreeMap<>();
     Map<String, Object> defaults = new TreeMap<>();
-    var registries = RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY).freeze();
+    var registries = NetworkRegistries.load(lookup);
+    // Default values, deduplicated: most items share their common components.
+    var table = new ArrayList<String>();
+    var indices = new HashMap<String,Integer>();
     for (var item : BuiltInRegistries.ITEM) {
       Map<String, Object> facts = new TreeMap<>();
       facts.put("id", BuiltInRegistries.ITEM.getId(item));
@@ -65,20 +95,12 @@ public class ItemMetadata {
         facts.put("inventory_click_override", true);
       items.put(BuiltInRegistries.ITEM.getKey(item).toString(), facts);
       var present = new TreeSet<String>();
-      var encoded = new TreeMap<String,String>();
+      var encoded = new TreeMap<String,Integer>();
       for (var type : item.components().keySet()) {
         var name = BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(type);
         present.add(name.toString());
-        if (type == DataComponents.INSTRUMENT) {
-          // A data-driven holder: the network id is its index in the loaded
-          // registry, which a data pack lists in identifier order.
-          var key = ((net.minecraft.world.item.component.InstrumentComponent) item.components().get(type))
-            .instrument().unwrapKey().orElseThrow().identifier().toString();
-          var keys = lookup.lookupOrThrow(Registries.INSTRUMENT).listElementIds()
-            .map(k -> k.identifier().toString()).sorted().toList();
-          encoded.put(name.toString(), HexFormat.of().formatHex(new byte[] {(byte) (keys.indexOf(key) + 1)}));
-        } else if (name.getNamespace().equals("minecraft") && SUPPORTED.contains(name.getPath()))
-          encoded.put(name.toString(), encodeDefault(type, item.components().get(type), registries));
+        var hex = encodeDefault(type, item.components().get(type), registries);
+        encoded.put(name.toString(), indices.computeIfAbsent(hex, h -> { table.add(h); return table.size() - 1; }));
       }
       var prototype = new LinkedHashMap<String,Object>();
       prototype.put("values",encoded);prototype.put("present",present);
@@ -103,10 +125,25 @@ public class ItemMetadata {
     // defaults' codecs need before the items exist.
     var componentFacts = new TreeMap<String,Object>();
     componentFacts.put("version", "26.3"); componentFacts.put("protocol", 777); componentFacts.put("components", components);
+    var enums = new TreeMap<String,Object>();
+    for (var entry : ENUMS.entrySet()) enums.put(entry.getKey(), enumValues(entry.getValue()));
+    componentFacts.put("enums", enums);
     Files.writeString(Path.of(args[2]), new GsonBuilder().setPrettyPrinting().create().toJson(componentFacts) + "\n");
     var extracted = new LinkedHashMap<String,Object>();
     extracted.put("version","26.3");extracted.put("data_version",5023);extracted.put("items",defaults);
+    extracted.put("values",table);
     extracted.put("protocol",777);extracted.put("server_sha1","33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c");
     Files.writeString(Path.of(args[1]),new GsonBuilder().setPrettyPrinting().create().toJson(extracted)+"\n");
+    var builtin = new TreeMap<String,Object>();
+    for (var name : BUILTIN) {
+      var registry = BuiltInRegistries.REGISTRY.getValue(Identifier.withDefaultNamespace(name));
+      var entries = new ArrayList<String>();
+      for (int id = 0; id < registry.size(); id++) entries.add(((net.minecraft.core.Registry<?>) registry).byId(id) == null ? null
+        : ((net.minecraft.core.Registry) registry).getKey(((net.minecraft.core.Registry<?>) registry).byId(id)).toString());
+      builtin.put("minecraft:" + name, entries);
+    }
+    var builtinFacts = new LinkedHashMap<String,Object>();
+    builtinFacts.put("version","26.3");builtinFacts.put("protocol",777);builtinFacts.put("registries",builtin);
+    Files.writeString(Path.of(args[3]),new GsonBuilder().setPrettyPrinting().create().toJson(builtinFacts)+"\n");
   }
 }
