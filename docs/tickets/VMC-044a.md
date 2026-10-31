@@ -1,6 +1,6 @@
 # VMC-044a — Villagers and golems without trades
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-042b](VMC-042b.md).
 
@@ -58,3 +58,5 @@ merge of `ai_facts.json` once dropped a new `monster` field from these
 entries); `loot/tables.json` is sorted by key. On main,
 `Combat.source_info(nil)` (since VMC-043d3) crashes `Store.kill/2` and
 `/kill`: three failures in `test/entity_bodies_test.exs`, not fixed here.
+
+Closed with M3 (October 31, 2026): its client observations passed in the [gate run](VMC-078.md#gate-run-on-the-native-mob-core-october-30-2026) and the [VMC-083 run](VMC-083.md#client-run-october-31-release-67a9072e).

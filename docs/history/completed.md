@@ -5,6 +5,10 @@ Published checkpoints with pending GUI gates remain on the current roadmap.
 
 | Ticket | Checkpoint / result |
 |---|---|
+| [VMC-078 M3 gate](../tickets/VMC-078.md) | Fresh-world survival run to the End and the dragon's crystals on the native mob core; exit portal, credits and reconnect; generation sweep, all vanilla stages and the group tick budget; M3 done October 31 |
+| [VMC-083 M3 gate findings](../tickets/VMC-083.md) | Mobs that die on their own drop their loot, rain hurts endermen, unknown light spawns nothing; `/execute`, `/summon` entity data, Strength; 15 of 18 client scenarios passed, the cat fixed after; leftovers in VMC-085 |
+| [VMC-045a The Ender Dragon fight](../tickets/VMC-045a.md) | Phases, flight, multipart combat, crystals and their respawn, the exit portal and egg, and the respawn ritual (045a2 to 045a10); M3 gate, October 30–31 |
+| [VMC-043b, 043c, 043d, 043e and 044a, the mob families](../tickets/VMC-043b.md) | Overworld hostiles, farm animals, Nether mobs, water, ambient and End mobs, villagers and golems without trades, with their slices ([043c](../tickets/VMC-043c.md), [043d](../tickets/VMC-043d.md), [043e](../tickets/VMC-043e.md), [044a](../tickets/VMC-044a.md)); observed in the M3 gate and the VMC-083 run |
 | [VMC-081 Native simulation core and cheap exploration](../tickets/VMC-081.md) | Mobs, tracking, random ticks, spawning and chunk adoption native or resident; journaled durability; idle work skipped; items rest; chunk streaming costs what changed; the host holds 20 TPS with about 150 mobs at a 19 ms mean tick (was 9 to 11 TPS) |
 | [VMC-081b Elixir tick quick wins](../tickets/VMC-081b.md) | Rendered chunks' generation ticks wait frozen off the heap and player groups get a large young heap, cutting collection cost; rule reach, spawning inputs, trackers and encoding stop walking every section; harness combat tick −29%, exploration −41% |
 | [VMC-080k Bounded log recovery](../tickets/VMC-080k.md) | Frame-wise recovery preserves the existing world within the memory cap; production saved-player load, protocol checks and the user's subsequent combat/exploration captures confirm reconnect |

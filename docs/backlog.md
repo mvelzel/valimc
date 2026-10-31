@@ -5,63 +5,49 @@ in parallel; [completed](history/completed.md) indexes finished tickets. Each
 row is refined into tickets before work. Acceptance gates need automated,
 actual-client and vanilla reference scenarios.
 
-### M3 — Survival core
+### M4 — Survival progression
 
-The [roadmap](roadmap.md#m3--survival-core-in-progress) orders these and says which run in
-parallel. In every slice:
+M3 ([VMC-078](tickets/VMC-078.md)) is done. M4 makes survival worth
+continuing: experience spent on enchantments, gear repaired and upgraded,
+potions brewed, villages traded with and defended. The
+[roadmap](roadmap.md#m4--survival-progression-in-progress) orders these and
+says which run in parallel. In every slice:
 
-- Behaviour comes from pinned 26.3 through oracle extractors.
-- Mobs belong to the group that owns their section. Physics, AI and trackers
-  run once per section per tick, and pathfinding runs as bounded jobs over
-  snapshots.
-- An entity or shape update without behaviour yet never fails generation.
+- Behaviour comes from pinned 26.3 through oracle extractors: enchantment
+  and potion data from the generated registries, offers, costs and random
+  draws checked against fixtures.
+- Menus are durable transactions: a crash never loses or duplicates an
+  item, a level or an emerald.
+- Villagers, raids and illagers belong to the group that owns their section,
+  and a raid crosses group lines through the shared transaction primitives.
 
 | ID | Slice | Acceptance gate |
 |---|---|---|
-| [VMC-043a](tickets/VMC-043a.md) | Entity kinds beyond items and orbs | Generated entity facts; summoned mobs and primed TNT persist, hand off and replicate as in vanilla |
-| [VMC-015i](tickets/VMC-015i.md) | Living-entity travel in the kernel | Mob falling, swimming, climbing, step-up and pushing match the oracle; hundreds of mobs per group within budget |
-| [VMC-041a](tickets/VMC-041a.md) | Goals, targets, brains and sensors | Goal selection and brain fixtures match the oracle; a shared goal library |
-| [VMC-041b](tickets/VMC-041b.md) | Pathfinding and navigation | Paths of the four node evaluators match the oracle; searches never run in the owner |
-| [VMC-037n](tickets/VMC-037n.md) | Melee combat, mob death, loot and XP | Attack cooldown, criticals, knockback, armor and shields; mob loot and XP match the oracle |
-| [VMC-037o](tickets/VMC-037o.md) | Projectiles | Arrows, thrown items, fireballs and eyes of ender fly and hit as the oracle's fixtures |
-| [VMC-050a](tickets/VMC-050a.md) | Explosions, TNT and falling blocks | Craters, damage and knockback match the oracle, committed across group lines at once |
-| [VMC-047a](tickets/VMC-047a.md) | Power sources, consumers and update order | Levers, buttons, plates, torches, lamps, powered doors and quasi-connectivity match the oracle tick by tick across group lines |
-| [VMC-048a](tickets/VMC-048a.md) | Repeaters, comparators and observers | Delays, locking, comparison modes, container reads and observer pulses match the oracle |
-| [VMC-048b](tickets/VMC-048b.md) | Pistons and moving blocks | Push and pull, slime and honey, moving-block geometry and entities carried match the oracle |
-| [VMC-049a](tickets/VMC-049a.md) | Hoppers, droppers and dispensers | Ordered atomic transfers, dispense behaviours and no duplication under concurrent ticks or crashes |
-| [VMC-042a](tickets/VMC-042a.md) | Natural spawning and despawning | Spawn attempts, packs, per-player caps and despawn distances match the oracle |
-| [VMC-042b](tickets/VMC-042b.md) | Structure mobs and spawners | Structures place their entities; spawners spawn; no generation error for entities |
-| [VMC-043b](tickets/VMC-043b.md) | Overworld hostiles | Zombie and skeleton families, creepers, spiders, endermen, witches, slimes, phantoms and silverfish behave as the oracle's fixtures |
-| [VMC-043c](tickets/VMC-043c.md) | Farm and passive animals | Breeding, growth, shearing, milking and drops match the oracle |
-| [VMC-043d](tickets/VMC-043d.md) | Nether mobs | Piglins (bartering), blazes, ghasts and the rest match the oracle; a fortress yields blaze rods |
-| [VMC-043e](tickets/VMC-043e.md) | Water, ambient and End mobs | Fish, squid, dolphins, turtles, axolotls, guardians, bats, shulkers and endermites match the oracle |
-| [VMC-044a](tickets/VMC-044a.md) | Villagers and golems without trades | A generated village lives through a day and night as the oracle's fixtures |
-| [VMC-029d](tickets/VMC-029d.md) | Survival block states and shape updates | Every obtainable block places in its vanilla state; `ShapeOracle` excludes nothing |
-| [VMC-029e](tickets/VMC-029e.md) | Survival mining of every block | Every survival-obtainable block mines with vanilla's break time and drops; none is refused |
-| [VMC-031a](tickets/VMC-031a.md) | Water and lava flow | Flow, mixing, sources and buckets match the oracle across group lines |
-| [VMC-031b](tickets/VMC-031b.md) | Bubble columns and lava's fire | Columns and lava's fires match the oracle across section lines |
-| [VMC-039a](tickets/VMC-039a.md) | Crops, plants and saplings grow | Growth by random ticks and bone meal matches the oracle |
-| [VMC-039b](tickets/VMC-039b.md) | The rest of a farm's growth | Grass, Nether and water plants, berries and bone meal on the rest match the oracle; berries picked |
-| [VMC-039c](tickets/VMC-039c.md) | Bamboo, cave and Nether growth; shears | Bamboo, glow lichen, dripleaves, fungi, netherrack and pale moss grow as the oracle's; shears empty hives and carve pumpkins |
-| [VMC-032b](tickets/VMC-032b.md) | Double chests | Joined chests, the large menu and splitting, across group lines too |
-| [VMC-040a](tickets/VMC-040a.md) | Beds, sleep and spawn points | Sleep, night skip, bed respawn, bed and anchor explosions match the oracle |
-| [VMC-034n4c](tickets/VMC-034n4c.md) | Experience orb gaps | Orbs merge, jump in lava and launch as vanilla's, checked against the oracle |
-| [VMC-034n4d](tickets/VMC-034n4d.md) | Items and orbs burn | Items and orbs die in fire, lava and on cactus on vanilla's tick, checked against the oracle |
-| [VMC-034n4e](tickets/VMC-034n4e.md) | Burning items: rain, flames and explosions | Rain puts out a burning item or orb, clients see its flames and an explosion's damage lowers its health, checked against the oracle |
-| [VMC-026d](tickets/VMC-026d.md) | Eyes of ender; mobs and orbs through portals | Eyes lead to vanilla's stronghold; mobs and orbs cross portals with their state |
-| [VMC-045a](tickets/VMC-045a.md) | The Ender Dragon fight | Phases, crystals ([045a1](tickets/VMC-045a1.md)), the exit portal, gateways and the respawn ritual |
-| [VMC-078](tickets/VMC-078.md) | M3 gate | A fresh-world survival run to the dragon's death; no generation errors; every slice's fixtures; tick budget with spawning |
+| [VMC-085](tickets/VMC-085.md) | M3 leftovers | The playing-dead axolotl heals as vanilla; dolphin guidance and the cat on the client; `/gamerule mob_griefing`, `/effect … saturation` and `/item replace` |
+| VMC-006a | Stored game rules | Every 26.3 game rule stored with the world, sent where the client reads it and enforced where its system exists; `/gamerule` runs them all |
+| VMC-037p | Every status effect | Every 26.3 effect's mechanics on players and mobs (haste, invisibility and glowing, luck, the omens, Hero of the Village, wind charged, weaving, oozing, infested and the rest) match the oracle |
+| VMC-037q | Enchantment effects | Every 26.3 enchantment works on tools, weapons, armour, bows, crossbows, tridents and maces through the generated effect components, checked against the oracle |
+| VMC-038a | Enchanting table | Bookshelf power, offered enchantments and the enchantment seed, lapis and level costs match the oracle |
+| VMC-038b | Anvils and grindstones | Repair, combining, renaming, prior-work penalty and "Too Expensive!"; anvil wear and falling anvils; the grindstone's removal and experience; checked against the oracle |
+| VMC-038c | Smithing | Netherite upgrades and armour trims with templates match the oracle |
+| VMC-034o | Brewing and potions | Brewing stand fuel, recipes and timing; splash and lingering potions, clouds and tipped arrows; cauldrons with potions and hoppers on the stand, matching the oracle |
+| VMC-004b | Recursive and collection item components | Container, bundle and attribute-modifier components and the rest of the codecs, bounded, with oracle round trips; a destroyed item holding them drops its contents |
+| VMC-032c | Remaining containers | Shulker boxes keep contents broken and carried, ender chests per player, barrels and the rest of 26.3's containers; an occupied furnace's removal ([VMC-034f](tickets/VMC-034f.md)) |
+| VMC-044b | Professions and trades | Workstation claims, offers, the trading menu, experience and levels, restocks and demand pricing match the oracle; durable trades |
+| VMC-044c | Villager life | Breeding with beds and food, gossip and reputation, discounts, zombification and curing match the oracle |
+| VMC-044d | Illagers and patrols | Pillagers, vindicators, evokers with vexes and fangs, ravagers and the totem; outposts and patrols; ominous bottles, matching the oracle |
+| VMC-044e | Raids | Bad Omen into a raid, waves by difficulty, the bell, Hero of the Village and a raid across group lines, durable through restarts |
+| [VMC-084](tickets/VMC-084.md) | M4 gate | A fresh-world progression run with enchanting, upgrades, brewing, trades and a won raid; all fixtures; persistence; the raid tick budget |
 
-Out of M3: enchanting, anvils and brewing,
-villager trading, POIs and raids, vehicles and riding (VMC-046), maps, books
-and signs, advancements, and the remaining command families.
+Out of M4 (M5 and later): vehicles and riding (VMC-046), taming and the
+remaining mob families (VMC-043), the wither and warden (VMC-045), maps,
+books and signs (VMC-051), advancements (VMC-052), fire spread (VMC-031),
+weather effects (VMC-039) and the remaining command families.
 
 ### A — Session and protocol
 
 | ID | Slice | Acceptance gate |
 |---|---|---|
-| VMC-004b | Recursive and collection item components | Container, bundle contents, attribute modifiers and the remaining component codecs; bounded, with oracle round trips; a destroyed item holding them drops its contents (`Item.onDestroyed`, after [VMC-034n4e](tickets/VMC-034n4e.md)) |
-| VMC-006 | Remaining gamerules | The full 26.3 gamerule set stored, sent and enforced where its system exists |
 | VMC-008 | Data-pack registries and reload | Pack registries and tags sent to clients, play-phase reconfiguration and `/reload` without stale caches |
 | VMC-009 | Signed chat and command signatures | Profile keys, vanilla validation and acknowledgments, verified command signatures, proxy policy ([VMC-007c](tickets/VMC-007c.md)) |
 | VMC-016b2 | Live mode transitions and spectator visibility | Spectator camera and teleport, mode switches end item use, spectators hidden from peers as vanilla |
@@ -72,11 +58,8 @@ and signs, advancements, and the remaining command families.
 |---|---|---|
 | VMC-030 | Behaviour catalog | Every 26.3 block's behaviour tracked in one coverage matrix (VMC-029d starts it) |
 | VMC-031 | Fire spread and burnout | Fire spreads, burns blocks out and goes out as vanilla (flow is VMC-031a) |
-| VMC-032 | Remaining containers | Barrels, shulker boxes, ender chests and the rest; an occupied furnace's removal ([VMC-034f](tickets/VMC-034f.md)) |
 | VMC-033 | Recipe book and special recipes | Recipe book state, `place_recipe` autofill, special and component crafting outputs |
-| VMC-034 | Brewing and other processing blocks | Brewing stands and the processing blocks beyond the three furnaces |
-| VMC-037 | Remaining effects and enchantments | Every 26.3 effect and enchantment behaviour (melee and projectiles are VMC-037n and 037o) |
-| VMC-038 | Enchanting, anvils, grindstones and smithing | Costs and randomness, repairs and transaction persistence |
+| VMC-034 | Other processing blocks | The processing blocks beyond the furnaces and brewing stand (brewing is VMC-034o) |
 | VMC-039 | Weather effects | Snow and ice forming, lightning and thunder effects (growth is VMC-039a) |
 
 ### E — Entities, machines and coupled mechanics
@@ -84,7 +67,6 @@ and signs, advancements, and the remaining command families.
 | ID | Slice | Acceptance gate |
 |---|---|---|
 | VMC-043 | Mob families beyond M3 | Taming (wolves, cats, parrots), horses and llamas, bees, foxes, goats, frogs, camels, armadillos, sniffers, breezes and the rest; every 26.3 entity tracked |
-| VMC-044 | Villager trades, POIs and raids | Trades and restocks, reputation, breeding, raids and cross-region transfers (villagers live from VMC-044a) |
 | VMC-045 | The wither and special entities | The wither, the warden and 26.3 variants and archetypes with durable lifecycle (the dragon is VMC-045a) |
 | VMC-046 | Boats, minecarts, mounts and pushing | Rails/vehicle physics, passengers, collision, portals and handoff parity |
 | VMC-051 | Maps, books, signs, sounds and game events | Bounded content, client metadata updates, banners and persistent data; exploration maps from container loot (VMC-072c) |

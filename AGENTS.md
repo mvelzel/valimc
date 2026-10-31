@@ -2,9 +2,9 @@
 
 Target the full vanilla Minecraft Java **26.3 / protocol 777** player experience on
 Elixir/OTP, with Rust NIFs where native code measurably wins. The server
-generates and serves real vanilla worlds; the current milestone is
-**M3 survival core** (VMC-078), after foundations II (see the
-[roadmap](docs/roadmap.md)).
+generates and serves real vanilla worlds and a survivable world to the
+dragon; the current milestone is **M4 survival progression** (VMC-084),
+after M3 survival core (see the [roadmap](docs/roadmap.md)).
 
 ## Start selectively
 

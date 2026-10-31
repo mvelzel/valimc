@@ -1,6 +1,6 @@
 # VMC-043b — Overworld hostiles
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037n](VMC-037n.md),
 [VMC-037o](VMC-037o.md) (skeletons), [VMC-050a](VMC-050a.md) (creepers).
@@ -64,3 +64,5 @@ reinforcements and door breaking are not modelled yet).
   scenes that remove a block under a mob end at that tick; a tick's sounds
   compare as a set; mob egg cracking draws from the AI world's level
   random in `MobTicks` (the region's `crush_eggs` is the players' path).
+
+Closed with M3 (October 31, 2026): its client observations passed in the [gate run](VMC-078.md#gate-run-on-the-native-mob-core-october-30-2026) and the [VMC-083 run](VMC-083.md#client-run-october-31-release-67a9072e).

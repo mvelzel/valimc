@@ -1,6 +1,6 @@
 # VMC-043e — Water, ambient and End mobs
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md).
 
@@ -103,3 +103,5 @@ Acceptance: behaviour fixtures match the oracle.
   The batched client handoff for 043e1–043e26 remains deferred at the user's
   request. Riding and spawn-egg item support remain in their later systems;
   the family is not Done until its client gate passes.
+
+Closed with M3 (October 31, 2026): its client observations passed in the [gate run](VMC-078.md#gate-run-on-the-native-mob-core-october-30-2026) and the [VMC-083 run](VMC-083.md#client-run-october-31-release-67a9072e).

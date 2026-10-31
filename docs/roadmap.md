@@ -29,35 +29,40 @@ atomic frame per owner per tick in one striped log, one entity store, one block 
 kernels for physics, block rules, light and generation scheduling, and a layered module layout. The
 final client run and its rechecks passed; see [VMC-077](tickets/VMC-077.md).
 
-## M3 — Survival core (in progress)
+## M3 — Survival core (complete)
 
-Gate: [VMC-078](tickets/VMC-078.md), a fresh-world survival run to the dragon's
-death. Slices: the [backlog](backlog.md#m3--survival-core). A lane owns its
-code, so one session per lane runs at once; a lane's slices run in order.
+VMC-015i, 026d, 029d–e, 031a–b, 032b, 034n4, 037n–o, 039a–c, 040a, 041a–b, 042a–b, 043a–e,
+044a, 045a and 047a–049a give a survivable world: mobs, combat, spawning, fluids, farming,
+redstone and the dragon fight. VMC-081 moved simulation into Rust. The gate is in
+[VMC-078](tickets/VMC-078.md#closure-october-31-2026), its findings in [VMC-083](tickets/VMC-083.md).
+
+## M4 — Survival progression (in progress)
+
+Gate: [VMC-084](tickets/VMC-084.md), a fresh-world run that enchants, upgrades
+to netherite, brews, trades and wins a raid. Slices: the
+[backlog](backlog.md#m4--survival-progression). A lane owns its code, so one
+session per lane runs at once; a lane's slices run in order.
 
 | Lane | Owns | Slices |
 |---|---|---|
-| Entities (critical path) | Entity store, physics kernel, a new AI context | 043a → 015i → 041a → 041b |
-| Combat | Living damage, a projectile kernel, orb motion | 037n → 037o → 034n4c → 026d |
-| World effects | Explosions, primed TNT, falling blocks | 050a → 040a |
-| Spawning | Spawn rules and caps, structure entities, spawners | 042a → 042b |
-| Blocks | Block rules, placement, mining | 029e → 039a → 039b → 039c → 032b |
-| Fluids | A fluid module, fluid ticks | 031a → 031b |
-| Redstone | Power, components, pistons, item machines | 047a → 048a → 048b → 049a |
-| Mob families | One module set per family | 043b ∥ 043c ∥ 043d ∥ 043e ∥ 044a |
-| Finale | The End fight, then the gate | 045a → 078 |
+| Rules and commands | Game rules, command gaps | 085 → 006a |
+| Effects and brewing | Status effects, potions, the brewing stand | 037p → 034o |
+| Enchanting | Enchantment effects, the table, anvils, smithing | 037q → 038a → 038b → 038c |
+| Containers | Item components, remaining containers | 004b → 032c |
+| Villages | Trades, villager life, illagers, raids | 044b → 044c → 044d → 044e |
+| Finale | The gate | 084 |
 
 Current order:
 
-1. The M3 gate's findings ([083](tickets/VMC-083.md)): the failures and missing commands the gate run found, then one client run of what it could not observe. The survival route itself passed ([078](tickets/VMC-078.md)).
-2. Then define M4 from the backlog.
+1. [085](tickets/VMC-085.md): M3's leftovers.
+2. The lanes, in parallel, starting with 037p, 037q, 004b and 044b. A lane's
+   first slice refines its tickets from the backlog row.
 3. Later: SIMD where data-parallel work dominates ([082](tickets/VMC-082.md)) and the performance items left in [081](tickets/VMC-081.md#closure).
 
-Done: [081](tickets/VMC-081.md) (with [081c1](tickets/VMC-081c1.md), [081c3](tickets/VMC-081c3.md), [081d](tickets/VMC-081d.md), [081g1](tickets/VMC-081g1.md), [081g2](tickets/VMC-081g2.md), [081h](tickets/VMC-081h.md), [081j](tickets/VMC-081j.md), [081k](tickets/VMC-081k.md), [081l](tickets/VMC-081l.md)), [081c2](tickets/VMC-081c2.md), [081i](tickets/VMC-081i.md), [081c](tickets/VMC-081c.md), [081b](tickets/VMC-081b.md), [080k](tickets/VMC-080k.md), [032b](tickets/VMC-032b.md), [039b](tickets/VMC-039b.md), [039c](tickets/VMC-039c.md),
-[037o1](tickets/VMC-037o1.md), [045a1](tickets/VMC-045a1.md),
-[048b](tickets/VMC-048b.md), [049a](tickets/VMC-049a.md), [078b](tickets/VMC-078b.md), [078c](tickets/VMC-078c.md), [078d](tickets/VMC-078d.md), [078e](tickets/VMC-078e.md), [056a](tickets/VMC-056a.md), [056b](tickets/VMC-056b.md).
+Done: none yet.
 
-Later: enchanting, brewing, trading, raids, vehicles, commands/admin, certification.
+Later: vehicles and riding, taming and the remaining mob families, the wither and warden, maps and
+books, advancements, commands/admin, certification.
 
 ## Paused
 
@@ -65,10 +70,7 @@ A furnace holding items stays until its spill and stored experience exist ([VMC-
 
 ## Pending client gates
 
-The October 30–31 gate run passed the survival route and most family
-observations ([078](tickets/VMC-078.md)). The family tickets' remaining
-observations and the run's failures are gathered in [083](tickets/VMC-083.md),
-which closes them with one client run.
+[085](tickets/VMC-085.md): dolphin treasure guidance and the cat's cod, in M4's first client run.
 
 ## Retrieve and update
 

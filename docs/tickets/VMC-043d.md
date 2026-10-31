@@ -1,6 +1,6 @@
 # VMC-043d — Nether mobs
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md).
 
@@ -303,3 +303,5 @@ strider walks on a lava lake and shivers off it.
   `scripts/java_tool.py` after every rebase that touches the oracles'
   lists. `mix format` also reformats other sessions' unformatted files:
   keep those out of commits.
+
+Closed with M3 (October 31, 2026): its client observations passed in the [gate run](VMC-078.md#gate-run-on-the-native-mob-core-october-30-2026) and the [VMC-083 run](VMC-083.md#client-run-october-31-release-67a9072e).

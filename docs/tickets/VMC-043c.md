@@ -1,6 +1,6 @@
 # VMC-043c — Farm and passive animals
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037n](VMC-037n.md).
 
@@ -270,3 +270,5 @@ all variants or every sequential multi-animal scene from these observations.
 Muted audio remains unverified. The native sequential scenes remain the
 evidence for their exact ordering. Private report and detailed fixture limits:
 `.local/client-tests/M3-run-04/report.md` and its run-07..11 result files.
+
+Closed with M3 (October 31, 2026): its client observations passed in the [gate run](VMC-078.md#gate-run-on-the-native-mob-core-october-30-2026) and the [VMC-083 run](VMC-083.md#client-run-october-31-release-67a9072e).

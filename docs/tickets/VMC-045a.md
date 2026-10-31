@@ -1,6 +1,6 @@
 # VMC-045a — The Ender Dragon fight
 
-Status: Awaiting client
+Status: Done
 Milestone: M3
 Depends on: [VMC-041b](VMC-041b.md), [VMC-037o](VMC-037o.md),
 [VMC-050a](VMC-050a.md), [VMC-043e](VMC-043e.md) (endermen in the End).
@@ -118,3 +118,5 @@ choices. [VMC-045a8](VMC-045a8.md) records the state/evidence and graphical
 limits: ritual beams and protected-crystal rejection still need observation.
 Those checks and the ordinary full-health survival fight remain in the
 fresh-world VMC-078 route.
+
+Closed with M3 (October 31, 2026): its client observations passed in the [gate run](VMC-078.md#gate-run-on-the-native-mob-core-october-30-2026) and the [VMC-083 run](VMC-083.md#client-run-october-31-release-67a9072e).
